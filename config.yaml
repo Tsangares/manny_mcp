@@ -1,0 +1,47 @@
+# RuneLite MCP Server Configuration
+
+# Path to the runelite repository root (for building)
+runelite_root: /home/wil/Desktop/runelite
+
+# Path to the plugin source (manny plugin)
+plugin_directory: /home/wil/Desktop/manny
+
+# RuneLite client JAR (built from source) - set to null to use exec:java instead
+# runelite_jar: /home/wil/Desktop/runelite/runelite-client/target/client-1.12.4-SNAPSHOT-shaded.jar
+runelite_jar: null
+
+# Use mvn exec:java to run (more reliable when building from source)
+use_exec_java: true
+
+# Java executable
+java_path: java
+
+# RuneLite CLI args (passed via -Dexec.args when using exec:java)
+# Note: JX_* env vars handle auto-login, no extra args needed
+runelite_args: []
+
+# Jagex launcher session credentials (for auto-login)
+# These are loaded from .env file - see .env.example for format
+# jx_character_id: <from .env>
+# jx_display_name: <from .env>
+# jx_session_id: <from .env>
+
+# X11 display for RuneLite
+# Using weston's XWayland on :2 for GPU-accelerated rendering
+display: ":2"
+
+# VirtualGL settings (not needed with weston - it provides GPU via XWayland)
+use_virtualgl: false
+vgl_display: ":0"
+
+# Log settings
+log_file: ~/.runelite/logs/client.log
+log_buffer_size: 10000
+plugin_logger_prefix: "manny"
+
+# Command interface (manny plugin bi-directional control)
+command_file: /tmp/manny_command.txt
+state_file: /tmp/manny_state.json
+
+# Session persistence
+session_file: /home/wil/manny-mcp/debug-session.json
