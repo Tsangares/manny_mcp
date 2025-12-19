@@ -582,12 +582,35 @@ class DashboardBackgroundTasks:
                 env = os.environ.copy()
                 env["DISPLAY"] = display
 
-                result = subprocess.run(
-                    ["scrot", "-o", "/tmp/dashboard_frame.png"],
+                # First, find the RuneLite window ID
+                window_result = subprocess.run(
+                    ["xdotool", "search", "--name", "RuneLite"],
                     env=env,
                     capture_output=True,
+                    text=True,
                     timeout=2
                 )
+
+                window_id = None
+                if window_result.returncode == 0 and window_result.stdout.strip():
+                    window_id = window_result.stdout.strip().split('\n')[0]
+
+                if window_id:
+                    # Use ImageMagick import to capture the specific window (works with XWayland)
+                    result = subprocess.run(
+                        ["import", "-window", window_id, "/tmp/dashboard_frame.png"],
+                        env=env,
+                        capture_output=True,
+                        timeout=2
+                    )
+                else:
+                    # Fallback to scrot for root window
+                    result = subprocess.run(
+                        ["scrot", "-o", "/tmp/dashboard_frame.png"],
+                        env=env,
+                        capture_output=True,
+                        timeout=2
+                    )
 
                 if result.returncode == 0:
                     with open("/tmp/dashboard_frame.png", "rb") as f:

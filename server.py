@@ -328,17 +328,41 @@ def take_screenshot(output_path: str = None, crop_game: bool = False) -> dict:
     env["DISPLAY"] = display
 
     try:
-        # Use scrot to capture the screen
-        result = subprocess.run(
-            ["scrot", "-o", output_path],
+        # First, find the RuneLite window ID
+        window_result = subprocess.run(
+            ["xdotool", "search", "--name", "RuneLite"],
             env=env,
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=5
         )
 
+        window_id = None
+        if window_result.returncode == 0 and window_result.stdout.strip():
+            # Take the first window ID found
+            window_id = window_result.stdout.strip().split('\n')[0]
+
+        if window_id:
+            # Use ImageMagick import to capture the specific window (works with XWayland)
+            result = subprocess.run(
+                ["import", "-window", window_id, output_path],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+        else:
+            # Fallback to scrot for root window if no RuneLite window found
+            result = subprocess.run(
+                ["scrot", "-o", output_path],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+
         if result.returncode != 0:
-            return {"success": False, "error": result.stderr or "scrot failed"}
+            return {"success": False, "error": result.stderr or "Screenshot capture failed"}
 
         # Crop to game area if requested
         if crop_game:
