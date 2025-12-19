@@ -25,9 +25,17 @@ from request_code_change import (
     prepare_code_change,
     validate_code_change,
     deploy_code_change,
+    find_relevant_files,
+    backup_files,
+    rollback_code_change,
+    diagnose_issues,
     PREPARE_CODE_CHANGE_TOOL,
     VALIDATE_CODE_CHANGE_TOOL,
-    DEPLOY_CODE_CHANGE_TOOL
+    DEPLOY_CODE_CHANGE_TOOL,
+    FIND_RELEVANT_FILES_TOOL,
+    BACKUP_FILES_TOOL,
+    ROLLBACK_CODE_CHANGE_TOOL,
+    DIAGNOSE_ISSUES_TOOL
 )
 
 # Load environment variables (for GEMINI_API_KEY)
@@ -687,6 +695,27 @@ async def list_tools():
             name=DEPLOY_CODE_CHANGE_TOOL["name"],
             description=DEPLOY_CODE_CHANGE_TOOL["description"],
             inputSchema=DEPLOY_CODE_CHANGE_TOOL["inputSchema"]
+        ),
+        # Helper tools
+        Tool(
+            name=FIND_RELEVANT_FILES_TOOL["name"],
+            description=FIND_RELEVANT_FILES_TOOL["description"],
+            inputSchema=FIND_RELEVANT_FILES_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=BACKUP_FILES_TOOL["name"],
+            description=BACKUP_FILES_TOOL["description"],
+            inputSchema=BACKUP_FILES_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=ROLLBACK_CODE_CHANGE_TOOL["name"],
+            description=ROLLBACK_CODE_CHANGE_TOOL["description"],
+            inputSchema=ROLLBACK_CODE_CHANGE_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=DIAGNOSE_ISSUES_TOOL["name"],
+            description=DIAGNOSE_ISSUES_TOOL["description"],
+            inputSchema=DIAGNOSE_ISSUES_TOOL["inputSchema"]
         )
     ]
 
@@ -796,6 +825,35 @@ async def call_tool(name: str, arguments: dict):
         result = deploy_code_change(
             runelite_root=CONFIG.get("runelite_root"),
             restart_after=arguments.get("restart_after", True)
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "find_relevant_files":
+        result = find_relevant_files(
+            manny_src=CONFIG.get("manny_src"),
+            search_term=arguments.get("search_term"),
+            class_name=arguments.get("class_name"),
+            error_message=arguments.get("error_message")
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "backup_files":
+        result = backup_files(
+            file_paths=arguments["file_paths"]
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "rollback_code_change":
+        result = rollback_code_change(
+            file_paths=arguments.get("file_paths")
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "diagnose_issues":
+        result = diagnose_issues(
+            log_lines=arguments["log_lines"],
+            game_state=arguments.get("game_state"),
+            manny_src=CONFIG.get("manny_src")
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
