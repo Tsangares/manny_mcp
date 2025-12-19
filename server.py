@@ -20,6 +20,12 @@ from mcp.types import Tool, TextContent, ImageContent
 import base64
 from dotenv import load_dotenv
 
+# Import code change request functionality
+from request_code_change import (
+    request_code_change,
+    REQUEST_CODE_CHANGE_TOOL
+)
+
 # Load environment variables (for GEMINI_API_KEY)
 load_dotenv()
 
@@ -661,6 +667,11 @@ async def list_tools():
                 "type": "object",
                 "properties": {}
             }
+        ),
+        Tool(
+            name=REQUEST_CODE_CHANGE_TOOL["name"],
+            description=REQUEST_CODE_CHANGE_TOOL["description"],
+            inputSchema=REQUEST_CODE_CHANGE_TOOL["inputSchema"]
         )
     ]
 
@@ -747,6 +758,18 @@ async def call_tool(name: str, arguments: dict):
 
     elif name == "check_health":
         result = check_client_health()
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "request_code_change":
+        result = request_code_change(
+            problem_description=arguments["problem_description"],
+            relevant_files=arguments["relevant_files"],
+            logs=arguments.get("logs", ""),
+            game_state=arguments.get("game_state"),
+            auto_apply=arguments.get("auto_apply", False),
+            auto_rebuild=arguments.get("auto_rebuild", False),
+            runelite_root=CONFIG.get("runelite_root")
+        )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     else:
