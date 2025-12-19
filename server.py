@@ -20,6 +20,16 @@ from mcp.types import Tool, TextContent, ImageContent
 import base64
 from dotenv import load_dotenv
 
+# Import code change tools (staging workflow)
+from request_code_change import (
+    prepare_code_change,
+    validate_code_change,
+    deploy_code_change,
+    PREPARE_CODE_CHANGE_TOOL,
+    VALIDATE_CODE_CHANGE_TOOL,
+    DEPLOY_CODE_CHANGE_TOOL
+)
+
 # Load environment variables (for GEMINI_API_KEY)
 load_dotenv()
 
@@ -661,6 +671,22 @@ async def list_tools():
                 "type": "object",
                 "properties": {}
             }
+        ),
+        # Code change tools (staging workflow)
+        Tool(
+            name=PREPARE_CODE_CHANGE_TOOL["name"],
+            description=PREPARE_CODE_CHANGE_TOOL["description"],
+            inputSchema=PREPARE_CODE_CHANGE_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=VALIDATE_CODE_CHANGE_TOOL["name"],
+            description=VALIDATE_CODE_CHANGE_TOOL["description"],
+            inputSchema=VALIDATE_CODE_CHANGE_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=DEPLOY_CODE_CHANGE_TOOL["name"],
+            description=DEPLOY_CODE_CHANGE_TOOL["description"],
+            inputSchema=DEPLOY_CODE_CHANGE_TOOL["inputSchema"]
         )
     ]
 
@@ -747,6 +773,30 @@ async def call_tool(name: str, arguments: dict):
 
     elif name == "check_health":
         result = check_client_health()
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "prepare_code_change":
+        result = prepare_code_change(
+            problem_description=arguments["problem_description"],
+            relevant_files=arguments["relevant_files"],
+            logs=arguments.get("logs", ""),
+            game_state=arguments.get("game_state"),
+            manny_src=CONFIG.get("manny_src")
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "validate_code_change":
+        result = validate_code_change(
+            runelite_root=CONFIG.get("runelite_root"),
+            modified_files=arguments.get("modified_files")
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "deploy_code_change":
+        result = deploy_code_change(
+            runelite_root=CONFIG.get("runelite_root"),
+            restart_after=arguments.get("restart_after", True)
+        )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     else:
