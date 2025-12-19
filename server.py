@@ -100,7 +100,7 @@ class RuneLiteManager:
                 "mvn", "exec:java",
                 "-pl", "runelite-client",
                 "-Dexec.mainClass=net.runelite.client.RuneLite",
-                "-Dsun.java2d.uiScale=1.0",  # Use 1.0 to match plugin's menu calculations
+                "-Dsun.java2d.uiScale=2.0",  # HiDPI scaling - plugin now auto-detects
             ]
             if args:
                 base_cmd.append(f"-Dexec.args={args}")

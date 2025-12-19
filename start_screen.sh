@@ -17,8 +17,8 @@ sleep 1
 # Start weston in nested mode with XWayland
 # - Runs as a window inside your main Wayland compositor
 # - XWayland provides GPU-accelerated X11 on display :2
-# - Note: weston shows a desktop shell (minimal overhead)
-WAYLAND_DISPLAY=wayland-0 weston --socket=wayland-1 --width=1920 --height=1080 --xwayland &
+# - Uses fullscreen shell with hidden panel (configured in ~/.config/weston.ini)
+WAYLAND_DISPLAY=wayland-0 weston --socket=wayland-1 --width=1920 --height=1080 --xwayland --shell=fullscreen --config=$HOME/.config/weston.ini &
 
 sleep 3
 
