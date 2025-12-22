@@ -1,10 +1,11 @@
 #!/bin/bash
 # Manny MCP - Master startup script
-# Orchestrates: Weston display + Dashboard
+# Orchestrates: Weston display + Dashboard + RuneLite
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+RUNELITE_ROOT="/home/wil/Desktop/runelite"
 
 echo "======================================"
 echo "Manny MCP - Starting all services"
@@ -21,25 +22,42 @@ echo "Waiting for display to initialize..."
 sleep 3
 
 # Start dashboard
-echo "[2/2] Starting Manny MCP Dashboard..."
-"$SCRIPT_DIR/start_dashboard.sh"
+# echo "[2/3] Starting Manny MCP Dashboard..."
+# "$SCRIPT_DIR/start_dashboard.sh"
+# echo ""
+
+# Start RuneLite
+echo "[2/2] Starting RuneLite client..."
+
+# Load .env for Jagex launcher credentials
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+    echo "Loaded credentials from .env"
+fi
+
+cd "$RUNELITE_ROOT"
+DISPLAY=:2 JX_CHARACTER_ID="$JX_CHARACTER_ID" JX_DISPLAY_NAME="$JX_DISPLAY_NAME" JX_SESSION_ID="$JX_SESSION_ID" \
+    nohup mvn exec:java -pl runelite-client \
+    -Dexec.mainClass=net.runelite.client.RuneLite \
+    -Dsun.java2d.uiScale=2.0 \
+    > /tmp/runelite.log 2>&1 &
+RUNELITE_PID=$!
+echo "RuneLite started with PID: $RUNELITE_PID"
 echo ""
 
 echo "======================================"
-echo "✓ All services started successfully!"
+echo "All services started successfully!"
 echo "======================================"
 echo ""
 echo "Services:"
-echo "  • Weston/XWayland: DISPLAY=:2"
-echo "  • Dashboard: http://localhost:8080"
-echo ""
-echo "Next steps:"
-echo "  1. Update Claude Code MCP config to use:"
-echo "     /home/wil/manny-mcp/server_with_dashboard.py"
-echo "  2. Start RuneLite in Claude Code (it will appear on :2)"
-echo "  3. Monitor at http://localhost:8080"
+echo "  Weston/XWayland: DISPLAY=:2"
+echo "  Dashboard: http://localhost:8080"
+echo "  RuneLite: PID $RUNELITE_PID (log: /tmp/runelite.log)"
 echo ""
 echo "To stop services:"
 echo "  pkill -f 'weston --socket=wayland-1'"
 echo "  pkill -f 'python.*dashboard.py'"
+echo "  pkill -f 'runelite'"
 echo ""

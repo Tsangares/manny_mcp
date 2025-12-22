@@ -1,0 +1,139 @@
+# Common Actions Library
+# Reusable action patterns for routines
+
+# ============================================
+# STAIR CLIMBING
+# ============================================
+# Stairs require being close to them before interacting.
+# The GOTO command can only path on the same plane - cannot cross floors.
+
+stairs:
+  lumbridge_castle:
+    description: "Lumbridge Castle has 3 floors (planes 0, 1, 2)"
+
+    ground_to_first:
+      # From ground floor (plane 0) to first floor (plane 1)
+      steps:
+        - action: GOTO
+          args: "3205 3208 0"
+          description: "Walk near staircase on ground floor"
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-up"
+          description: "Climb to first floor"
+      result_plane: 1
+
+    first_to_second:
+      # From first floor (plane 1) to second/top floor (plane 2)
+      steps:
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-up"
+          description: "Climb to top floor (bank level)"
+      result_plane: 2
+
+    second_to_first:
+      # From top floor (plane 2) down to first floor (plane 1)
+      steps:
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-down"
+          description: "Climb down to first floor"
+      result_plane: 1
+
+    first_to_ground:
+      # From first floor (plane 1) down to ground floor (plane 0)
+      steps:
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-down"
+          description: "Climb down to ground floor"
+      result_plane: 0
+
+    # Compound actions
+    ground_to_bank:
+      description: "Go from ground floor to bank (plane 2)"
+      steps:
+        - action: GOTO
+          args: "3205 3208 0"
+          description: "Walk near staircase"
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-up"
+          description: "Climb to first floor"
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-up"
+          description: "Climb to bank floor"
+      result_plane: 2
+
+    bank_to_ground:
+      description: "Go from bank (plane 2) to ground floor"
+      steps:
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-down"
+          description: "Climb down to first floor"
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-down"
+          description: "Climb down to ground floor"
+      result_plane: 0
+
+  windmill:
+    description: "Windmill has ladders, not stairs"
+
+    ground_to_top:
+      steps:
+        - action: INTERACT_OBJECT
+          args: "Ladder Climb-up"
+          repeat: 2
+          description: "Climb 2 ladders to reach hopper"
+
+    top_to_ground:
+      steps:
+        - action: INTERACT_OBJECT
+          args: "Ladder Climb-down"
+          repeat: 2
+          description: "Climb 2 ladders down"
+
+# ============================================
+# BANKING PATTERNS
+# ============================================
+banking:
+  lumbridge:
+    location:
+      x: 3208
+      y: 3220
+      plane: 2
+
+    open_bank:
+      steps:
+        - action: BANK_OPEN
+          description: "Opens nearest bank booth"
+
+    deposit_all:
+      steps:
+        - action: BANK_DEPOSIT_ALL
+          description: "Deposit entire inventory"
+
+    quick_bank_trip:
+      description: "Full bank trip from ground floor kitchen"
+      steps:
+        # Go up
+        - action: GOTO
+          args: "3205 3208 0"
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-up"
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-up"
+        # Bank
+        - action: BANK_OPEN
+        - action: BANK_DEPOSIT_ALL
+        - action: BANK_CLOSE
+        # Go down
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-down"
+        - action: INTERACT_OBJECT
+          args: "Staircase Climb-down"
+
+# ============================================
+# NOTES ON PLANE CHANGES
+# ============================================
+# - GOTO cannot change planes (floors)
+# - Must use INTERACT_OBJECT with Staircase/Ladder
+# - Always walk close to stairs first if not already nearby
+# - Check plane number in game state to verify floor changes
+# - Pattern: walk_to_stairs -> climb -> verify_plane -> repeat if needed

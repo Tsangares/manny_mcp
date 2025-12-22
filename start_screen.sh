@@ -1,38 +1,127 @@
 #!/bin/bash
-# Start a nested Wayland compositor (weston) for RuneLite with GPU support
+# Start a nested display for RuneLite with GPU support
 #
-# CPU Usage comparison:
-#   Xvfb/Xephyr (software): ~362% CPU (multiple cores maxed)
-#   Weston + XWayland (GPU): ~37% CPU
+# Primary: Gamescope (Valve's gaming compositor)
+# Fallback: Rootful Xwayland
 #
 # Usage: ./start_screen.sh
 # Then run RuneLite with: DISPLAY=:2 <command>
 
+set -e
+
 # Kill any existing virtual displays
-pkill -f "weston --socket=wayland-1" 2>/dev/null
-pkill -f "Xvfb :2" 2>/dev/null
-pkill -f "Xephyr :2" 2>/dev/null
+pkill -f "gamescope" 2>/dev/null || true
+pkill -f "weston --socket=wayland-1" 2>/dev/null || true
+pkill -f "Xwayland.*:2" 2>/dev/null || true
+pkill -f "Xvfb :2" 2>/dev/null || true
+pkill -f "Xephyr :2" 2>/dev/null || true
 sleep 1
 
-# Start weston in nested mode with XWayland
-# - Runs as a window inside your main Wayland compositor
-# - XWayland provides GPU-accelerated X11 on display :2
-# - Uses default desktop shell with no panel (configured in ~/.config/weston.ini)
-# --fullscreen makes it request fullscreen from the parent compositor (borderless)
-WAYLAND_DISPLAY=wayland-0 weston --socket=wayland-1 --fullscreen --xwayland --config=$HOME/.config/weston.ini &
+# Remove stale X socket if present
+rm -f /tmp/.X11-unix/X2 2>/dev/null || true
 
-sleep 3
+echo "Starting nested display with GPU acceleration..."
 
-# Verify XWayland started
-if [ -S /tmp/.X11-unix/X2 ]; then
-    echo "Weston started successfully!"
-    echo "XWayland available on DISPLAY=:2 (GPU accelerated)"
+# Try Gamescope first
+start_gamescope() {
+    echo "Attempting Gamescope..."
+
+    # Gamescope creates its own Xwayland on a display it chooses
+    # We run it with a dummy app that keeps it alive
+    # _JAVA_AWT_WM_NONREPARENTING=1 is needed for Java/Swing apps like RuneLite
+
+    export _JAVA_AWT_WM_NONREPARENTING=1
+
+    # Start gamescope as a nested window
+    # -W/-H: output window size
+    # -w/-h: internal resolution (game sees this)
+    # --force-windows-fullscreen: makes X11 apps fill the gamescope window
+    # --xwayland-count 1: single Xwayland server
+    gamescope \
+        -W 1600 -H 1000 \
+        -w 1600 -h 1000 \
+        --force-windows-fullscreen \
+        --xwayland-count 1 \
+        -- sleep infinity &
+
+    GAMESCOPE_PID=$!
+
+    # Wait for Xwayland to be ready (gamescope picks its own display number)
+    for i in {1..10}; do
+        sleep 1
+        # Find what display gamescope created
+        DISPLAY_NUM=$(ls /tmp/.X11-unix/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
+        if [ -n "$DISPLAY_NUM" ] && [ "$DISPLAY_NUM" != "0" ] && [ "$DISPLAY_NUM" != "1" ]; then
+            # Verify gamescope is still running
+            if kill -0 $GAMESCOPE_PID 2>/dev/null; then
+                echo "Gamescope started successfully!"
+                echo "Display: :$DISPLAY_NUM"
+                echo "PID: $GAMESCOPE_PID"
+
+                # Create a symlink/marker so we know which display to use
+                echo ":$DISPLAY_NUM" > /tmp/manny_display
+
+                echo ""
+                echo "To run apps: DISPLAY=:$DISPLAY_NUM <command>"
+                echo "Java apps:   _JAVA_AWT_WM_NONREPARENTING=1 DISPLAY=:$DISPLAY_NUM <command>"
+                return 0
+            fi
+        fi
+    done
+
+    echo "Gamescope failed to start properly"
+    kill $GAMESCOPE_PID 2>/dev/null || true
+    return 1
+}
+
+# Fallback: Rootful Xwayland (GPU accelerated, unlike Xephyr)
+start_xwayland() {
+    echo "Attempting rootful Xwayland fallback..."
+
+    # Rootful Xwayland runs as a Wayland client with its own X server
+    # -decorate: window decorations
+    # -host-grab: allows grabbing input
+    Xwayland -geometry 1600x1000 -decorate -host-grab :2 &
+
+    XWAYLAND_PID=$!
+
+    # Wait for socket
+    for i in {1..10}; do
+        sleep 1
+        if [ -S /tmp/.X11-unix/X2 ]; then
+            if kill -0 $XWAYLAND_PID 2>/dev/null; then
+                echo "Rootful Xwayland started successfully!"
+                echo "Display: :2"
+                echo "PID: $XWAYLAND_PID"
+
+                echo ":2" > /tmp/manny_display
+
+                echo ""
+                echo "To run apps: DISPLAY=:2 <command>"
+                return 0
+            fi
+        fi
+    done
+
+    echo "Xwayland failed to start"
+    kill $XWAYLAND_PID 2>/dev/null || true
+    return 1
+}
+
+# Try gamescope first, fall back to Xwayland
+if start_gamescope; then
     echo ""
-    echo "To run apps: DISPLAY=:2 <command>"
+    echo "Using Gamescope (recommended)"
+elif start_xwayland; then
     echo ""
-    echo "Note: Screenshots via scrot may not work - use manual methods"
+    echo "Using rootful Xwayland (fallback)"
 else
-    echo "Warning: XWayland socket not found at /tmp/.X11-unix/X2"
-    echo "Available sockets:"
-    ls /tmp/.X11-unix/
+    echo ""
+    echo "ERROR: Could not start any GPU-accelerated display server"
+    echo "Available X sockets:"
+    ls -la /tmp/.X11-unix/ 2>/dev/null || echo "  (none)"
+    exit 1
 fi
+
+echo ""
+echo "Display ready for RuneLite!"

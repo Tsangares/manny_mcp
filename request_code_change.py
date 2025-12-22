@@ -12,9 +12,7 @@ a subagent handles the actual code modifications.
 
 import os
 import json
-import shutil
 import subprocess
-import tempfile
 import time
 from pathlib import Path
 
@@ -24,13 +22,16 @@ def prepare_code_change(
     relevant_files: list[str],
     logs: str = "",
     game_state: dict = None,
-    manny_src: str = None
+    manny_src: str = None,
+    auto_include_guidelines: bool = True,
+    compact: bool = False,
+    max_file_lines: int = 0
 ) -> dict:
     """
     Gather context for a code-writing subagent.
 
-    Returns a structured prompt with file contents, logs, and game state
-    that can be passed to a Task subagent for code modifications.
+    Returns a structured prompt with file contents, logs, game state,
+    and manny plugin guidelines that can be passed to a Task subagent.
 
     Args:
         problem_description: What's wrong, what behavior was observed
@@ -38,13 +39,21 @@ def prepare_code_change(
         logs: Relevant log snippets
         game_state: State snapshot when issue occurred
         manny_src: Path to manny plugin source (for resolving relative paths)
+        auto_include_guidelines: If True, include CLAUDE.md and architecture context
+        compact: If True, minimize response size for subagent efficiency:
+                 - Return only file paths and line counts (not full contents)
+                 - Use ultra-condensed guidelines
+                 - Omit game_state details
+                 Subagent should use Read tool to get specific file sections
+        max_file_lines: If >0, truncate each file to this many lines (0 = unlimited)
 
     Returns:
         Dict with structured context ready for subagent
     """
 
-    # Gather file contents
+    # Gather file contents (or just metadata in compact mode)
     file_contents = {}
+    file_metadata = {}
     for filepath in relevant_files:
         path = Path(filepath)
 
@@ -54,33 +63,168 @@ def prepare_code_change(
 
         if path.exists():
             try:
-                file_contents[str(path)] = path.read_text()
+                content = path.read_text()
+                lines = content.split('\n')
+                file_metadata[str(path)] = {
+                    "line_count": len(lines),
+                    "size_bytes": len(content)
+                }
+
+                if compact:
+                    # Don't include content in compact mode
+                    file_contents[str(path)] = f"<{len(lines)} lines - use Read tool to access>"
+                elif max_file_lines > 0 and len(lines) > max_file_lines:
+                    # Truncate if requested
+                    truncated = '\n'.join(lines[:max_file_lines])
+                    file_contents[str(path)] = truncated + f"\n... [truncated at {max_file_lines} lines, {len(lines)} total]"
+                else:
+                    file_contents[str(path)] = content
             except Exception as e:
                 file_contents[str(path)] = f"<error reading file: {e}>"
+                file_metadata[str(path)] = {"error": str(e)}
         else:
             file_contents[str(path)] = "<file not found>"
+            file_metadata[str(path)] = {"error": "not found"}
 
     # Build structured context
     context = {
         "success": True,
         "problem_description": problem_description,
         "logs": logs if logs else None,
-        "game_state": game_state,
         "files": file_contents,
         "file_paths": list(file_contents.keys()),
-        "instructions": """
+        "file_metadata": file_metadata,
+        "compact_mode": compact
+    }
+
+    # In compact mode, simplify game_state to just key info
+    if compact and game_state:
+        player = game_state.get("player", {})
+        context["game_state_summary"] = {
+            "location": player.get("location"),
+            "health": player.get("health"),
+            "is_moving": player.get("is_moving"),
+            "scenario": game_state.get("current_scenario")
+        }
+    else:
+        context["game_state"] = game_state
+
+    # Auto-include manny plugin guidelines
+    if auto_include_guidelines and manny_src:
+        if compact:
+            # Ultra-condensed guidelines for subagent efficiency (~500 chars)
+            context["manny_guidelines"] = """MANNY RULES:
+- NPC: interactionSystem.interactWithNPC(name, action)
+- Object: interactionSystem.interactWithGameObject(name, action, radius)
+- Widget: clickWidget(widgetId)
+- Inventory: gameEngine.hasItems(), getItemCount()
+- Thread-safe: helper.readFromClient(() -> client.getWidget(id))
+- AVOID: smartClick() for NPCs, manual CountDownLatch, long Thread.sleep()
+- Pattern: log.info("[CMD]..."); try { ... responseWriter.writeSuccess(); } catch { responseWriter.writeFailure(); }
+"""
+            context["available_wrappers"] = "See manny_guidelines above"
+        else:
+            # Condensed essential guidelines (~2K chars instead of 26K)
+            context["manny_guidelines"] = """
+=== MANNY PLUGIN ESSENTIAL GUIDELINES ===
+
+## Architecture (READ/WRITE Separation)
+- GameEngine.GameHelpers = READ operations (safe anywhere, no game modifications)
+- PlayerHelpers = WRITE operations (background thread only, executes actions)
+- InteractionSystem = Standardized wrappers for NPCs, GameObjects, widgets
+
+## Thread Safety (CRITICAL)
+- Client thread: Widget/menu access only. NEVER block this thread!
+- Background thread: Mouse, delays, I/O. Can block.
+- Pattern: helper.readFromClient(() -> client.getWidget(id))
+  Replaces 10+ lines of CountDownLatch boilerplate
+
+## Required Wrappers (DON'T reinvent these)
+NPC interaction:
+  interactionSystem.interactWithNPC("Banker", "Bank")
+  interactionSystem.interactWithNPC(name, action, maxAttempts, searchRadius)
+
+GameObject interaction:
+  interactionSystem.interactWithGameObject("Tree", "Chop down", 15)
+  interactionSystem.interactWithGameObject(id, name, action, worldPoint)
+
+Widget clicking:
+  clickWidget(widgetId)  // 5-phase verification, 3 retries
+  clickWidgetWithParam(widgetId, param0, actionName)
+
+Inventory queries:
+  gameEngine.hasItems(itemId1, itemId2)  // ALL present
+  gameEngine.hasAnyItem(itemId1, itemId2)  // ANY present
+  gameEngine.getItemCount(itemId), getEmptySlots(), hasInventorySpace(n)
+
+Banking:
+  handleBankOpen(), handleBankClose()
+  handleBankWithdraw("Iron_ore 14")  // underscores → spaces
+  handleBankDepositAll(), handleBankDepositItem("Logs")
+
+## Anti-Patterns (AVOID THESE)
+1. smartClick() for NPCs → use interactionSystem.interactWithNPC()
+2. Manual CountDownLatch → use helper.readFromClient(() -> ...)
+3. Manual retry loops → wrappers have built-in retry
+4. Direct client.getMenuEntries() → wrap in clientThread.invokeLater()
+5. Thread.sleep(5000+) → use shorter sleeps with interrupt checks
+
+## Command Handler Pattern
+private boolean handleMyCommand(String args) {
+    log.info("[MY_COMMAND] Starting...");
+    try {
+        // Use existing wrappers, not manual boilerplate
+        // Check shouldInterrupt in loops
+        responseWriter.writeSuccess("MY_COMMAND", "Done");
+        return true;
+    } catch (Exception e) {
+        log.error("[MY_COMMAND] Error", e);
+        responseWriter.writeFailure("MY_COMMAND", e);
+        return false;
+    }
+}
+
+## Key Files
+- PlayerHelpers.java (24K lines): Commands, writes. Has section markers.
+- GameEngine.java: Read-only queries (inventory, NPCs, objects)
+- InteractionSystem.java: NPC/GameObject/Widget wrappers
+- ClientThreadHelper.java: Thread-safe client access
+
+For full documentation, see /home/wil/Desktop/manny/CLAUDE.md
+"""
+
+            # Add wrapper reference (compact)
+            context["available_wrappers"] = {
+                "npc": "interactionSystem.interactWithNPC(name, action)",
+                "gameobject": "interactionSystem.interactWithGameObject(name, action, radius)",
+                "widget": "clickWidget(widgetId)",
+                "inventory": "gameEngine.hasItems(), getItemCount(), hasInventorySpace()",
+                "bank": "handleBankOpen(), handleBankWithdraw('Item_name count')",
+                "thread_safe": "helper.readFromClient(() -> ...)"
+            }
+
+    if compact:
+        context["instructions"] = """Fix the manny RuneLite plugin issue described above.
+Use Read tool to access file contents (not included to save context).
+Follow manny_guidelines patterns. Make minimal targeted changes."""
+    else:
+        context["instructions"] = """
 You are fixing a RuneLite plugin called "manny" that automates Old School RuneScape.
+
+CRITICAL: Read the manny_guidelines (CLAUDE.md content) above before making changes!
+It contains essential patterns, wrappers, and anti-patterns you must follow.
 
 Based on the problem description, logs, game state, and source files provided,
 make the necessary code changes to fix the issue.
 
-IMPORTANT: After making changes, the controller will run validate_code_change
-to compile in a staging directory. This ensures changes compile without
-affecting the running game instance.
+KEY RULES:
+1. Use existing wrappers - don't reinvent (see available_wrappers)
+2. Thread safety - use ClientThreadHelper.readFromClient() for client access
+3. Follow command handler patterns - proper logging, ResponseWriter calls
+4. Minimal changes - fix only what's broken, don't refactor
 
-Focus on minimal, targeted fixes. Don't refactor unrelated code.
+After making changes, the controller will validate the build.
 """
-    }
 
     return context
 
@@ -90,10 +234,11 @@ def validate_code_change(
     modified_files: list[str] = None
 ) -> dict:
     """
-    Validate code changes by compiling in a staging directory.
+    Validate code changes by running a compile check.
 
-    This copies the source to a temp directory and compiles there,
-    so the running RuneLite instance is not affected.
+    Uses 'mvn compile' with -o (offline) for faster validation.
+    For safety, use backup_files() before making changes so you can
+    rollback_code_change() if the fix doesn't work.
 
     Args:
         runelite_root: Path to RuneLite source root
@@ -102,64 +247,19 @@ def validate_code_change(
     Returns:
         Dict with compilation success/failure and any errors
     """
-
-    staging_dir = None
     start_time = time.time()
 
     try:
-        # Create staging directory
-        staging_dir = tempfile.mkdtemp(prefix="runelite_staging_")
-
-        # Copy only what's needed for compilation
-        # We need: pom.xml files, src directories, and .mvn if it exists
-        src_root = Path(runelite_root)
-        staging_root = Path(staging_dir)
-
-        # Copy root pom.xml
-        if (src_root / "pom.xml").exists():
-            shutil.copy2(src_root / "pom.xml", staging_root / "pom.xml")
-
-        # Copy runelite-client module (where manny plugin lives)
-        client_src = src_root / "runelite-client"
-        client_staging = staging_root / "runelite-client"
-
-        if client_src.exists():
-            # Copy pom.xml
-            client_staging.mkdir(parents=True, exist_ok=True)
-            if (client_src / "pom.xml").exists():
-                shutil.copy2(client_src / "pom.xml", client_staging / "pom.xml")
-
-            # Copy src directory
-            if (client_src / "src").exists():
-                shutil.copytree(client_src / "src", client_staging / "src")
-
-        # Copy runelite-api if it exists (dependency)
-        api_src = src_root / "runelite-api"
-        if api_src.exists():
-            api_staging = staging_root / "runelite-api"
-            api_staging.mkdir(parents=True, exist_ok=True)
-            if (api_src / "pom.xml").exists():
-                shutil.copy2(api_src / "pom.xml", api_staging / "pom.xml")
-            if (api_src / "src").exists():
-                shutil.copytree(api_src / "src", api_staging / "src")
-
-        # Copy .mvn directory if exists (for maven wrapper settings)
-        if (src_root / ".mvn").exists():
-            shutil.copytree(src_root / ".mvn", staging_root / ".mvn")
-
-        copy_time = time.time() - start_time
-
-        # Run compilation in staging directory
-        compile_start = time.time()
+        # Run compilation directly (offline mode for speed)
         result = subprocess.run(
             ["mvn", "compile", "-pl", "runelite-client", "-T", "1C",
-             "-DskipTests", "-q", "-o"],  # quiet mode, offline (use cached deps)
-            cwd=staging_dir,
+             "-DskipTests", "-q"],  # quiet mode
+            cwd=runelite_root,
             capture_output=True,
             text=True,
             timeout=180  # 3 minute timeout
         )
-        compile_time = time.time() - compile_start
+        compile_time = time.time() - start_time
 
         # Parse errors if compilation failed
         errors = []
@@ -168,35 +268,25 @@ def validate_code_change(
 
         return {
             "success": result.returncode == 0,
-            "staging_dir": staging_dir,
-            "copy_time_seconds": round(copy_time, 2),
             "compile_time_seconds": round(compile_time, 2),
             "modified_files": modified_files or [],
             "errors": errors,
             "return_code": result.returncode,
             "message": "Validation successful - changes compile correctly" if result.returncode == 0
-                      else f"Compilation failed with {len(errors)} error(s)"
+                      else f"Compilation failed with {len(errors)} error(s)",
+            "note": "Use backup_files() before changes and rollback_code_change() if needed"
         }
 
     except subprocess.TimeoutExpired:
         return {
             "success": False,
-            "error": "Compilation timed out (>3 minutes)",
-            "staging_dir": staging_dir
+            "error": "Compilation timed out (>3 minutes)"
         }
     except Exception as e:
         return {
             "success": False,
-            "error": str(e),
-            "staging_dir": staging_dir
+            "error": str(e)
         }
-    finally:
-        # Clean up staging directory
-        if staging_dir and os.path.exists(staging_dir):
-            try:
-                shutil.rmtree(staging_dir)
-            except:
-                pass  # Best effort cleanup
 
 
 def deploy_code_change(
@@ -301,11 +391,17 @@ PREPARE_CODE_CHANGE_TOOL = {
     "name": "prepare_code_change",
     "description": """Gather context for requesting code changes to the manny plugin.
 
-Returns file contents, logs, and game state in a structured format suitable
-for passing to a code-writing subagent (via Claude Code's Task tool).
+Returns file contents, logs, game state, AND manny plugin guidelines in a structured
+format suitable for passing to a code-writing subagent (via Claude Code's Task tool).
 
-Use this when the controller has identified a problem that needs a code fix.
-The returned context can be given to a subagent to analyze and implement the fix.""",
+Automatically includes:
+- CLAUDE.md (condensed guidelines)
+- Architecture summary (READ/WRITE separation, thread safety)
+- Available wrappers reference
+
+TIP: For subagents with limited context, use compact=true to minimize response size.
+The subagent will get file paths and line counts (not full contents) and can use
+Read tool to fetch only the specific sections it needs.""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -325,6 +421,21 @@ The returned context can be given to a subagent to analyze and implement the fix
             "game_state": {
                 "type": "object",
                 "description": "Game state snapshot when the issue occurred"
+            },
+            "auto_include_guidelines": {
+                "type": "boolean",
+                "description": "Include CLAUDE.md and architecture context (default: true)",
+                "default": True
+            },
+            "compact": {
+                "type": "boolean",
+                "description": "Minimize response size for subagent efficiency: returns file metadata (not contents), ultra-condensed guidelines. Subagent uses Read tool for file contents.",
+                "default": False
+            },
+            "max_file_lines": {
+                "type": "integer",
+                "description": "Truncate each file to this many lines (0 = unlimited). Use to reduce response size when files are large.",
+                "default": 0
             }
         },
         "required": ["problem_description", "relevant_files"]
@@ -333,12 +444,13 @@ The returned context can be given to a subagent to analyze and implement the fix
 
 VALIDATE_CODE_CHANGE_TOOL = {
     "name": "validate_code_change",
-    "description": """Validate code changes by compiling in a staging directory.
+    "description": """Validate code changes by running a compile check.
 
-This is SAFE to call while RuneLite is running - it copies source to a temp
-directory and compiles there, so the running instance is not affected.
+Runs 'mvn compile' to verify changes compile correctly.
+For safety, use backup_files() before making changes so you can
+rollback_code_change() if the fix doesn't work.
 
-Use this after making code changes to verify they compile before deploying.""",
+Use this after making code changes to verify they compile before testing.""",
     "inputSchema": {
         "type": "object",
         "properties": {

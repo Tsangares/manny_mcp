@@ -1,0 +1,229 @@
+# Cook's Assistant Quest Routine
+# Quest Requirements: None
+# Items Needed: Bucket of milk, Pot of flour, Egg (all obtainable during quest)
+# Starting Location: Lumbridge Castle Kitchen
+
+name: "Cook's Assistant"
+type: quest
+difficulty: novice
+quest_points: 1
+
+# Quest item requirements
+items_needed:
+  - bucket_of_milk
+  - pot_of_flour
+  - egg
+
+# Locations used
+locations:
+  lumbridge_kitchen:
+    x: 3208
+    y: 3216
+    plane: 0
+    description: "Lumbridge Castle kitchen, Cook location"
+
+  lumbridge_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+    description: "Lumbridge Castle bank (top floor)"
+
+  cow_pen:
+    x: 3253
+    y: 3270
+    plane: 0
+    description: "Cow pen east of Lumbridge (for milk)"
+
+  chicken_coop:
+    x: 3236
+    y: 3295
+    plane: 0
+    description: "Chicken coop north of Lumbridge (for egg)"
+
+  windmill:
+    x: 3166
+    y: 3306
+    plane: 0
+    description: "Lumbridge windmill (for flour)"
+
+  wheat_field:
+    x: 3162
+    y: 3293
+    plane: 0
+    description: "Wheat field south of windmill"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: PREPARATION ==========
+  - id: 1
+    phase: "preparation"
+    action: BANK_OPEN
+    description: "Bank items to make inventory space"
+    location: lumbridge_bank
+    notes: "Need empty inventory for quest items"
+
+  - id: 2
+    phase: "preparation"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit all items"
+    expected_result: "Empty inventory"
+
+  - id: 3
+    phase: "preparation"
+    action: BANK_WITHDRAW
+    args: "Bucket 1"
+    description: "Withdraw bucket for milk"
+    notes: "If no bucket, buy from general store or find spawn"
+
+  - id: 4
+    phase: "preparation"
+    action: BANK_WITHDRAW
+    args: "Pot 1"
+    description: "Withdraw pot for flour"
+    notes: "If no pot, spawn in Lumbridge kitchen"
+
+  - id: 5
+    phase: "preparation"
+    action: BANK_CLOSE
+    description: "Close bank interface"
+
+  # ========== PHASE 2: START QUEST ==========
+  - id: 6
+    phase: "start_quest"
+    action: GOTO
+    args: "3208 3216 0"
+    description: "Walk to Lumbridge kitchen"
+    location: lumbridge_kitchen
+
+  - id: 7
+    phase: "start_quest"
+    action: INTERACT_NPC
+    args: "Cook Talk-to"
+    description: "Talk to Cook to start quest"
+
+  - id: 8
+    phase: "start_quest"
+    action: DIALOGUE
+    dialogue_choices:
+      - "What's wrong?"
+      - "I'm always happy to help a cook in distress."
+      - "Actually, I know where to find this stuff."
+    description: "Complete dialogue to accept quest"
+    expected_result: "Quest started"
+
+  # ========== PHASE 3: GET EGG ==========
+  - id: 9
+    phase: "get_egg"
+    action: GOTO
+    args: "3236 3295 0"
+    description: "Walk to chicken coop north of Lumbridge"
+    location: chicken_coop
+
+  - id: 10
+    phase: "get_egg"
+    action: PICKUP_ITEM
+    args: "Egg"
+    description: "Pick up egg from ground"
+    expected_result: "Egg in inventory"
+    notes: "Egg spawns inside chicken coop fence"
+
+  # ========== PHASE 4: GET MILK ==========
+  - id: 11
+    phase: "get_milk"
+    action: GOTO
+    args: "3253 3270 0"
+    description: "Walk to cow pen east of Lumbridge"
+    location: cow_pen
+
+  - id: 12
+    phase: "get_milk"
+    action: USE_ITEM_ON_NPC
+    args: "Bucket Dairy cow"
+    description: "Use bucket on dairy cow to get milk"
+    expected_result: "Bucket of milk in inventory"
+    notes: "Dairy cow has 'Milk' option, not regular cows"
+
+  # ========== PHASE 5: GET FLOUR ==========
+  - id: 13
+    phase: "get_flour"
+    action: GOTO
+    args: "3162 3293 0"
+    description: "Walk to wheat field south of windmill"
+    location: wheat_field
+
+  - id: 14
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Wheat Pick"
+    description: "Pick wheat from field"
+    expected_result: "Grain in inventory"
+
+  - id: 15
+    phase: "get_flour"
+    action: GOTO
+    args: "3166 3306 0"
+    description: "Walk to windmill"
+    location: windmill
+
+  - id: 16
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Large door Open"
+    description: "Enter windmill"
+
+  - id: 17
+    phase: "get_flour"
+    action: CLIMB_LADDER_UP
+    description: "Climb to top floor of windmill"
+    repeat: 2
+    notes: "Need to climb 2 ladders to reach hopper"
+
+  - id: 18
+    phase: "get_flour"
+    action: USE_ITEM_ON_OBJECT
+    args: "Grain Hopper"
+    description: "Put grain in hopper"
+
+  - id: 19
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Hopper controls Operate"
+    description: "Operate hopper to grind grain"
+
+  - id: 20
+    phase: "get_flour"
+    action: CLIMB_LADDER_DOWN
+    description: "Climb back to ground floor"
+    repeat: 2
+
+  - id: 21
+    phase: "get_flour"
+    action: USE_ITEM_ON_OBJECT
+    args: "Pot Flour bin"
+    description: "Use pot on flour bin to collect flour"
+    expected_result: "Pot of flour in inventory"
+
+  # ========== PHASE 6: COMPLETE QUEST ==========
+  - id: 22
+    phase: "complete_quest"
+    action: GOTO
+    args: "3208 3216 0"
+    description: "Return to Lumbridge kitchen"
+    location: lumbridge_kitchen
+
+  - id: 23
+    phase: "complete_quest"
+    action: INTERACT_NPC
+    args: "Cook Talk-to"
+    description: "Talk to Cook with all items"
+    expected_result: "Quest complete!"
+
+# Rewards
+rewards:
+  - quest_points: 1
+  - cooking_xp: 300
+  - access_to_cook_range: true
+  - sardine: 1
+
+# Execution log (filled during runtime)
+execution_log: []

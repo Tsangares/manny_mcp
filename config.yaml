@@ -45,3 +45,11 @@ state_file: /tmp/manny_state.json
 
 # Session persistence
 session_file: /home/wil/manny-mcp/debug-session.json
+
+# Video streaming configuration (dashboard)
+video_streaming:
+  encoder: "auto"  # auto-detect: nvenc → vaapi → amf → libx264
+  framerate: 24
+  bitrate: "2M"
+  preset: "veryfast"
+  keyframe_interval: 48  # 2 seconds at 24fps

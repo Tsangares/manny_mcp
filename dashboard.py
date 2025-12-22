@@ -22,10 +22,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Any
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import struct
 
 
 @dataclass
@@ -63,10 +64,6 @@ class ServerState:
 
     # Recent logs
     logs: deque = field(default_factory=lambda: deque(maxlen=200))
-
-    # Screenshot buffer for MJPEG stream
-    latest_screenshot: Optional[bytes] = None
-    screenshot_updated: Optional[float] = None
 
     # Health status
     health: dict = field(default_factory=dict)
@@ -108,9 +105,19 @@ class ServerState:
 
             player = state.get("player", {})
             self.player_location = player.get("location", {})
+
+            # Health is nested: player.health.current/max
+            health = player.get("health", {})
+            if isinstance(health, dict):
+                hp = health.get("current", 0)
+                hp_max = health.get("max", 0)
+            else:
+                hp = health
+                hp_max = player.get("maxHealth", 0)
+
             self.player_stats = {
-                "hp": player.get("health", 0),
-                "hp_max": player.get("maxHealth", 0),
+                "hp": hp,
+                "hp_max": hp_max,
                 "prayer": player.get("prayer", 0),
                 "prayer_max": player.get("maxPrayer", 0),
                 "run_energy": player.get("runEnergy", 0),
@@ -118,14 +125,15 @@ class ServerState:
                 "is_moving": player.get("isMoving", False),
                 "is_animating": player.get("isAnimating", False),
             }
-            self.inventory = state.get("inventory", [])
-            self.current_action = state.get("currentAction", "")
 
-    def update_screenshot(self, png_bytes: bytes):
-        """Update the latest screenshot."""
-        with self._lock:
-            self.latest_screenshot = png_bytes
-            self.screenshot_updated = time.time()
+            # Inventory is nested: player.inventory.items
+            inventory_data = player.get("inventory", {})
+            if isinstance(inventory_data, dict):
+                self.inventory = inventory_data.get("items", [])
+            else:
+                self.inventory = inventory_data if inventory_data else []
+
+            self.current_action = state.get("scenario", {}).get("currentTask", "Idle")
 
     def add_log(self, line: str):
         """Add a log line."""
@@ -175,15 +183,15 @@ class ServerState:
                 "command_sent_at": self.command_sent_at,
                 "logs": list(self.logs)[-50:],
                 "health": self.health,
-                "screenshot_age_ms": (
-                    round((time.time() - self.screenshot_updated) * 1000)
-                    if self.screenshot_updated else None
-                ),
             }
 
 
 # Global state instance
 STATE = ServerState()
+
+# WebSocket clients and background tasks
+active_ws_clients: set[WebSocket] = set()
+background_tasks: Optional['DashboardBackgroundTasks'] = None
 
 # FastAPI app
 app = FastAPI(title="Manny MCP Dashboard")
@@ -213,44 +221,34 @@ async def get_game_state():
     return STATE.game_state
 
 
-@app.get("/api/screenshot")
-async def get_screenshot():
-    """Get latest screenshot as PNG."""
-    if STATE.latest_screenshot:
-        return Response(content=STATE.latest_screenshot, media_type="image/png")
-    return Response(status_code=404)
+@app.websocket("/ws/stream")
+async def websocket_stream(websocket: WebSocket):
+    """WebSocket endpoint for H.264 video streaming."""
+    await websocket.accept()
+    active_ws_clients.add(websocket)
 
+    try:
+        last_sent_index = 0
 
-@app.get("/stream.mjpeg")
-async def mjpeg_stream():
-    """MJPEG video stream of screenshots."""
-
-    async def generate():
-        last_screenshot = None
         while True:
-            if STATE.latest_screenshot and STATE.latest_screenshot != last_screenshot:
-                last_screenshot = STATE.latest_screenshot
-                try:
-                    from PIL import Image
-                    img = Image.open(io.BytesIO(last_screenshot))
-                    jpeg_buffer = io.BytesIO()
-                    img.convert("RGB").save(jpeg_buffer, format="JPEG", quality=70)
-                    jpeg_bytes = jpeg_buffer.getvalue()
-                except ImportError:
-                    jpeg_bytes = last_screenshot
+            # Check if there are new frames in the queue
+            if background_tasks and len(background_tasks.frame_queue) > last_sent_index:
+                # Send ALL new frames in order, not just the latest
+                queue_snapshot = list(background_tasks.frame_queue)
+                for i in range(last_sent_index, len(queue_snapshot)):
+                    try:
+                        await websocket.send_bytes(queue_snapshot[i])
+                    except Exception:
+                        break
+                last_sent_index = len(queue_snapshot)
 
-                yield (
-                    b"--frame\r\n"
-                    b"Content-Type: image/jpeg\r\n\r\n" +
-                    jpeg_bytes +
-                    b"\r\n"
-                )
-            await asyncio.sleep(0.1)
+            # Small sleep to avoid busy loop
+            await asyncio.sleep(0.01)
 
-    return StreamingResponse(
-        generate(),
-        media_type="multipart/x-mixed-replace; boundary=frame"
-    )
+    except WebSocketDisconnect:
+        pass
+    finally:
+        active_ws_clients.discard(websocket)
 
 
 DASHBOARD_HTML = """
@@ -276,22 +274,24 @@ DASHBOARD_HTML = """
             height: 100vh;
         }
         @media (max-width: 900px) {
-            .container { grid-template-columns: 1fr; }
+            .container { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+            .video-panel { grid-row: 1; }
+            .video-panel img { width: 100%; height: auto; }
         }
 
         .video-panel {
             grid-row: 1 / 3;
-            background: #000;
+            background: #1a1a2e;
             border-radius: 8px;
             overflow: hidden;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
         }
-        .video-panel img {
+        .video-panel video {
             max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
+            height: auto;
+            width: 100%;
         }
 
         .stats-panel, .mcp-panel {
@@ -347,24 +347,6 @@ DASHBOARD_HTML = """
         .mcp-time { color: #666; font-size: 10px; }
         .mcp-args { color: #888; font-size: 11px; word-break: break-all; }
 
-        .inventory-grid {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 2px;
-            margin-top: 10px;
-        }
-        .inv-slot {
-            background: #0d1b2a;
-            padding: 4px;
-            font-size: 10px;
-            text-align: center;
-            border-radius: 2px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .inv-slot.empty { color: #444; }
-
         .current-action {
             background: #2d4a22;
             padding: 8px;
@@ -390,7 +372,7 @@ DASHBOARD_HTML = """
 <body>
     <div class="container">
         <div class="video-panel">
-            <img id="stream" src="/stream.mjpeg" alt="Game Stream">
+            <video id="stream" autoplay muted playsinline></video>
         </div>
 
         <div class="stats-panel">
@@ -430,8 +412,6 @@ DASHBOARD_HTML = """
                 <span class="stat-value" id="movement">--</span>
             </div>
 
-            <h2 style="margin-top: 15px;">Inventory (<span id="inv-count">0</span>/28)</h2>
-            <div class="inventory-grid" id="inventory"></div>
         </div>
 
         <div class="mcp-panel">
@@ -442,6 +422,129 @@ DASHBOARD_HTML = """
     </div>
 
     <script>
+        // H.264 WebSocket Stream Client
+        class H264Stream {
+            constructor(videoElement, wsUrl) {
+                this.video = videoElement;
+                this.wsUrl = wsUrl;
+                this.mediaSource = new MediaSource();
+                this.sourceBuffer = null;
+                this.queue = [];
+                this.isUpdating = false;
+            }
+
+            async start() {
+                // Check MSE support
+                if (!window.MediaSource || !MediaSource.isTypeSupported('video/mp4; codecs="avc1.42E01E"')) {
+                    alert('Your browser does not support H.264 streaming. Please use Chrome, Firefox, Safari, or Edge.');
+                    return;
+                }
+
+                this.video.src = URL.createObjectURL(this.mediaSource);
+
+                await new Promise(resolve => {
+                    this.mediaSource.addEventListener('sourceopen', resolve, { once: true });
+                });
+
+                console.log('[Video] MediaSource opened');
+
+                // Set duration to infinity for live streaming
+                if (this.mediaSource.readyState === 'open') {
+                    try {
+                        this.mediaSource.duration = Infinity;
+                        console.log('[Video] Duration set to Infinity');
+                    } catch (e) {
+                        console.warn('[Video] Could not set duration:', e);
+                    }
+                }
+
+                this.sourceBuffer = this.mediaSource.addSourceBuffer('video/mp4; codecs="avc1.42E01E"');
+                this.sourceBuffer.mode = 'sequence';
+                console.log('[Video] SourceBuffer created');
+
+                this.sourceBuffer.addEventListener('updateend', () => {
+                    this.isUpdating = false;
+                    console.log('[Video] Buffer update complete');
+
+                    // Try to play the video once we have data
+                    if (this.video.paused && this.sourceBuffer.buffered.length > 0) {
+                        console.log('[Video] Starting playback...');
+                        this.video.play().then(() => {
+                            console.log('[Video] Playback started!');
+                        }).catch(e => {
+                            console.error('[Video] Play failed:', e);
+                        });
+                    }
+
+                    this.processQueue();
+                });
+
+                this.sourceBuffer.addEventListener('error', (e) => {
+                    console.error('[Video] SourceBuffer error:', e);
+                });
+
+                this.mediaSource.addEventListener('sourceclose', () => {
+                    console.error('[Video] MediaSource closed unexpectedly!');
+                });
+
+                this.connect();
+            }
+
+            connect() {
+                this.ws = new WebSocket(this.wsUrl);
+                this.ws.binaryType = 'arraybuffer';
+
+                this.ws.onopen = () => {
+                    console.log('[Video] WebSocket connected');
+                };
+
+                this.ws.onmessage = (event) => {
+                    console.log(`[Video] Received frame: ${event.data.byteLength} bytes, queue length: ${this.queue.length}`);
+                    this.queue.push(event.data);
+                    this.processQueue();
+                };
+
+                this.ws.onclose = () => {
+                    console.log('[Video] WebSocket closed, reconnecting in 2s...');
+                    setTimeout(() => this.connect(), 2000);
+                };
+
+                this.ws.onerror = (error) => {
+                    console.error('[Video] WebSocket error:', error);
+                };
+            }
+
+            processQueue() {
+                if (this.isUpdating || this.queue.length === 0) return;
+
+                // Check if SourceBuffer is still valid
+                if (!this.sourceBuffer || this.mediaSource.readyState !== 'open') {
+                    console.error('[Video] Cannot append: MediaSource not open (state:', this.mediaSource.readyState, ')');
+                    return;
+                }
+
+                this.isUpdating = true;
+                const buffer = this.queue.shift();
+                console.log(`[Video] Appending ${buffer.byteLength} bytes to SourceBuffer`);
+                try {
+                    this.sourceBuffer.appendBuffer(buffer);
+                } catch (e) {
+                    console.error('[Video] Buffer append failed:', e);
+                    this.isUpdating = false;
+                }
+            }
+        }
+
+        // Initialize video stream
+        let stream;
+        window.addEventListener('DOMContentLoaded', () => {
+            const video = document.getElementById('stream');
+            const wsUrl = `ws://${window.location.host}/ws/stream`;
+            stream = new H264Stream(video, wsUrl);
+            stream.start();
+        });
+
+        // Update dashboard stats
         function updateDashboard() {
             fetch('/api/state')
                 .then(r => r.json())
@@ -480,18 +583,6 @@ DASHBOARD_HTML = """
                     if (stats.is_moving) moving.push('Moving');
                     if (stats.is_animating) moving.push('Animating');
                     document.getElementById('movement').textContent = moving.length ? moving.join(', ') : 'Idle';
-
-                    document.getElementById('inv-count').textContent = state.inventory_count;
-                    const invEl = document.getElementById('inventory');
-                    invEl.innerHTML = '';
-                    for (let i = 0; i < 28; i++) {
-                        const item = state.inventory[i];
-                        const slot = document.createElement('div');
-                        slot.className = 'inv-slot' + (item ? '' : ' empty');
-                        slot.textContent = item ? item.name || item : '·';
-                        slot.title = item ? JSON.stringify(item) : 'Empty';
-                        invEl.appendChild(slot);
-                    }
 
                     const cmdEl = document.getElementById('pending-command');
                     if (state.pending_command) {
@@ -542,15 +633,263 @@ class DashboardBackgroundTasks:
         self.running = False
         self.threads = []
 
+        # FFmpeg process management
+        self.ffmpeg_process = None
+        self.ffmpeg_encoder = None
+        self.ffmpeg_restart_count = 0
+        self.mp4_buffer = bytearray()
+        self.frame_queue = deque(maxlen=30)  # Buffer for frames to broadcast
+
+    def _detect_h264_encoder(self) -> str:
+        """Test encoders in priority order, return first working one."""
+        encoders = ['h264_nvenc', 'h264_vaapi', 'h264_amf', 'libx264']
+        display = self.config.get('display', ':2')
+
+        for encoder in encoders:
+            try:
+                STATE.add_log(f"Testing encoder: {encoder}")
+                cmd = [
+                    'ffmpeg', '-f', 'x11grab',
+                    '-video_size', '1020x666',
+                    '-framerate', '24',
+                    '-t', '1',  # 1 second test
+                    '-i', f'{display}+200,8',
+                    '-c:v', encoder,
+                    '-f', 'null',
+                    '-'
+                ]
+
+                env = os.environ.copy()
+                env['DISPLAY'] = display
+
+                result = subprocess.run(
+                    cmd,
+                    env=env,
+                    capture_output=True,
+                    timeout=5
+                )
+
+                if result.returncode == 0:
+                    STATE.add_log(f"Selected encoder: {encoder}")
+                    return encoder
+
+            except (subprocess.TimeoutExpired, Exception) as e:
+                STATE.add_log(f"Encoder {encoder} failed: {e}")
+                continue
+
+        # Fallback to libx264 if all tests fail
+        STATE.add_log("All encoders failed, using libx264 as fallback")
+        return 'libx264'
+
+    def _start_ffmpeg(self):
+        """Start FFmpeg process with detected encoder - capture window and crop."""
+        if self.ffmpeg_process:
+            try:
+                self.ffmpeg_process.terminate()
+                self.ffmpeg_process.wait(timeout=2)
+            except:
+                pass
+
+        display = self.config.get('display', ':2')
+        env = os.environ.copy()
+        env['DISPLAY'] = display
+
+        # Find RuneLite window and calculate absolute viewport position
+        try:
+            # Get window geometry
+            result = subprocess.run(
+                ['xdotool', 'search', '--name', 'RuneLite', 'getwindowgeometry'],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if result.returncode == 0 and result.stdout:
+                # Parse position from output like "Position: 38,59 (screen: 0)"
+                for line in result.stdout.split('\n'):
+                    if line.strip().startswith('Position:'):
+                        pos_str = line.split(':')[1].split('(')[0].strip()
+                        win_x, win_y = map(int, pos_str.split(','))
+
+                        # Viewport is at offset 200,8 within the window
+                        viewport_x = win_x + 200
+                        viewport_y = win_y + 8
+
+                        STATE.add_log(f"RuneLite window at ({win_x},{win_y}), viewport at ({viewport_x},{viewport_y})")
+
+                        cmd = [
+                            'ffmpeg',
+                            '-f', 'x11grab',
+                            '-video_size', '1020x666',
+                            '-framerate', '24',
+                            '-i', f'{display}+{viewport_x},{viewport_y}',
+                            '-c:v', self.ffmpeg_encoder,
+                            '-preset', 'veryfast',
+                            '-tune', 'zerolatency',
+                            '-g', '48',  # keyframe every 2s at 24fps
+                            '-b:v', '2M',
+                            '-maxrate', '2.5M',
+                            '-bufsize', '1M',
+                            '-pix_fmt', 'yuv420p',
+                            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                            '-f', 'mp4',
+                            'pipe:1'
+                        ]
+                        break
+                else:
+                    raise ValueError("Could not parse window position")
+            else:
+                raise ValueError("xdotool command failed")
+        except Exception as e:
+            STATE.add_log(f"Error finding window: {e}, using default coordinates")
+            # Fallback to default coordinates
+            cmd = [
+                'ffmpeg', '-f', 'x11grab',
+                '-video_size', '1020x666',
+                '-framerate', '24',
+                '-i', f'{display}+200,8',
+                '-c:v', self.ffmpeg_encoder,
+                '-preset', 'veryfast',
+                '-tune', 'zerolatency',
+                '-g', '48',
+                '-b:v', '2M',
+                '-maxrate', '2.5M',
+                '-bufsize', '1M',
+                '-pix_fmt', 'yuv420p',
+                '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+                '-f', 'mp4',
+                'pipe:1'
+            ]
+
+        STATE.add_log(f"Starting FFmpeg with encoder: {self.ffmpeg_encoder}")
+        self.ffmpeg_process = subprocess.Popen(
+            cmd,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        self.mp4_buffer.clear()
+
+    def _extract_mp4_fragment(self) -> Optional[bytes]:
+        """Extract complete MP4 fragment from buffer (init segment or moof+mdat)."""
+        if len(self.mp4_buffer) < 8:
+            return None
+
+        try:
+            # Parse MP4 boxes to extract complete fragments
+            i = 0
+
+            # Check for initialization segment (ftyp + moov)
+            if self.mp4_buffer[4:8] == b'ftyp':
+                # Extract complete initialization segment (ftyp + moov)
+                extracted_size = 0
+                while i < len(self.mp4_buffer) - 8:
+                    box_size = struct.unpack('>I', self.mp4_buffer[i:i+4])[0]
+                    box_type = self.mp4_buffer[i+4:i+8]
+
+                    if box_size < 8:
+                        break
+
+                    extracted_size = i + box_size
+
+                    # moov is the last box of init segment
+                    if box_type == b'moov':
+                        if extracted_size <= len(self.mp4_buffer):
+                            init_segment = bytes(self.mp4_buffer[0:extracted_size])
+                            self.mp4_buffer = self.mp4_buffer[extracted_size:]
+                            return init_segment
+                        return None
+
+                    i += box_size
+                return None
+
+            # Look for media segment (moof + mdat)
+            # Must start at position 0 - if buffer has garbage, clear it
+            if len(self.mp4_buffer) >= 8:
+                box_size = struct.unpack('>I', self.mp4_buffer[0:4])[0]
+                box_type = self.mp4_buffer[4:8]
+
+                if box_type == b'moof':
+                    # Found moof, look for complete fragment (moof + mdat)
+                    if box_size + 8 > len(self.mp4_buffer):
+                        return None  # Not enough data yet
+
+                    # Check if next box is mdat
+                    next_box_size = struct.unpack('>I', self.mp4_buffer[box_size:box_size+4])[0]
+                    next_box_type = self.mp4_buffer[box_size+4:box_size+8]
+
+                    if next_box_type == b'mdat':
+                        # Complete fragment found
+                        fragment_end = box_size + next_box_size
+                        if fragment_end <= len(self.mp4_buffer):
+                            fragment = bytes(self.mp4_buffer[0:fragment_end])
+                            self.mp4_buffer = self.mp4_buffer[fragment_end:]
+                            return fragment
+                else:
+                    # Buffer doesn't start with ftyp or moof - clear garbage
+                    STATE.add_log(f"MP4 buffer has invalid start: {box_type}, clearing buffer")
+                    self.mp4_buffer.clear()
+                    return None
+
+        except Exception as e:
+            STATE.add_log(f"MP4 fragment extraction error: {e}")
+
+        return None
+
+    def _ffmpeg_reader_thread(self):
+        """Read MP4 fragments from FFmpeg stdout, broadcast to WebSocket clients."""
+        while self.running:
+            try:
+                if not self.ffmpeg_process or self.ffmpeg_process.poll() is not None:
+                    # FFmpeg died, restart
+                    STATE.add_log("FFmpeg process died, restarting...")
+                    time.sleep(2)
+                    self._start_ffmpeg()
+                    continue
+
+                chunk = self.ffmpeg_process.stdout.read(4096)
+                if not chunk:
+                    STATE.add_log("FFmpeg stdout closed")
+                    time.sleep(1)
+                    continue
+
+                self.mp4_buffer.extend(chunk)
+
+                # Extract and add complete MP4 fragments to queue
+                while True:
+                    fragment = self._extract_mp4_fragment()
+                    if fragment is None:
+                        break
+
+                    # Log fragment type for debugging
+                    frag_type = fragment[4:8].decode('ascii', errors='ignore') if len(fragment) >= 8 else 'unknown'
+                    if frag_type == 'ftyp':
+                        STATE.add_log(f"Extracted INIT segment: {len(fragment)} bytes")
+                    elif frag_type == 'moof':
+                        # Only log first few moof segments to avoid spam
+                        if len(self.frame_queue) < 5:
+                            STATE.add_log(f"Extracted media segment: {len(fragment)} bytes")
+
+                    # Add to queue for WebSocket clients to consume
+                    self.frame_queue.append(fragment)
+
+            except Exception as e:
+                STATE.add_log(f"FFmpeg reader error: {e}")
+                time.sleep(1)
+
     def start(self):
         """Start background update threads."""
         self.running = True
+
+        # Detect and start FFmpeg
+        self.ffmpeg_encoder = self._detect_h264_encoder()
+        self._start_ffmpeg()
 
         t1 = threading.Thread(target=self._poll_game_state, daemon=True)
         t1.start()
         self.threads.append(t1)
 
-        t2 = threading.Thread(target=self._capture_screenshots, daemon=True)
+        t2 = threading.Thread(target=self._ffmpeg_reader_thread, daemon=True)
         t2.start()
         self.threads.append(t2)
 
@@ -573,51 +912,6 @@ class DashboardBackgroundTasks:
             except Exception as e:
                 STATE.add_log(f"State poll error: {e}")
             time.sleep(0.6)
-
-    def _capture_screenshots(self):
-        """Capture screenshots every 500ms for the video stream."""
-        display = self.config.get("display", ":2")
-        while self.running:
-            try:
-                env = os.environ.copy()
-                env["DISPLAY"] = display
-
-                # First, find the RuneLite window ID
-                window_result = subprocess.run(
-                    ["xdotool", "search", "--name", "RuneLite"],
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=2
-                )
-
-                window_id = None
-                if window_result.returncode == 0 and window_result.stdout.strip():
-                    window_id = window_result.stdout.strip().split('\n')[0]
-
-                if window_id:
-                    # Use ImageMagick import to capture the specific window (works with XWayland)
-                    result = subprocess.run(
-                        ["import", "-window", window_id, "/tmp/dashboard_frame.png"],
-                        env=env,
-                        capture_output=True,
-                        timeout=2
-                    )
-                else:
-                    # Fallback to scrot for root window
-                    result = subprocess.run(
-                        ["scrot", "-o", "/tmp/dashboard_frame.png"],
-                        env=env,
-                        capture_output=True,
-                        timeout=2
-                    )
-
-                if result.returncode == 0:
-                    with open("/tmp/dashboard_frame.png", "rb") as f:
-                        STATE.update_screenshot(f.read())
-            except Exception:
-                pass
-            time.sleep(0.5)
 
     def _check_health(self):
         """Run health checks every 5 seconds."""
@@ -652,13 +946,14 @@ class DashboardBackgroundTasks:
 
 def run_dashboard(config: dict, host: str = "0.0.0.0", port: int = 8080):
     """Run the dashboard server standalone."""
-    tasks = DashboardBackgroundTasks(config)
-    tasks.start()
+    global background_tasks
+    background_tasks = DashboardBackgroundTasks(config)
+    background_tasks.start()
 
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     finally:
-        tasks.stop()
+        background_tasks.stop()
 
 
 if __name__ == "__main__":
