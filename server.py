@@ -25,6 +25,7 @@ from request_code_change import (
     prepare_code_change,
     validate_code_change,
     deploy_code_change,
+    validate_with_anti_pattern_check,
     find_relevant_files,
     backup_files,
     rollback_code_change,
@@ -32,6 +33,7 @@ from request_code_change import (
     PREPARE_CODE_CHANGE_TOOL,
     VALIDATE_CODE_CHANGE_TOOL,
     DEPLOY_CODE_CHANGE_TOOL,
+    VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL,
     FIND_RELEVANT_FILES_TOOL,
     BACKUP_FILES_TOOL,
     ROLLBACK_CODE_CHANGE_TOOL,
@@ -53,6 +55,8 @@ from manny_tools import (
     find_blocking_patterns,
     generate_debug_instrumentation,
     get_blocking_trace,
+    list_available_commands,
+    get_command_examples,
     GET_PLUGIN_CONTEXT_TOOL,
     GET_SECTION_TOOL,
     FIND_COMMAND_TOOL,
@@ -64,7 +68,9 @@ from manny_tools import (
     GET_THREADING_PATTERNS_TOOL,
     FIND_BLOCKING_PATTERNS_TOOL,
     GENERATE_DEBUG_INSTRUMENTATION_TOOL,
-    GET_BLOCKING_TRACE_TOOL
+    GET_BLOCKING_TRACE_TOOL,
+    LIST_AVAILABLE_COMMANDS_TOOL,
+    GET_COMMAND_EXAMPLES_TOOL
 )
 
 # Load environment variables (for GEMINI_API_KEY)
@@ -77,31 +83,6 @@ try:
     genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
 except ImportError:
     GEMINI_AVAILABLE = False
-
-# Try to import Anthropic API for Haiku-powered tools
-try:
-    from anthropic import Anthropic
-    ANTHROPIC_AVAILABLE = True
-    anthropic_client = Anthropic()  # Uses ANTHROPIC_API_KEY from env
-except ImportError:
-    ANTHROPIC_AVAILABLE = False
-    anthropic_client = None
-
-
-async def call_haiku(prompt: str, max_tokens: int = 1000) -> str:
-    """
-    Fast Haiku call for preprocessing tasks.
-    Returns the text response or raises an exception.
-    """
-    if not ANTHROPIC_AVAILABLE:
-        raise RuntimeError("Anthropic SDK not installed - pip install anthropic")
-
-    response = anthropic_client.messages.create(
-        model="claude-3-5-haiku-20241022",
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}]
-    )
-    return response.content[0].text
 
 # Load config
 CONFIG_PATH = os.environ.get("RUNELITE_MCP_CONFIG",
@@ -386,14 +367,24 @@ def parse_maven_warnings(output: str) -> list:
     return warnings
 
 
-def build_plugin(clean: bool = True) -> dict:
-    """Run Maven to compile the plugin."""
+def build_plugin(clean: bool = False) -> dict:
+    """Run Maven to compile the plugin.
+
+    Defaults to incremental build for 10x faster compilation.
+    Use clean=True only after major refactors or when dependencies change.
+    """
     start_time = time.time()
 
     cmd = ["mvn"]
     if clean:
         cmd.append("clean")
-    cmd.extend(["compile", "-pl", "runelite-client", "-T", "1C", "-DskipTests"])
+    cmd.extend([
+        "compile",
+        "-pl", "runelite-client",
+        "-T", "2",  # Limit to 2 threads (safer for laptops)
+        "-DskipTests",
+        "-o"  # Offline mode - skip dependency checks for speed
+    ])
 
     result = subprocess.run(
         cmd,
@@ -669,9 +660,6 @@ Be concise and accurate - this is used for game automation."""
 # Global manager instance
 runelite_manager = RuneLiteManager()
 
-# Global state for Haiku delta tracking
-_last_game_state = {}
-
 # Create MCP server
 server = Server("runelite-debug")
 
@@ -877,6 +865,11 @@ Use this to:
             description=DEPLOY_CODE_CHANGE_TOOL["description"],
             inputSchema=DEPLOY_CODE_CHANGE_TOOL["inputSchema"]
         ),
+        Tool(
+            name=VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL["name"],
+            description=VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL["description"],
+            inputSchema=VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL["inputSchema"]
+        ),
         # Helper tools
         Tool(
             name=FIND_RELEVANT_FILES_TOOL["name"],
@@ -959,6 +952,17 @@ Use this to:
             name=GET_BLOCKING_TRACE_TOOL["name"],
             description=GET_BLOCKING_TRACE_TOOL["description"],
             inputSchema=GET_BLOCKING_TRACE_TOOL["inputSchema"]
+        ),
+        # Routine building and command discovery tools
+        Tool(
+            name=LIST_AVAILABLE_COMMANDS_TOOL["name"],
+            description=LIST_AVAILABLE_COMMANDS_TOOL["description"],
+            inputSchema=LIST_AVAILABLE_COMMANDS_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=GET_COMMAND_EXAMPLES_TOOL["name"],
+            description=GET_COMMAND_EXAMPLES_TOOL["description"],
+            inputSchema=GET_COMMAND_EXAMPLES_TOOL["inputSchema"]
         ),
         # Widget and dialogue tools for routine building
         Tool(
@@ -1076,69 +1080,6 @@ what can be interacted with.""",
 
 Returns the most recent response from /tmp/manny_response.json.
 Useful for checking results of commands sent via send_command.""",
-            inputSchema={
-                "type": "object",
-                "properties": {}
-            }
-        ),
-        # Haiku-powered tools for fast preprocessing
-        Tool(
-            name="validate_routine",
-            description="""Validate a YAML routine file for syntax and semantic errors.
-
-Uses Haiku AI for fast validation. Checks:
-- YAML syntax
-- Required fields (action, description for each step)
-- Valid actions (GOTO, INTERACT_NPC, BANK_OPEN, etc.)
-- Coordinate ranges (x/y: 0-15000, plane: 0-3)
-- GOTO args format
-
-Returns validation results with errors and warnings.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "routine_path": {
-                        "type": "string",
-                        "description": "Path to the YAML routine file to validate"
-                    }
-                },
-                "required": ["routine_path"]
-            }
-        ),
-        Tool(
-            name="get_log_alerts",
-            description="""Get summarized alerts from logs using Haiku AI.
-
-Filters noise and extracts only actionable issues:
-- Errors and exceptions
-- Stuck/failed patterns
-- Unexpected states
-
-Returns a concise summary instead of raw log lines. Token-efficient for monitoring.""",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "since_seconds": {
-                        "type": "integer",
-                        "description": "Only analyze logs from last N seconds (default: 60)",
-                        "default": 60
-                    },
-                    "max_log_lines": {
-                        "type": "integer",
-                        "description": "Max log lines to analyze (default: 100)",
-                        "default": 100
-                    }
-                }
-            }
-        ),
-        Tool(
-            name="get_state_delta",
-            description="""Get summarized state changes using Haiku AI.
-
-Compares current game state to previous state and returns a one-line delta:
-"Moved 47 tiles | +12 fish | Inventory 24→28/28 | +1,200 Fishing XP"
-
-Token-efficient alternative to repeatedly fetching full game state.""",
             inputSchema={
                 "type": "object",
                 "properties": {}
@@ -1310,6 +1251,14 @@ async def call_tool(name: str, arguments: dict):
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
+    elif name == "validate_with_anti_pattern_check":
+        result = validate_with_anti_pattern_check(
+            runelite_root=CONFIG.get("runelite_root"),
+            modified_files=arguments["modified_files"],
+            manny_src=CONFIG.get("plugin_directory")
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
     elif name == "find_relevant_files":
         result = find_relevant_files(
             manny_src=CONFIG.get("plugin_directory"),
@@ -1429,6 +1378,21 @@ async def call_tool(name: str, arguments: dict):
         result = get_blocking_trace(
             since_seconds=arguments.get("since_seconds", 60),
             min_duration_ms=arguments.get("min_duration_ms", 100)
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    # Routine building and command discovery tools
+    elif name == "list_available_commands":
+        result = list_available_commands(
+            plugin_dir=CONFIG.get("plugin_directory"),
+            category=arguments.get("category", "all"),
+            search=arguments.get("search")
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "get_command_examples":
+        result = get_command_examples(
+            command=arguments["command"]
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
@@ -1610,206 +1574,6 @@ async def call_tool(name: str, arguments: dict):
                 "success": False,
                 "error": str(e)
             }
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    # Haiku-powered tools
-    elif name == "validate_routine":
-        routine_path = arguments.get("routine_path", "")
-
-        if not ANTHROPIC_AVAILABLE:
-            result = {"valid": False, "errors": ["Anthropic SDK not installed - pip install anthropic"]}
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-        try:
-            # Read the YAML file
-            with open(routine_path) as f:
-                content = f.read()
-
-            # Parse YAML to catch syntax errors
-            try:
-                routine = yaml.safe_load(content)
-            except yaml.YAMLError as e:
-                result = {"valid": False, "errors": [f"YAML syntax error: {e}"], "warnings": []}
-                return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-            # Use Haiku for semantic validation
-            prompt = f"""Validate this OSRS routine YAML. Check for:
-- Required fields: each step should have 'action' and 'description'
-- Valid actions: GOTO, INTERACT_NPC, INTERACT_OBJECT, BANK_OPEN, BANK_DEPOSIT_ALL, BANK_WITHDRAW, BANK_CLOSE, PICKUP_ITEM, USE_ITEM_ON_NPC, USE_ITEM_ON_OBJECT, DIALOGUE, CLIMB_LADDER_UP, CLIMB_LADDER_DOWN
-- Coordinates: x and y should be 0-15000, plane should be 0-3
-- GOTO args format should be "x y plane" (three space-separated integers)
-- Location references should have x, y, plane fields
-
-Return ONLY valid JSON (no markdown, no explanation):
-{{"valid": true/false, "errors": ["error1", "error2"], "warnings": ["warning1"]}}
-
-Routine content:
-```yaml
-{content}
-```"""
-
-            haiku_response = await call_haiku(prompt, max_tokens=500)
-
-            # Parse Haiku's JSON response
-            try:
-                # Clean up response in case Haiku added markdown
-                cleaned = haiku_response.strip()
-                if cleaned.startswith("```"):
-                    cleaned = cleaned.split("\n", 1)[1]
-                if cleaned.endswith("```"):
-                    cleaned = cleaned.rsplit("```", 1)[0]
-                result = json.loads(cleaned.strip())
-            except json.JSONDecodeError:
-                result = {
-                    "valid": False,
-                    "errors": ["Failed to parse Haiku validation response"],
-                    "warnings": [],
-                    "raw_response": haiku_response
-                }
-
-        except FileNotFoundError:
-            result = {"valid": False, "errors": [f"File not found: {routine_path}"], "warnings": []}
-        except Exception as e:
-            result = {"valid": False, "errors": [str(e)], "warnings": []}
-
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_log_alerts":
-        since_seconds = arguments.get("since_seconds", 60)
-        max_log_lines = arguments.get("max_log_lines", 100)
-
-        if not ANTHROPIC_AVAILABLE:
-            result = {"alerts": [], "summary": "Anthropic SDK not installed", "error": True}
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-        # Get raw logs
-        logs = runelite_manager.get_logs(
-            level="ALL",
-            since_seconds=since_seconds,
-            max_lines=max_log_lines,
-            plugin_only=True
-        )
-
-        if not logs["lines"]:
-            result = {"alerts": [], "summary": "No recent logs", "log_count": 0}
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-        try:
-            # Use Haiku to filter and summarize
-            log_text = "\n".join(logs["lines"][-max_log_lines:])
-            prompt = f"""Analyze these OSRS bot logs. Extract ONLY actionable issues:
-- Errors and exceptions (ERROR level or stack traces)
-- Stuck/failed patterns ("stuck", "failed", "timeout", "not found")
-- Unexpected states or crashes
-
-Ignore: INFO messages, routine progress logs, expected retries (2/3, 3/3), normal operation
-
-Return ONLY valid JSON (no markdown):
-{{"alerts": [{{"severity": "error" or "warn", "summary": "brief description"}}], "summary": "one line overall status"}}
-
-If no issues found, return:
-{{"alerts": [], "summary": "Operating normally"}}
-
-Logs:
-{log_text}"""
-
-            haiku_response = await call_haiku(prompt, max_tokens=500)
-
-            # Parse response
-            try:
-                cleaned = haiku_response.strip()
-                if cleaned.startswith("```"):
-                    cleaned = cleaned.split("\n", 1)[1]
-                if cleaned.endswith("```"):
-                    cleaned = cleaned.rsplit("```", 1)[0]
-                result = json.loads(cleaned.strip())
-                result["log_count"] = len(logs["lines"])
-            except json.JSONDecodeError:
-                result = {
-                    "alerts": [],
-                    "summary": "Failed to parse Haiku response",
-                    "raw_response": haiku_response,
-                    "log_count": len(logs["lines"])
-                }
-
-        except Exception as e:
-            result = {"alerts": [], "summary": f"Error: {e}", "error": True}
-
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_state_delta":
-        global _last_game_state
-
-        if not ANTHROPIC_AVAILABLE:
-            result = {"delta": "Anthropic SDK not installed", "error": True}
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-        # Get current game state
-        state_file = CONFIG.get("state_file", "/tmp/manny_state.json")
-        try:
-            with open(state_file) as f:
-                current_state = json.load(f)
-        except FileNotFoundError:
-            result = {"delta": "State file not found", "error": True}
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-        except json.JSONDecodeError as e:
-            result = {"delta": f"Invalid JSON: {e}", "error": True}
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-        # First call - no previous state to compare
-        if not _last_game_state:
-            _last_game_state = current_state
-            # Extract key info for first capture
-            player = current_state.get("player", {})
-            location = player.get("location", {})
-            pos_str = f"({location.get('x', '?')}, {location.get('y', '?')})"
-            result = {
-                "delta": f"First capture at {pos_str}",
-                "position": location,
-                "first_capture": True
-            }
-            return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-        try:
-            # Use Haiku to compare and summarize
-            prompt = f"""Compare these two OSRS game states and summarize MEANINGFUL changes only.
-
-Format: "Moved X tiles | +Y items | -Z items | +N XP in Skill | HP: X→Y"
-If no meaningful changes: "No changes"
-
-Only report:
-- Position changes (calculate tile distance if moved)
-- Inventory changes (items added/removed)
-- XP gains (only if changed)
-- HP/Prayer changes (only if changed)
-
-Ignore: timestamp differences, unchanged values
-
-Return ONLY the summary string, no JSON, no explanation.
-
-Previous state:
-{json.dumps(_last_game_state, indent=2)[:2000]}
-
-Current state:
-{json.dumps(current_state, indent=2)[:2000]}"""
-
-            delta = await call_haiku(prompt, max_tokens=150)
-
-            # Update tracked state
-            _last_game_state = current_state
-
-            # Extract position for convenience
-            player = current_state.get("player", {})
-            location = player.get("location", {})
-
-            result = {
-                "delta": delta.strip(),
-                "position": location
-            }
-
-        except Exception as e:
-            result = {"delta": f"Error: {e}", "error": True}
-
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     else:

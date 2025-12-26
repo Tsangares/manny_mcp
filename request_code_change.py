@@ -124,7 +124,7 @@ def prepare_code_change(
 """
             context["available_wrappers"] = "See manny_guidelines above"
         else:
-            # Condensed essential guidelines (~2K chars instead of 26K)
+            # Condensed essential guidelines (~3.5K chars instead of 26K - includes all critical patterns)
             context["manny_guidelines"] = """
 === MANNY PLUGIN ESSENTIAL GUIDELINES ===
 
@@ -140,6 +140,7 @@ def prepare_code_change(
   Replaces 10+ lines of CountDownLatch boilerplate
 
 ## Required Wrappers (DON'T reinvent these)
+
 NPC interaction:
   interactionSystem.interactWithNPC("Banker", "Bank")
   interactionSystem.interactWithNPC(name, action, maxAttempts, searchRadius)
@@ -147,6 +148,7 @@ NPC interaction:
 GameObject interaction:
   interactionSystem.interactWithGameObject("Tree", "Chop down", 15)
   interactionSystem.interactWithGameObject(id, name, action, worldPoint)
+  Replaces 60-120 lines of manual GameObject boilerplate!
 
 Widget clicking:
   clickWidget(widgetId)  // 5-phase verification, 3 retries
@@ -162,19 +164,32 @@ Banking:
   handleBankWithdraw("Iron_ore 14")  // underscores → spaces
   handleBankDepositAll(), handleBankDepositItem("Logs")
 
-## Anti-Patterns (AVOID THESE)
-1. smartClick() for NPCs → use interactionSystem.interactWithNPC()
-2. Manual CountDownLatch → use helper.readFromClient(() -> ...)
-3. Manual retry loops → wrappers have built-in retry
-4. Direct client.getMenuEntries() → wrap in clientThread.invokeLater()
-5. Thread.sleep(5000+) → use shorter sleeps with interrupt checks
+## Tab Switching (CRITICAL - F-keys are unreliable!)
+❌ NEVER use F-key bindings (user-customizable, break!)
+✅ ALWAYS use tab widget IDs:
+  final int TOPLEVEL = 548;
+  final int MAGIC_TAB = (TOPLEVEL << 16) | 0x56;  // 35913814
+  clickWidget(MAGIC_TAB);
 
-## Command Handler Pattern
+## Command Handler Pattern (MANDATORY)
 private boolean handleMyCommand(String args) {
     log.info("[MY_COMMAND] Starting...");
     try {
-        // Use existing wrappers, not manual boilerplate
-        // Check shouldInterrupt in loops
+        // 1. Parse args (replace underscores with spaces)
+        String itemName = args.replace("_", " ");
+
+        // 2. Use existing wrappers, NOT manual boilerplate
+
+        // 3. Check shouldInterrupt in loops
+        for (int i = 0; i < count; i++) {
+            if (shouldInterrupt) {
+                responseWriter.writeFailure("MY_COMMAND", "Interrupted");
+                return false;
+            }
+            // ... work
+        }
+
+        // 4. ALWAYS write response
         responseWriter.writeSuccess("MY_COMMAND", "Done");
         return true;
     } catch (Exception e) {
@@ -184,13 +199,30 @@ private boolean handleMyCommand(String args) {
     }
 }
 
+## Anti-Patterns (AVOID THESE - will cause bugs!)
+1. ❌ smartClick() for NPCs → use interactionSystem.interactWithNPC()
+2. ❌ Manual CountDownLatch → use helper.readFromClient(() -> ...)
+3. ❌ Manual retry loops → wrappers have built-in retry
+4. ❌ Manual GameObject boilerplate → use interactWithGameObject()
+5. ❌ Direct client.getMenuEntries() → wrap in clientThread.invokeLater()
+6. ❌ Thread.sleep(5000+) → use shorter sleeps with interrupt checks
+7. ❌ F-key for tabs → use widget IDs (TOPLEVEL << 16 | offset)
+8. ❌ Missing shouldInterrupt checks in loops
+9. ❌ Missing ResponseWriter calls in handlers
+10. ❌ Forgetting underscore→space conversion for item names
+
+## IMPORTANT: Use check_anti_patterns tool
+Before finalizing changes, run:
+  check_anti_patterns(file_path="path/to/modified/file.java")
+Fix any errors before submitting!
+
 ## Key Files
 - PlayerHelpers.java (24K lines): Commands, writes. Has section markers.
 - GameEngine.java: Read-only queries (inventory, NPCs, objects)
 - InteractionSystem.java: NPC/GameObject/Widget wrappers
 - ClientThreadHelper.java: Thread-safe client access
 
-For full documentation, see /home/wil/Desktop/manny/CLAUDE.md
+For COMPLETE documentation, read: /home/wil/Desktop/manny/CLAUDE.md
 """
 
             # Add wrapper reference (compact)
@@ -206,7 +238,8 @@ For full documentation, see /home/wil/Desktop/manny/CLAUDE.md
     if compact:
         context["instructions"] = """Fix the manny RuneLite plugin issue described above.
 Use Read tool to access file contents (not included to save context).
-Follow manny_guidelines patterns. Make minimal targeted changes."""
+Follow manny_guidelines patterns. Make minimal targeted changes.
+Use check_anti_patterns tool to validate before finalizing."""
     else:
         context["instructions"] = """
 You are fixing a RuneLite plugin called "manny" that automates Old School RuneScape.
@@ -222,8 +255,9 @@ KEY RULES:
 2. Thread safety - use ClientThreadHelper.readFromClient() for client access
 3. Follow command handler patterns - proper logging, ResponseWriter calls
 4. Minimal changes - fix only what's broken, don't refactor
+5. VALIDATE with check_anti_patterns tool before finalizing your changes
 
-After making changes, the controller will validate the build.
+After making changes, use check_anti_patterns to verify. The controller will validate the build.
 """
 
     return context
@@ -353,6 +387,79 @@ def deploy_code_change(
             "success": False,
             "error": str(e)
         }
+
+
+def validate_with_anti_pattern_check(
+    runelite_root: str,
+    modified_files: list[str],
+    manny_src: str
+) -> dict:
+    """
+    Validate code changes with both compilation AND anti-pattern checks.
+
+    Combines validate_code_change + check_anti_patterns for comprehensive validation.
+    This is the recommended validation function as it catches both compilation errors
+    and common code quality issues.
+
+    Args:
+        runelite_root: Path to RuneLite source root
+        modified_files: List of modified files to check
+        manny_src: Path to manny plugin source
+
+    Returns:
+        Dict with combined validation results
+    """
+    from manny_tools import check_anti_patterns
+
+    # Step 1: Compilation check
+    compile_result = validate_code_change(runelite_root, modified_files)
+
+    if not compile_result["success"]:
+        return {
+            "success": False,
+            "compilation": compile_result,
+            "anti_patterns": None,
+            "message": "Compilation failed - fix errors before checking anti-patterns",
+            "ready_to_deploy": False
+        }
+
+    # Step 2: Anti-pattern check
+    all_issues = []
+    error_count = 0
+    warning_count = 0
+
+    for file_path in modified_files:
+        # Resolve relative paths
+        full_path = file_path if os.path.isabs(file_path) else os.path.join(manny_src, file_path)
+
+        if os.path.exists(full_path):
+            pattern_result = check_anti_patterns(file_path=full_path)
+
+            if pattern_result.get("success"):
+                all_issues.extend(pattern_result.get("issues", []))
+                error_count += pattern_result.get("errors", 0)
+                warning_count += pattern_result.get("warnings", 0)
+
+    # Determine overall success
+    # Compilation passed, but error-severity anti-patterns = FAIL
+    overall_success = error_count == 0
+
+    return {
+        "success": overall_success,
+        "compilation": compile_result,
+        "anti_patterns": {
+            "total_issues": len(all_issues),
+            "errors": error_count,
+            "warnings": warning_count,
+            "issues": all_issues
+        },
+        "message": (
+            "All validations passed - ready to deploy" if overall_success
+            else f"Anti-pattern validation failed: {error_count} error(s) found. Fix before deploying."
+        ),
+        "ready_to_deploy": overall_success,
+        "note": "Warnings don't block deployment but should be addressed" if warning_count > 0 and error_count == 0 else None
+    }
 
 
 def _parse_maven_errors(output: str) -> list:
@@ -856,5 +963,33 @@ Scans for error patterns, exceptions, and anomalies. Returns:
             }
         },
         "required": ["log_lines"]
+    }
+}
+
+VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL = {
+    "name": "validate_with_anti_pattern_check",
+    "description": """Validate code changes with BOTH compilation and anti-pattern checks.
+
+This is the recommended validation function - it combines validate_code_change with
+check_anti_patterns for comprehensive validation. Use this instead of validate_code_change
+to catch both compilation errors and common code quality issues.
+
+Returns:
+- success: True only if compilation succeeds AND no error-severity anti-patterns found
+- compilation: Compilation results
+- anti_patterns: Anti-pattern detection results
+- ready_to_deploy: Whether the code is safe to deploy
+
+Note: Warnings don't block deployment but should be addressed.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "modified_files": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of modified files to check"
+            }
+        },
+        "required": ["modified_files"]
     }
 }

@@ -7,6 +7,7 @@ specifically designed for the manny RuneLite plugin codebase.
 
 import os
 import re
+import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -673,6 +674,44 @@ ANTI_PATTERNS = [
         "severity": "error",
         "message": "Chained widget access potentially on wrong thread",
         "suggestion": "Use helper.readFromClient(() -> widget.getBounds()) for thread safety"
+    },
+    # NEW: Manual GameObject boilerplate
+    {
+        "pattern": r"(gameEngine\.getGameObject|GameObject.*getClickbox|TileObject.*getClickbox).*CountDownLatch",
+        "context_hint": r"(?!interactWithGameObject)",
+        "severity": "error",
+        "message": "Manual GameObject interaction boilerplate detected",
+        "suggestion": "Use interactionSystem.interactWithGameObject(name, action, radius) instead (replaces 60-120 lines)"
+    },
+    # NEW: F-key usage for tabs
+    {
+        "pattern": r"(keyboard\.pressKey\s*\(\s*KeyEvent\.VK_F[0-9]|tabSwitcher\.open)",
+        "severity": "error",
+        "message": "Using F-keys for tab switching (unreliable - user can rebind!)",
+        "suggestion": "Use clickWidget((548 << 16) | offset) for tab switching instead"
+    },
+    # NEW: Missing interrupt checks in loops (warning, not error - some loops are short)
+    {
+        "pattern": r"(for|while)\s*\([^)]*\)\s*\{",
+        "context_hint": r"(?!shouldInterrupt)",
+        "severity": "warning",
+        "message": "Loop without shouldInterrupt check (may not be cancellable)",
+        "suggestion": "Add 'if (shouldInterrupt) { responseWriter.writeFailure(...); return false; }' in loop body"
+    },
+    # NEW: Missing ResponseWriter in command handlers
+    {
+        "pattern": r"private\s+boolean\s+handle[A-Z]\w+\s*\([^)]*\)",
+        "context_hint": r"(?!responseWriter\.write)",
+        "severity": "warning",
+        "message": "Command handler missing ResponseWriter calls",
+        "suggestion": "Add responseWriter.writeSuccess/writeFailure calls"
+    },
+    # NEW: Item name underscore handling
+    {
+        "pattern": r'(handleBank\w+|getItemCount|findItemByName)\s*\([^)]*"[^"]*\s[^"]*"',
+        "severity": "info",
+        "message": "Item name with spaces - consider underscore support",
+        "suggestion": "Use args.replace(\"_\", \" \") to support both formats"
     }
 ]
 
@@ -2000,5 +2039,234 @@ Requires blocking_trace instrumentation to be added first.""",
                 "default": 100
             }
         }
+    }
+}
+
+
+# =============================================================================
+# ROUTINE BUILDING & DISCOVERY TOOLS
+# =============================================================================
+
+def list_available_commands(plugin_dir: str, category: str = "all", search: str = None) -> dict:
+    """
+    List all available plugin commands by parsing PlayerHelpers.java.
+
+    Extracts commands from the switch statement and categorizes them.
+    Much faster than manually grepping the source.
+
+    Args:
+        plugin_dir: Path to manny plugin directory
+        category: Filter by category (movement, combat, skilling, banking, inventory, query, system, all)
+        search: Filter by keyword in command name
+
+    Returns:
+        Dict with command list, metadata, and categorization
+    """
+    plugin_path = Path(plugin_dir)
+    helpers_matches = list(plugin_path.rglob("PlayerHelpers.java"))
+
+    if not helpers_matches:
+        return {"success": False, "error": "PlayerHelpers.java not found"}
+
+    helpers_path = helpers_matches[0]
+
+    try:
+        content = helpers_path.read_text()
+        lines = content.split('\n')
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
+    # Find switch statement (look for case statements)
+    commands = []
+    case_pattern = re.compile(r'case\s+"([A-Z_]+)":')
+
+    for i, line in enumerate(lines, 1):
+        match = case_pattern.search(line)
+        if match:
+            cmd_name = match.group(1)
+
+            # Extract handler method name from next few lines
+            handler_name = None
+            for j in range(i, min(i + 5, len(lines))):
+                handler_match = re.search(r'return\s+(\w+)\s*\(', lines[j])
+                if handler_match:
+                    handler_name = handler_match.group(1)
+                    break
+
+            # Categorize command
+            cmd_category = categorize_command(cmd_name)
+
+            # Apply filters
+            if category != "all" and cmd_category != category:
+                continue
+            if search and search.lower() not in cmd_name.lower():
+                continue
+
+            commands.append({
+                "name": cmd_name,
+                "line": i,
+                "handler": handler_name,
+                "category": cmd_category
+            })
+
+    # Group by category
+    by_category = {}
+    for cmd in commands:
+        cat = cmd["category"]
+        if cat not in by_category:
+            by_category[cat] = []
+        by_category[cat].append(cmd["name"])
+
+    return {
+        "success": True,
+        "commands": commands,
+        "total_count": len(commands),
+        "by_category": by_category,
+        "categories": list(by_category.keys()),
+        "file": str(helpers_path)
+    }
+
+
+def categorize_command(cmd_name: str) -> str:
+    """Categorize a command based on its name."""
+    cmd_lower = cmd_name.lower()
+
+    if any(kw in cmd_lower for kw in ['goto', 'walk', 'path', 'move', 'navigate']):
+        return "movement"
+    elif any(kw in cmd_lower for kw in ['attack', 'kill', 'combat', 'fight', 'spell']):
+        return "combat"
+    elif any(kw in cmd_lower for kw in ['mine', 'fish', 'chop', 'cook', 'fire', 'skill', 'collect']):
+        return "skilling"
+    elif any(kw in cmd_lower for kw in ['bank', 'deposit', 'withdraw']):
+        return "banking"
+    elif any(kw in cmd_lower for kw in ['pick', 'drop', 'use_item', 'equip', 'bury', 'inventory']):
+        return "inventory"
+    elif any(kw in cmd_lower for kw in ['query', 'scan', 'find', 'get_', 'list', 'search']):
+        return "query"
+    elif any(kw in cmd_lower for kw in ['click', 'interact', 'dialogue', 'widget']):
+        return "interaction"
+    elif any(kw in cmd_lower for kw in ['camera', 'tab', 'mouse', 'key']):
+        return "input"
+    elif any(kw in cmd_lower for kw in ['start', 'stop', 'pause', 'resume', 'load', 'emergency']):
+        return "system"
+    else:
+        return "other"
+
+
+def get_command_examples(
+    command: str,
+    routines_dir: str = "/home/wil/manny-mcp/routines"
+) -> dict:
+    """
+    Find real usage examples of a command in routine YAML files.
+
+    Searches all routine files for uses of the specified command
+    and returns context showing how it's used in practice.
+
+    Args:
+        command: Command name to search for (e.g., "INTERACT_OBJECT")
+        routines_dir: Directory to search for routine files
+
+    Returns:
+        Dict with examples and usage statistics
+    """
+    examples = []
+    routines_path = Path(routines_dir)
+
+    if not routines_path.exists():
+        return {
+            "success": False,
+            "error": f"Routines directory not found: {routines_dir}"
+        }
+
+    yaml_files = list(routines_path.rglob("*.yaml")) + list(routines_path.rglob("*.yml"))
+
+    for yaml_file in yaml_files:
+        try:
+            routine = yaml.safe_load(yaml_file.read_text())
+
+            if not routine or 'steps' not in routine:
+                continue
+
+            for step in routine.get('steps', []):
+                if step.get('action') == command:
+                    examples.append({
+                        "routine": yaml_file.name,
+                        "routine_path": str(yaml_file),
+                        "routine_name": routine.get('name', 'Unknown'),
+                        "step_id": step.get('id'),
+                        "phase": step.get('phase'),
+                        "args": step.get('args'),
+                        "description": step.get('description'),
+                        "location": step.get('location'),
+                        "notes": step.get('notes'),
+                        "expected_result": step.get('expected_result')
+                    })
+        except Exception as e:
+            # Skip files that can't be parsed
+            pass
+
+    # Generate usage summary
+    arg_patterns = {}
+    for ex in examples:
+        if ex.get('args'):
+            arg_patterns[ex['args']] = arg_patterns.get(ex['args'], 0) + 1
+
+    return {
+        "success": True,
+        "command": command,
+        "examples": examples,
+        "total_uses": len(examples),
+        "used_in_routines": len(set(ex["routine"] for ex in examples)),
+        "common_arg_patterns": sorted(arg_patterns.items(), key=lambda x: -x[1])[:5],
+        "message": f"Found {len(examples)} uses of {command} across {len(set(ex['routine'] for ex in examples))} routines"
+    }
+
+
+# Tool definitions for new functions
+
+LIST_AVAILABLE_COMMANDS_TOOL = {
+    "name": "list_available_commands",
+    "description": """List all available plugin commands with categorization.
+
+Parses PlayerHelpers.java switch statement to extract all commands.
+Returns structured list with metadata for each command.
+
+Much faster than manually grepping source files.
+Useful for discovering what commands exist before building routines.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "category": {
+                "type": "string",
+                "enum": ["all", "movement", "combat", "skilling", "banking", "inventory", "query", "interaction", "input", "system", "other"],
+                "description": "Filter by command category (default: all)",
+                "default": "all"
+            },
+            "search": {
+                "type": "string",
+                "description": "Filter by keyword in command name"
+            }
+        }
+    }
+}
+
+GET_COMMAND_EXAMPLES_TOOL = {
+    "name": "get_command_examples",
+    "description": """Get real-world usage examples of a command from routine files.
+
+Searches all YAML routines for uses of the specified command.
+Returns examples with full context (args, description, location, etc.).
+
+Great for learning how to use a command or finding proven patterns.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "Command name to search for (e.g., 'INTERACT_OBJECT', 'GOTO')"
+            }
+        },
+        "required": ["command"]
     }
 }

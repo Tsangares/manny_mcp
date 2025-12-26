@@ -254,54 +254,70 @@ When you observe a bug or issue that requires code changes to the manny plugin, 
    get_game_state()
    ```
 
-2. **Gather context** for the code-fixing subagent (now auto-includes CLAUDE.md!)
+2. **Backup files** (for rollback if needed)
+   ```
+   backup_files(file_paths=["/path/to/File.java"])
+   ```
+
+3. **Gather context** for the code-fixing subagent (now auto-includes CLAUDE.md!)
    ```
    prepare_code_change(
      problem_description="Player gets stuck when pathfinding near obstacles...",
      relevant_files=["src/main/java/.../PathingManager.java"],
      logs="<error logs here>",
-     game_state={...}
+     game_state={...},
+     compact=True  # For large files - subagent uses Read tool
    )
    ```
 
-   This now automatically includes:
-   - Full CLAUDE.md content (guidelines, anti-patterns, wrappers)
+   This automatically includes:
+   - Condensed CLAUDE.md guidelines (essential patterns, anti-patterns, wrappers)
    - Architecture summary (READ/WRITE separation, thread safety)
    - Available wrappers reference
 
-3. **Spawn a Task subagent** to implement the fix
+4. **Spawn a Task subagent** to implement the fix
 
-   The context now includes all guidelines, so a simple prompt works:
+   **CRITICAL**: The subagent prompt must instruct anti-pattern checking:
    ```
    Task(
      prompt="Fix this issue in the manny plugin.
 
-             The context includes manny_guidelines (CLAUDE.md), architecture_summary,
-             and available_wrappers. Follow these patterns carefully.
+             CRITICAL INSTRUCTIONS:
+             1. Read /home/wil/Desktop/manny/CLAUDE.md FIRST for complete guidelines
+             2. Use check_anti_patterns tool to validate your changes BEFORE responding
+             3. Follow manny_guidelines patterns (included in context)
+             4. Make minimal, targeted changes
 
-             Context: {result from step 2}.
-             Make minimal, targeted changes. Edit the files directly.",
+             If check_anti_patterns finds issues, fix them before finalizing.
+
+             Context: {result from step 3}",
      subagent_type="general-purpose"
    )
    ```
 
-4. **Backup and validate** the changes
+5. **Validate compilation**
    ```
-   backup_files(file_paths=["/path/to/modified/File.java"])
    validate_code_change(modified_files=["PathingManager.java"])
    ```
-   - If errors: go back to step 3 with the error details
-   - If success: proceed to deploy
-   - If fix doesn't work: `rollback_code_change()` to restore originals
+   - If errors: return to step 4 with error details
+   - If success: proceed to step 6
 
-5. **Deploy and restart**
+6. **Check anti-patterns** (automated validation)
+   ```
+   check_anti_patterns(file_path="/path/to/modified/File.java")
+   ```
+   - If issues found with severity="error": return to step 4
+   - Warnings can proceed but should be noted
+
+7. **Deploy and restart**
    ```
    deploy_code_change(restart_after=True)
    stop_runelite()
    start_runelite()
    ```
 
-6. **Test the fix** by observing game behavior
+8. **Test the fix** by observing game behavior
+   - If fix doesn't work: `rollback_code_change()` and return to step 3
 
 ### Why This Workflow?
 
@@ -309,6 +325,155 @@ When you observe a bug or issue that requires code changes to the manny plugin, 
 - **Safety net**: `backup_files` + `rollback_code_change` let you undo broken fixes
 - **Clean context**: The subagent gets only the relevant code, not your entire monitoring context
 - **Separation of concerns**: Controller stays focused on testing, subagent focuses on code
+- **Automated validation**: `check_anti_patterns` catches common mistakes before deployment
+
+## Common Pitfalls Registry
+
+**Purpose**: Document recurring mistakes across Claude Code instances to prevent repetition.
+
+### Pitfall 1: Using smartClick() for NPCs
+**Symptom**: Thread violations, menu click failures, NPCs not being clicked
+**Why it happens**: `smartClick()` was deprecated but still exists in codebase, easy to use by mistake
+**Prevention**: `check_anti_patterns` detects this (error severity)
+**Fix**: Use `interactionSystem.interactWithNPC(name, action)` instead
+
+**Example:**
+```java
+// ❌ BAD - Thread violations!
+smartClick(npc.getConvexHull().getBounds());
+
+// ✅ GOOD - Thread-safe with built-in retry
+interactionSystem.interactWithNPC("Banker", "Bank");
+```
+
+### Pitfall 2: Manual GameObject boilerplate
+**Symptom**: 60-120 lines of CountDownLatch, clickbox fetching, menu clicking code
+**Why it happens**: Subagent doesn't know the wrapper exists, copies old patterns
+**Prevention**: Condensed guidelines now explicitly mention this, anti-pattern detector catches it
+**Fix**: Use `interactionSystem.interactWithGameObject(name, action, radius)`
+
+**Example:**
+```java
+// ❌ BAD - Manual boilerplate (60+ lines)
+GameObject obj = gameEngine.getGameObject(x, y);
+CountDownLatch latch = new CountDownLatch(1);
+Shape[] clickboxHolder = new Shape[1];
+clientThread.invokeLater(() -> {
+    try { clickboxHolder[0] = obj.getClickbox(); }
+    finally { latch.countDown(); }
+});
+latch.await(5, TimeUnit.SECONDS);
+// ... 50 more lines of menu fetching, clicking, retry logic
+
+// ✅ GOOD - One line with built-in retry, camera scanning, thread safety
+interactionSystem.interactWithGameObject("Furnace", "Smelt", 15);
+```
+
+### Pitfall 3: F-key usage for tab switching
+**Symptom**: Tab switching fails silently on different user configs
+**Why it happens**: F-keys are customizable in OSRS settings, what works for one config breaks on another
+**Prevention**: `check_anti_patterns` now detects F-key usage
+**Fix**: Use tab widget IDs instead
+
+**Example:**
+```java
+// ❌ BAD - Fails if user rebinds F6!
+keyboard.pressKey(KeyEvent.VK_F6);  // Might not be Magic tab!
+
+// ✅ GOOD - Direct widget click, always works
+final int TOPLEVEL = 548;
+final int MAGIC_TAB = (TOPLEVEL << 16) | 0x56;  // 35913814
+clickWidget(MAGIC_TAB);
+```
+
+### Pitfall 4: Missing interrupt checks in long loops
+**Symptom**: Commands can't be cancelled with KILL/STOP, appear to hang
+**Why it happens**: Forgot to add `shouldInterrupt` check in loop body
+**Prevention**: `check_anti_patterns` warns about loops without interrupt checks
+**Fix**: Add interrupt check in loop body
+
+**Example:**
+```java
+// ❌ BAD - Can't be interrupted
+for (int i = 0; i < 100; i++) {
+    doWork();
+    Thread.sleep(1000);
+}
+
+// ✅ GOOD - Respects interrupt signal
+for (int i = 0; i < 100; i++) {
+    if (shouldInterrupt) {
+        log.info("[CMD] Interrupted");
+        responseWriter.writeFailure("CMD", "Interrupted");
+        return false;
+    }
+    doWork();
+    Thread.sleep(1000);
+}
+```
+
+### Pitfall 5: Forgetting ResponseWriter in command handlers
+**Symptom**: MCP client doesn't know if command succeeded/failed, appears to hang
+**Why it happens**: Pattern not obvious to subagent, easy to forget
+**Prevention**: Condensed guidelines now include command handler template
+**Fix**: Always call `responseWriter.writeSuccess/writeFailure`
+
+**Example:**
+```java
+// ❌ BAD - No response written
+private boolean handleMyCommand(String args) {
+    log.info("[MY_COMMAND] Starting...");
+    doWork();
+    return true;  // MCP client never knows it finished!
+}
+
+// ✅ GOOD - Response written
+private boolean handleMyCommand(String args) {
+    log.info("[MY_COMMAND] Starting...");
+    try {
+        doWork();
+        responseWriter.writeSuccess("MY_COMMAND", "Done");  // ← Critical!
+        return true;
+    } catch (Exception e) {
+        log.error("[MY_COMMAND] Error", e);
+        responseWriter.writeFailure("MY_COMMAND", e);  // ← Critical!
+        return false;
+    }
+}
+```
+
+### Pitfall 6: Manual CountDownLatch instead of ClientThreadHelper
+**Symptom**: UI freezes, race conditions, complex error-prone code
+**Why it happens**: CountDownLatch pattern is well-known in Java, helper is not
+**Prevention**: Existing anti-pattern check catches this
+**Fix**: Use `helper.readFromClient(() -> ...)`
+
+**Example:**
+```java
+// ❌ BAD - 9+ lines, error-prone
+Widget[] widgetHolder = new Widget[1];
+CountDownLatch latch = new CountDownLatch(1);
+clientThread.invokeLater(() -> {
+    try {
+        widgetHolder[0] = client.getWidget(widgetId);
+    } finally {
+        latch.countDown();
+    }
+});
+latch.await(5, TimeUnit.SECONDS);
+Widget widget = widgetHolder[0];
+
+// ✅ GOOD - 1 line, safe
+Widget widget = helper.readFromClient(() -> client.getWidget(widgetId));
+```
+
+### How to Update This Registry
+
+When you discover a new recurring mistake:
+1. Add entry with: **Symptom**, **Why it happens**, **Prevention**, **Fix**
+2. Update `ANTI_PATTERNS` in `manny_tools.py` if the pattern is automatable
+3. Update condensed guidelines in `request_code_change.py` if pattern is very common
+4. Test that `check_anti_patterns` catches it before deployment
 
 ## Efficient Subagent Usage
 
@@ -474,3 +639,228 @@ You are a **monitor**, not the executor. The manny plugin runs autonomously - yo
 5. If stuck/idle unexpectedly → check logs, restart if needed
 6. Repeat until goal reached
 ```
+
+## Using Haiku Subagents for Fast Preprocessing
+
+Claude Code supports multiple models via the Task tool's `model` parameter. Use **Haiku** for fast, cheap preprocessing tasks that don't require complex reasoning.
+
+### Model Selection Guide
+
+| Task Type | Model | Why |
+|-----------|-------|-----|
+| Complex reasoning, code fixes, architecture decisions | `opus` or `sonnet` | Needs deep understanding |
+| Routine validation, log filtering, state summarization | `haiku` | Fast pattern matching, structured output |
+| Exploring codebase, finding files | `haiku` | Quick search, no complex reasoning |
+| Writing new routines, debugging issues | `sonnet` | Balance of speed and capability |
+
+### Haiku Subagent Recipes
+
+Use these patterns to offload preprocessing to Haiku:
+
+#### 1. Validate a Routine
+
+```python
+# Read the routine file first
+routine_content = Read("/home/wil/manny-mcp/routines/quests/cooks_assistant.yaml")
+
+# Spawn Haiku to validate
+Task(
+    prompt=f"""Validate this OSRS routine YAML. Check for:
+- Required fields: each step needs 'action' and 'description'
+- Valid actions: GOTO, INTERACT_NPC, INTERACT_OBJECT, BANK_OPEN, BANK_DEPOSIT_ALL, BANK_WITHDRAW, BANK_CLOSE, PICKUP_ITEM, USE_ITEM_ON_NPC, USE_ITEM_ON_OBJECT, DIALOGUE
+- Coordinates: x/y should be 0-15000, plane should be 0-3
+- GOTO args format: "x y plane" (three space-separated integers)
+
+Return JSON: {{"valid": true/false, "errors": [...], "warnings": [...]}}
+
+Routine:
+{routine_content}""",
+    subagent_type="general-purpose",
+    model="haiku"
+)
+```
+
+#### 2. Summarize Logs (Alert Filter)
+
+```python
+# Get raw logs via MCP
+logs = get_logs(level="ALL", since_seconds=60, max_lines=100)
+
+# Spawn Haiku to filter noise
+Task(
+    prompt=f"""Analyze these OSRS bot logs. Extract ONLY actionable issues:
+- Errors and exceptions
+- Stuck/failed patterns
+- Unexpected states
+
+Ignore: INFO messages, routine progress, expected retries (2/3, 3/3)
+
+Return JSON: {{"alerts": [{{"severity": "error|warn", "summary": "..."}}], "summary": "one line status"}}
+
+If no issues: {{"alerts": [], "summary": "Operating normally"}}
+
+Logs:
+{logs}""",
+    subagent_type="general-purpose",
+    model="haiku"
+)
+```
+
+#### 3. State Delta Summary
+
+```python
+# Compare two game states
+Task(
+    prompt=f"""Compare these OSRS game states. Summarize MEANINGFUL changes only.
+
+Format: "Moved X tiles | +Y items | -Z items | +N XP in Skill"
+If no changes: "No changes"
+
+Only report: position changes, inventory changes, XP gains, HP/Prayer changes.
+Ignore: timestamps, unchanged values.
+
+Previous: {previous_state}
+Current: {current_state}""",
+    subagent_type="general-purpose",
+    model="haiku"
+)
+```
+
+#### 4. Find Similar Patterns
+
+```python
+# When you need to find how something was done before
+Task(
+    prompt=f"""Search the routines directory for examples of multi-floor navigation.
+Look for patterns involving stairs, ladders, or plane changes.
+Summarize the patterns found with file names and step numbers.""",
+    subagent_type="Explore",
+    model="haiku"
+)
+```
+
+#### 5. Smart Widget Search
+
+The `scan_widgets` MCP command returns verbose data (widget IDs, text, bounds for every visible element). Use Haiku to extract what you need:
+
+```python
+# Get raw widget data
+widgets = scan_widgets()  # Returns {"widgets": [...], "count": 47}
+
+# Spawn Haiku to find specific elements
+Task(
+    prompt=f"""Analyze these OSRS UI widgets. Find:
+- Any dialogue options (clickable text choices)
+- The "Click here to continue" button if present
+- Bank interface elements (deposit/withdraw buttons)
+- Any quest-related text
+
+Return JSON:
+{{
+  "dialogue_options": ["option1", "option2"],
+  "has_continue_button": true/false,
+  "bank_open": true/false,
+  "quest_text": "relevant text or null"
+}}
+
+Widget data:
+{widgets}""",
+    subagent_type="general-purpose",
+    model="haiku"
+)
+```
+
+**Common widget search patterns:**
+
+| Looking for | Haiku prompt snippet |
+|-------------|---------------------|
+| Dialogue choices | "Find all clickable dialogue options" |
+| NPC speech | "Extract what the NPC is saying" |
+| Bank items | "List items visible in bank interface" |
+| Quest log | "Find quest-related text or objectives" |
+| Error messages | "Find any red/warning text" |
+| Button locations | "Find the deposit-all button bounds" |
+
+### When to Use Haiku vs MCP Tools
+
+**Use MCP tools directly when:**
+- You need raw data (game state, logs, screenshots)
+- The operation is simple (send command, check status)
+- You'll process the result yourself
+
+**Use Haiku subagent when:**
+- You need to filter/summarize large data (100 log lines → 3 alerts)
+- You need structured validation (YAML syntax + semantics)
+- You want to save tokens in your main context
+- The task is pattern matching, not reasoning
+
+### Token Savings Example
+
+**Without Haiku:**
+```
+get_logs() → 100 lines in your context → you analyze → response
+Total tokens: ~2000 input + ~500 output = 2500 tokens (Opus rate)
+```
+
+**With Haiku:**
+```
+get_logs() → spawn Haiku → Haiku returns "Operating normally"
+Total tokens: ~2000 Haiku input + ~50 Haiku output + ~100 in your context
+Savings: ~90% on the log analysis portion
+```
+
+## Extending MCP Tools with Subagents
+
+When considering whether to add AI-powered preprocessing to MCP tools, prefer spawning subagents from Claude Code rather than adding API calls to the MCP server.
+
+### Why Subagents Over MCP API Calls
+
+| Approach | Pros | Cons |
+|----------|------|------|
+| **Subagent (recommended)** | No API keys needed, uses existing billing, model selection flexibility, works with Claude Code auth | Slightly more verbose in prompts |
+| **MCP API calls** | Seamless tool interface, automatic | Requires separate API key, extra dependency, billing complexity |
+
+### Design Pattern
+
+Instead of adding Haiku/Claude API calls to `server.py`, structure MCP tools to return raw data and document subagent recipes in CLAUDE.md:
+
+```
+MCP Tool (server.py)          Claude Code (via CLAUDE.md recipes)
+─────────────────────         ─────────────────────────────────────
+get_logs() → raw lines   →    Task(model="haiku", prompt="summarize...")
+get_game_state() → JSON  →    Task(model="haiku", prompt="diff states...")
+
+Simple, no API keys           Flexible, uses existing auth
+```
+
+### When to Add MCP Tools vs Document Recipes
+
+**Add an MCP tool when:**
+- The operation is deterministic (no AI needed)
+- It wraps a system call or file read
+- It provides raw data for further processing
+
+**Document a recipe in CLAUDE.md when:**
+- The operation needs AI interpretation
+- Different situations need different models
+- The preprocessing logic might evolve
+
+### Example: Adding a New Preprocessing Task
+
+Bad approach (adds API dependency to server.py):
+```python
+# Don't do this in server.py
+@server.tool()
+async def smart_log_summary():
+    logs = get_logs_internal()
+    return await call_external_ai(logs)  # Requires API key!
+```
+
+Good approach (document recipe in CLAUDE.md):
+```markdown
+## Log Summary Recipe
+1. Call `get_logs(level="ALL", since_seconds=60)`
+2. Spawn: `Task(model="haiku", prompt="Summarize these logs: {logs}")`
+```
+
+This keeps the MCP server simple and leverages Claude Code's native multi-model support.
