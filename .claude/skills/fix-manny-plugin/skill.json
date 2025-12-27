@@ -1,0 +1,19 @@
+{
+  "name": "fix-manny-plugin",
+  "version": "2.0.0",
+  "description": "Enhanced workflow for fixing bugs in the manny RuneLite plugin with automated validation and anti-pattern detection",
+  "author": "manny-mcp",
+  "tags": ["code-fix", "validation", "manny", "runelite"],
+  "tools": [
+    "get_logs",
+    "get_game_state",
+    "backup_files",
+    "prepare_code_change",
+    "check_anti_patterns",
+    "validate_with_anti_pattern_check",
+    "deploy_code_change",
+    "rollback_code_change",
+    "stop_runelite",
+    "start_runelite"
+  ]
+}

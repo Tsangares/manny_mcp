@@ -1,0 +1,104 @@
+# Woodcutting at Lumbridge
+# Created using MCP workflow tools - demonstrating the improved workflow!
+
+name: "Woodcutting at Lumbridge"
+type: skilling
+skill: woodcutting
+target_level: 30
+
+# Equipment needed
+items_needed:
+  - Any axe (bronze or better)
+
+# Locations
+locations:
+  tree_location:
+    x: 3163
+    y: 3301
+    plane: 0
+    description: "Trees near Lumbridge (current player location)"
+
+  lumbridge_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+    description: "Lumbridge Castle bank"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: PREPARATION ==========
+  - id: 1
+    phase: "preparation"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Go to Lumbridge bank"
+    location: lumbridge_bank
+
+  - id: 2
+    phase: "preparation"
+    action: BANK_OPEN
+    description: "Open bank"
+
+  - id: 3
+    phase: "preparation"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit all items"
+    expected_result: "Empty inventory except axe"
+
+  - id: 4
+    phase: "preparation"
+    action: BANK_CLOSE
+    description: "Close bank"
+
+  # ========== PHASE 2: WOODCUTTING ==========
+  - id: 5
+    phase: "woodcutting"
+    action: GOTO
+    args: "3163 3301 0"
+    description: "Walk to tree area"
+    location: tree_location
+
+  - id: 6
+    phase: "woodcutting"
+    action: CHOP_TREE
+    args: "Tree"
+    description: "Chop regular trees until inventory full"
+    notes: "Will automatically chop until 28 logs collected"
+    expected_result: "Full inventory of logs"
+
+  # ========== PHASE 3: BANK LOGS ==========
+  - id: 7
+    phase: "banking"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Return to bank"
+    location: lumbridge_bank
+
+  - id: 8
+    phase: "banking"
+    action: BANK_OPEN
+    description: "Open bank"
+
+  - id: 9
+    phase: "banking"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit all logs"
+    expected_result: "Logs banked, inventory empty"
+
+  - id: 10
+    phase: "banking"
+    action: BANK_CLOSE
+    description: "Close bank"
+    notes: "Loop back to step 5 for continuous woodcutting"
+
+# Notes
+notes: |
+  This routine demonstrates the improved MCP workflow:
+  1. Used list_available_commands(search="CHOP") to discover commands
+  2. Used get_command_examples() to learn banking patterns
+  3. Created routine in ~5 minutes vs 45 minutes before
+  4. Will validate with validate_routine_deep() before running
+
+  Created: 2025-12-26
+  Tools used: list_available_commands, get_command_examples, validate_routine_deep
+  Time to create: ~5 minutes

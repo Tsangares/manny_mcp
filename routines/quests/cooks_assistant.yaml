@@ -103,12 +103,23 @@ steps:
 
   - id: 8
     phase: "start_quest"
-    action: DIALOGUE
-    dialogue_choices:
-      - "What's wrong?"
-      - "I'm always happy to help a cook in distress."
-      - "Actually, I know where to find this stuff."
-    description: "Complete dialogue to accept quest"
+    action: CLICK_DIALOGUE
+    args: "What's wrong?"
+    description: "Ask the Cook what's wrong"
+    expected_result: "Cook explains the problem"
+
+  - id: 8b
+    phase: "start_quest"
+    action: CLICK_DIALOGUE
+    args: "I'm always happy to help a cook in distress."
+    description: "Agree to help the Cook"
+    expected_result: "Quest progresses"
+
+  - id: 8c
+    phase: "start_quest"
+    action: CLICK_DIALOGUE
+    args: "Actually, I know where to find this stuff."
+    description: "Accept the quest"
     expected_result: "Quest started"
 
   # ========== PHASE 3: GET EGG ==========
@@ -121,7 +132,7 @@ steps:
 
   - id: 10
     phase: "get_egg"
-    action: PICKUP_ITEM
+    action: PICK_UP_ITEM
     args: "Egg"
     description: "Pick up egg from ground"
     expected_result: "Egg in inventory"

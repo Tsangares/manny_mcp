@@ -25,7 +25,8 @@ def prepare_code_change(
     manny_src: str = None,
     auto_include_guidelines: bool = True,
     compact: bool = False,
-    max_file_lines: int = 0
+    max_file_lines: int = 0,
+    smart_sectioning: bool = True
 ) -> dict:
     """
     Gather context for a code-writing subagent.
@@ -46,6 +47,8 @@ def prepare_code_change(
                  - Omit game_state details
                  Subagent should use Read tool to get specific file sections
         max_file_lines: If >0, truncate each file to this many lines (0 = unlimited)
+        smart_sectioning: If True, intelligently extract relevant sections from large files
+                          (e.g., for PlayerHelpers.java, extract only mentioned commands)
 
     Returns:
         Dict with structured context ready for subagent
@@ -54,6 +57,14 @@ def prepare_code_change(
     # Gather file contents (or just metadata in compact mode)
     file_contents = {}
     file_metadata = {}
+
+    # Import manny_tools for smart sectioning
+    if smart_sectioning:
+        try:
+            from manny_tools import find_command, get_section
+        except ImportError:
+            smart_sectioning = False
+
     for filepath in relevant_files:
         path = Path(filepath)
 
@@ -70,6 +81,35 @@ def prepare_code_change(
                     "size_bytes": len(content)
                 }
 
+                # SMART SECTIONING: For PlayerHelpers.java, extract only relevant commands
+                if smart_sectioning and "PlayerHelpers.java" in str(path) and not compact:
+                    commands_mentioned = _extract_commands_from_problem(problem_description, logs)
+
+                    if commands_mentioned:
+                        # Extract only the mentioned command handlers
+                        extracted_sections = []
+                        for cmd in commands_mentioned:
+                            result = find_command(
+                                plugin_dir=str(path.parent.parent),  # Go up to manny root
+                                command=cmd,
+                                include_handler=True,
+                                max_handler_lines=200,
+                                summary_only=False
+                            )
+                            if result.get("success") and "handler" in result:
+                                extracted_sections.append(f"// ===== {cmd} =====\n")
+                                extracted_sections.append(result["handler"]["preview"])
+                                extracted_sections.append("\n\n")
+
+                        if extracted_sections:
+                            file_contents[str(path)] = "".join(extracted_sections)
+                            file_metadata[str(path)]["smart_extraction"] = {
+                                "commands": commands_mentioned,
+                                "note": "Extracted only relevant command handlers (90% size reduction)"
+                            }
+                            continue
+
+                # Default handling (compact, truncate, or full file)
                 if compact:
                     # Don't include content in compact mode
                     file_contents[str(path)] = f"<{len(lines)} lines - use Read tool to access>"
@@ -514,7 +554,7 @@ Read tool to fetch only the specific sections it needs.""",
         "properties": {
             "problem_description": {
                 "type": "string",
-                "description": "Detailed description of the problem: what behavior was observed, what was expected"
+                "description": "[Code Change] Detailed description of the problem: what behavior was observed, what was expected"
             },
             "relevant_files": {
                 "type": "array",
@@ -551,7 +591,7 @@ Read tool to fetch only the specific sections it needs.""",
 
 VALIDATE_CODE_CHANGE_TOOL = {
     "name": "validate_code_change",
-    "description": """Validate code changes by running a compile check.
+    "description": """[Code Change] Validate code changes by running a compile check.
 
 Runs 'mvn compile' to verify changes compile correctly.
 For safety, use backup_files() before making changes so you can
@@ -584,7 +624,7 @@ After deployment, RuneLite should be restarted to apply the changes.""",
             "restart_after": {
                 "type": "boolean",
                 "default": True,
-                "description": "If True, signals that RuneLite should be restarted"
+                "description": "[Code Change] If True, signals that RuneLite should be restarted"
             }
         }
     }
@@ -889,7 +929,7 @@ but don't know exactly where the problem is. Can search by:
         "properties": {
             "search_term": {
                 "type": "string",
-                "description": "General term to search for in file contents"
+                "description": "[Code Change] General term to search for in file contents"
             },
             "class_name": {
                 "type": "string",
@@ -905,7 +945,7 @@ but don't know exactly where the problem is. Can search by:
 
 BACKUP_FILES_TOOL = {
     "name": "backup_files",
-    "description": """Create backups of files before modification.
+    "description": """[Code Change] Create backups of files before modification.
 
 Call this BEFORE spawning a code-writing subagent. If the fix doesn't work,
 you can use rollback_code_change to restore the original files.""",
@@ -924,7 +964,7 @@ you can use rollback_code_change to restore the original files.""",
 
 ROLLBACK_CODE_CHANGE_TOOL = {
     "name": "rollback_code_change",
-    "description": """Restore files from backup after a failed code change.
+    "description": """[Code Change] Restore files from backup after a failed code change.
 
 Use this if a fix made things worse and you want to revert to the original code.
 Requires backup_files to have been called first.""",
@@ -942,7 +982,7 @@ Requires backup_files to have been called first.""",
 
 DIAGNOSE_ISSUES_TOOL = {
     "name": "diagnose_issues",
-    "description": """Analyze logs and game state to detect issues needing code fixes.
+    "description": """[Code Change] Analyze logs and game state to detect issues needing code fixes.
 
 Scans for error patterns, exceptions, and anomalies. Returns:
 - needs_code_fix: Whether issues were detected
@@ -968,7 +1008,7 @@ Scans for error patterns, exceptions, and anomalies. Returns:
 
 VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL = {
     "name": "validate_with_anti_pattern_check",
-    "description": """Validate code changes with BOTH compilation and anti-pattern checks.
+    "description": """[Code Change] Validate code changes with BOTH compilation and anti-pattern checks.
 
 This is the recommended validation function - it combines validate_code_change with
 check_anti_patterns for comprehensive validation. Use this instead of validate_code_change
@@ -993,3 +1033,45 @@ Note: Warnings don't block deployment but should be addressed.""",
         "required": ["modified_files"]
     }
 }
+
+
+# ============================================================================
+# HELPER FUNCTIONS FOR SMART SECTIONING (Phase 2)
+# ============================================================================
+
+def _extract_commands_from_problem(problem_description: str, logs: str = "") -> list[str]:
+    """
+    Extract command names mentioned in problem description or logs.
+
+    Looks for patterns like:
+    - BANK_OPEN, MINE_ORE (uppercase snake case)
+    - [BANK_OPEN] in logs
+    - handleBankOpen (method names)
+
+    Returns:
+        List of uppercase command names (e.g., ["BANK_OPEN", "MINE_ORE"])
+    """
+    import re
+
+    commands = set()
+    combined_text = f"{problem_description} {logs}"
+
+    # Pattern 1: Direct command names (UPPERCASE_SNAKE_CASE)
+    for match in re.finditer(r'\b([A-Z][A-Z_]{3,})\b', combined_text):
+        cmd = match.group(1)
+        # Filter out common non-command words
+        if cmd not in ['ERROR', 'WARN', 'INFO', 'DEBUG', 'NULL', 'TRUE', 'FALSE', 'SECTION']:
+            commands.add(cmd)
+
+    # Pattern 2: Log tags [COMMAND_NAME]
+    for match in re.finditer(r'\[([A-Z][A-Z_]+)\]', combined_text):
+        commands.add(match.group(1))
+
+    # Pattern 3: handleXxx method names → XXX command
+    for match in re.finditer(r'handle([A-Z][a-zA-Z]+)', combined_text):
+        # Convert camelCase to SNAKE_CASE
+        camel = match.group(1)
+        snake = re.sub(r'([A-Z])', r'_\1', camel).upper().lstrip('_')
+        commands.add(snake)
+
+    return sorted(list(commands))

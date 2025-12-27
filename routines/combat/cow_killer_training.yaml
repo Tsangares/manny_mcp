@@ -1,0 +1,109 @@
+# Cow Killer Combat Training
+# Created using MCP workflow tools
+
+name: "Cow Killer Combat Training"
+type: combat
+skill: combat
+target_level: 30
+
+# Equipment needed
+equipment_needed:
+  - weapon: "Bronze sword or better"
+  - armor: "Any combat armor (optional)"
+
+# Locations
+locations:
+  lumbridge_cow_pen:
+    x: 3253
+    y: 3266
+    plane: 0
+    description: "Cow pen east of Lumbridge Castle"
+
+  lumbridge_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+    description: "Lumbridge Castle bank"
+
+# Training routine
+steps:
+  # ========== PHASE 1: EQUIPMENT CHECK ==========
+  - id: 1
+    phase: "preparation"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Go to bank"
+    location: lumbridge_bank
+
+  - id: 2
+    phase: "preparation"
+    action: BANK_OPEN
+    description: "Open bank"
+
+  - id: 3
+    phase: "preparation"
+    action: EQUIP_BEST_MELEE
+    description: "Equip best available melee gear from bank"
+    notes: "Automatically finds and equips best weapons/armor"
+
+  - id: 4
+    phase: "preparation"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit everything except equipment"
+    expected_result: "Empty inventory with gear equipped"
+
+  - id: 5
+    phase: "preparation"
+    action: BANK_CLOSE
+    description: "Close bank"
+
+  # ========== PHASE 2: COMBAT TRAINING ==========
+  - id: 6
+    phase: "combat"
+    action: GOTO
+    args: "3253 3266 0"
+    description: "Walk to cow pen"
+    location: lumbridge_cow_pen
+
+  - id: 7
+    phase: "combat"
+    action: KILL_LOOP
+    args: "Cow 100"
+    description: "Kill 100 cows for combat XP"
+    notes: "Automatically attacks, waits for kill, finds next target, repeats"
+    expected_result: "Combat XP gained, 100 cows defeated"
+
+  # ========== PHASE 3: COLLECT HIDES (OPTIONAL) ==========
+  - id: 8
+    phase: "collection"
+    action: KILL_COW_GET_HIDES
+    args: "200"
+    description: "Kill cows and collect hides for money"
+    notes: "Alternative: Kills cows AND picks up cowhide drops"
+    expected_result: "Combat XP + cowhide inventory"
+
+# Combat settings
+combat_settings:
+  combat_style: "Aggressive"  # For attack XP
+  food: "Optional - cows are low level"
+  prayer: "Not needed"
+  restore_health_at: 50
+
+# Notes
+notes: |
+  Two modes available:
+
+  1. KILL_LOOP: Pure combat training (no looting)
+     - Fastest XP/hour
+     - No inventory management
+     - Use for pure combat levels
+
+  2. KILL_COW_GET_HIDES: Combat + money making
+     - Kills cows and loots cowhide
+     - Banks when inventory full
+     - Use for combat + GP
+
+  Created with MCP tools:
+  - list_available_commands(category="combat")
+  - Found specialized KILL_COW commands
+  - validate_routine_deep() confirmed all commands exist

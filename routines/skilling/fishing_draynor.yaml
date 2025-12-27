@@ -1,0 +1,82 @@
+# Fishing at Draynor Village
+# Auto-generated using the new MCP workflow tools!
+
+name: "Fishing at Draynor Village"
+type: skilling
+skill: fishing
+target_level: 40
+
+# Quest item requirements
+items_needed:
+  - small_fishing_net
+
+# Locations
+locations:
+  draynor_fishing_spot:
+    x: 3087
+    y: 3233
+    plane: 0
+    description: "Fishing spot at Draynor Village dock"
+
+  lumbridge_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+    description: "Lumbridge Castle bank (top floor)"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: PREPARATION ==========
+  - id: 1
+    phase: "preparation"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Walk to Lumbridge bank"
+    location: lumbridge_bank
+
+  - id: 2
+    phase: "preparation"
+    action: BANK_OPEN
+    description: "Open bank"
+
+  - id: 3
+    phase: "preparation"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit all items to make space"
+    expected_result: "Empty inventory"
+
+  - id: 4
+    phase: "preparation"
+    action: BANK_WITHDRAW
+    args: "Small fishing net 1"
+    description: "Withdraw fishing net"
+    notes: "Required for shrimp/anchovies"
+
+  - id: 5
+    phase: "preparation"
+    action: BANK_CLOSE
+    description: "Close bank interface"
+
+  # ========== PHASE 2: FISH AT DRAYNOR ==========
+  - id: 6
+    phase: "fishing"
+    action: FISH_DRAYNOR_LOOP
+    args: "45"
+    description: "Fish at Draynor until inventory nearly full (45/28 slots)"
+    location: draynor_fishing_spot
+    notes: "This command handles fishing + banking automatically"
+    expected_result: "Fishing XP gained, inventory fills then banks"
+
+# Execution notes
+notes: |
+  This routine uses the FISH_DRAYNOR_LOOP command which:
+  - Walks to Draynor fishing spot
+  - Fishes shrimp/anchovies until inventory full
+  - Walks to Lumbridge bank
+  - Banks fish
+  - Repeats until stopped
+
+  Created using the new MCP workflow:
+  1. list_available_commands(search="FISH") - discovered FISH_DRAYNOR_LOOP
+  2. validate_routine_deep() - verified all commands exist
+  3. Ready to run!
