@@ -1,0 +1,75 @@
+# Basic Test Routine
+# Simple routine to test command execution and system functionality
+
+name: "Basic System Test"
+type: test
+created: "2025-12-26"
+skill: testing
+
+# Purpose: Verify command/response system works correctly
+description: |
+  A simple test routine to verify:
+  1. Command execution works
+  2. Camera controls function
+  3. Player can receive and respond to commands
+  4. Game state updates correctly
+
+# Starting position
+starting_location:
+  x: 3163
+  y: 3301
+  plane: 0
+  description: "Current player location"
+
+# Test sequence
+steps:
+  # ========== TEST 1: PING ==========
+  - id: 1
+    phase: "connectivity"
+    action: PING
+    args: "basic_test_start"
+    description: "Verify command/response system works"
+    expected_result: "Ping response received"
+
+  # ========== TEST 2: CAMERA RESET ==========
+  - id: 2
+    phase: "camera"
+    action: CAMERA_RESET
+    description: "Reset camera to default position"
+    expected_result: "Camera pitch/yaw reset"
+
+  # ========== TEST 3: WAIT ==========
+  - id: 3
+    phase: "timing"
+    action: WAIT
+    args: "2000"
+    description: "Wait 2 seconds (2000ms)"
+    expected_result: "2 second pause"
+
+  # ========== TEST 4: GET STATE ==========
+  - id: 4
+    phase: "state"
+    action: GET_GAME_STATE
+    description: "Retrieve current game state"
+    expected_result: "Game state returned with LOGGED_IN status"
+
+  # ========== TEST 5: FINAL PING ==========
+  - id: 5
+    phase: "completion"
+    action: PING
+    args: "basic_test_complete"
+    description: "Confirm test sequence completed"
+    expected_result: "Final ping response received"
+
+# Validation notes
+validation:
+  - "All commands should execute in <5 seconds total"
+  - "Each command should return success status"
+  - "No error logs should be generated"
+  - "Player should remain at starting location"
+
+# Success criteria
+success_criteria:
+  - "All 5 commands execute successfully"
+  - "Response file updates for each command"
+  - "No exceptions or errors in logs"

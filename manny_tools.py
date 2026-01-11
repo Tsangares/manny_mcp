@@ -116,12 +116,14 @@ latch.await(5, TimeUnit.SECONDS);"""
 }
 
 
-def get_manny_guidelines(plugin_dir: str) -> dict:
+def get_manny_guidelines(plugin_dir: str, mode: str = "full", section: Optional[str] = None) -> dict:
     """
     Read the manny plugin's CLAUDE.md guidelines.
 
     Args:
         plugin_dir: Path to manny plugin directory
+        mode: "full" (all guidelines), "condensed" (key patterns), "section" (specific section)
+        section: Section name when mode="section" (e.g., "Thread Safety", "Command Wrappers")
 
     Returns:
         Dict with guidelines content and metadata
@@ -136,12 +138,73 @@ def get_manny_guidelines(plugin_dir: str) -> dict:
 
     try:
         content = claude_md_path.read_text()
-        return {
-            "success": True,
-            "path": str(claude_md_path),
-            "content": content,
-            "lines": len(content.split('\n'))
-        }
+
+        if mode == "full":
+            return {
+                "success": True,
+                "path": str(claude_md_path),
+                "content": content,
+                "lines": len(content.split('\n')),
+                "mode": "full"
+            }
+
+        elif mode == "condensed":
+            # Extract key sections for quick reference
+            condensed_sections = []
+
+            # Extract specific sections
+            patterns = [
+                (r"## 🚨 STOP.*?(?=\n##)", "Critical Warnings"),
+                (r"## Command Wrappers.*?(?=\n##)", "Available Wrappers"),
+                (r"## Thread Safety.*?(?=\n##)", "Thread Safety Rules"),
+                (r"## Common Pitfalls.*?(?=\n##)", "Common Pitfalls"),
+            ]
+
+            for pattern, name in patterns:
+                match = re.search(pattern, content, re.DOTALL)
+                if match:
+                    condensed_sections.append(f"### {name}\n{match.group(0)}")
+
+            condensed_content = "\n\n".join(condensed_sections) if condensed_sections else content[:2000]
+
+            return {
+                "success": True,
+                "path": str(claude_md_path),
+                "content": condensed_content,
+                "lines": len(condensed_content.split('\n')),
+                "mode": "condensed"
+            }
+
+        elif mode == "section" and section:
+            # Extract specific section
+            pattern = rf"## {re.escape(section)}.*?(?=\n##|\Z)"
+            match = re.search(pattern, content, re.DOTALL | re.IGNORECASE)
+
+            if match:
+                section_content = match.group(0)
+                return {
+                    "success": True,
+                    "path": str(claude_md_path),
+                    "content": section_content,
+                    "lines": len(section_content.split('\n')),
+                    "mode": "section",
+                    "section": section
+                }
+            else:
+                # Section not found, list available sections
+                sections = re.findall(r"^## (.+)$", content, re.MULTILINE)
+                return {
+                    "success": False,
+                    "error": f"Section '{section}' not found",
+                    "available_sections": sections
+                }
+
+        else:
+            return {
+                "success": False,
+                "error": f"Invalid mode '{mode}' or missing section"
+            }
+
     except Exception as e:
         return {
             "success": False,
@@ -1773,6 +1836,36 @@ def get_blocking_trace(
 # =============================================================================
 # MCP TOOL DEFINITIONS
 # =============================================================================
+
+GET_MANNY_GUIDELINES_TOOL = {
+    "name": "get_manny_guidelines",
+    "description": """Get manny plugin development guidelines from CLAUDE.md.
+
+Returns formatted guidelines with syntax highlighting and structure.
+
+Modes:
+- 'full': Complete CLAUDE.md (use for in-depth understanding)
+- 'condensed': Key patterns only (use for quick reference)
+- 'section': Specific section (e.g., 'Thread Safety', 'Command Wrappers')
+
+Use 'condensed' or 'section' mode for subagents to minimize context.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "mode": {
+                "type": "string",
+                "enum": ["full", "condensed", "section"],
+                "description": "Content mode: 'full', 'condensed', or 'section'",
+                "default": "full"
+            },
+            "section": {
+                "type": "string",
+                "description": "Section name when mode='section' (e.g., 'Thread Safety')"
+            }
+        },
+        "required": []
+    }
+}
 
 GET_PLUGIN_CONTEXT_TOOL = {
     "name": "get_plugin_context",

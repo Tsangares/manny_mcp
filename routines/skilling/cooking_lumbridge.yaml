@@ -1,0 +1,253 @@
+# Cooking Routine - Lumbridge Castle Range
+# Cooks raw fish at the Lumbridge Castle kitchen range
+# TESTED: 2025-01-05 - Level-up handler auto-dismisses dialogues, cooking 21→23
+# CRITICAL: Use SOUTHERN staircase only! Northern leads to complex indoor navigation.
+
+name: "Cooking at Lumbridge Range"
+description: "Cook raw fish at Lumbridge Castle range, banking on top floor"
+type: "skilling"
+skill: "cooking"
+
+# Configuration - change these for different foods
+config:
+  raw_food: "Raw shrimps"      # What to withdraw (use spaces for items)
+  cooked_food: "Shrimps"       # Expected cooked result
+  quantity: 27                 # How many to cook per trip
+
+requirements:
+  items:
+    - name: "Raw shrimps"
+      quantity: 27
+      note: "Or Raw anchovies, etc."
+  locations:
+    - name: "Lumbridge Castle"
+      note: "Bank on plane 2, Range on plane 0"
+
+# CRITICAL LOCATIONS - Use southern stairwell exclusively!
+locations:
+  lumbridge_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+    description: "Lumbridge Castle bank (top floor)"
+
+  cooking_range:
+    x: 3212
+    y: 3215
+    plane: 0
+    description: "Lumbridge Castle kitchen - Cooking range"
+
+  southern_staircase_ground:
+    x: 3204
+    y: 3207
+    plane: 0
+    description: "SOUTHERN staircase - ground floor (USE THIS ONE!)"
+
+  southern_staircase_top:
+    x: 3205
+    y: 3209
+    plane: 2
+    description: "SOUTHERN staircase - top floor (near bank)"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: BANK - WITHDRAW RAW FOOD ==========
+  - id: 1
+    phase: "banking"
+    action: BANK_OPEN
+    description: "Open bank interface"
+    notes: "Must be near banker NPC on plane 2"
+
+  - id: 2
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Raw anchovies 27"
+    description: "Withdraw raw fish to cook"
+    await_condition: "has_item:Raw anchovies"
+    notes: "Item names use SPACES: 'Raw shrimps' not 'Raw_shrimps'"
+
+  - id: 3
+    phase: "banking"
+    action: BANK_CLOSE
+    description: "Close bank interface"
+
+  # ========== PHASE 2: NAVIGATE DOWN (SOUTHERN STAIRS) ==========
+  - id: 4
+    phase: "navigate_down"
+    action: GOTO
+    args: "3205 3210 2"
+    description: "Walk to southern staircase area"
+    await_condition: "location:3205,3210"
+    timeout_ms: 15000
+    notes: "CRITICAL: Must be near SOUTHERN staircase (3205,3209), not northern!"
+
+  - id: 5
+    phase: "navigate_down"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Climb down from bank floor (plane 2 to 1)"
+    await_condition: "plane:1"
+    timeout_ms: 10000
+    notes: "First climb - from plane 2 to plane 1"
+
+  - id: 6
+    phase: "navigate_down"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Climb down to kitchen (plane 1 to 0)"
+    await_condition: "plane:0"
+    timeout_ms: 10000
+    notes: "Second climb - from plane 1 to plane 0 (kitchen level)"
+
+  # ========== PHASE 3: COOK ==========
+  - id: 7
+    phase: "cooking"
+    action: INTERACT_OBJECT
+    args: "Range Cook"
+    description: "Click on Range to start cooking"
+    notes: |
+      IMPORTANT: Object name is 'Range' (simple name)
+      NOT 'Cooking_range' - that fails!
+      This opens the cooking interface automatically.
+
+  - id: 8
+    phase: "cooking"
+    action: CLICK_WIDGET
+    args: "17694735"
+    description: "Click shrimp icon in cooking interface to start cooking"
+    delay_before_ms: 1000
+    notes: "Widget 270:15 (ID 17694735) - Raw shrimps cooking button. CLICK_WIDGET handles coordinate conversion."
+
+  - id: 9
+    phase: "cooking"
+    action: WAIT
+    await_condition: "no_item:Raw anchovies"
+    timeout_ms: 90000
+    description: "Wait for cooking to complete"
+    notes: |
+      Cooking 27 fish takes ~30-45 seconds.
+      Level-up dialogues are auto-dismissed by LevelUpHandler.
+      Cooking continues automatically after level-ups!
+
+  # ========== PHASE 4: NAVIGATE UP (SOUTHERN STAIRS) ==========
+  - id: 10
+    phase: "navigate_up"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb up from ground floor (plane 0 to 1)"
+    await_condition: "plane:1"
+    timeout_ms: 10000
+    notes: "Southern staircase is right next to kitchen"
+
+  - id: 11
+    phase: "navigate_up"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb up to bank floor (plane 1 to 2)"
+    await_condition: "plane:2"
+    timeout_ms: 10000
+
+  - id: 12
+    phase: "navigate_up"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Walk back to bank area"
+    await_condition: "location:3208,3220"
+    timeout_ms: 10000
+    notes: "Complete the circuit - walk from stairs to bank"
+
+  # ========== PHASE 5: DEPOSIT AND REPEAT ==========
+  - id: 13
+    phase: "deposit"
+    action: BANK_OPEN
+    description: "Open bank to deposit cooked food"
+
+  - id: 14
+    phase: "deposit"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit all cooked fish and burnt fish"
+    notes: "Deposits Shrimps, Burnt shrimp, and any other items"
+
+  - id: 15
+    phase: "deposit"
+    action: BANK_CLOSE
+    description: "Close bank before next trip"
+
+  # Loop back to step 1 for next trip
+
+# Execution notes from ACTUAL TESTING
+notes: |
+  TESTED: 2025-01-04
+  Successfully cooked 27 Raw shrimps → ~24 Shrimps + ~3 Burnt shrimp
+  Cooking level: 18 → 19 (720 XP gained)
+
+  KEY LEARNINGS:
+
+  1. OBJECT NAMES - Check exact name first:
+     - Range (simple name works!)
+     - Large_door (for doors with multi-word names)
+
+  2. ITEM NAMES use SPACES:
+     - "Raw shrimps" (NOT Raw_shrimps)
+     - "Pot of flour" (NOT Pot_of_flour)
+
+  3. Use SOUTHERN STAIRCASE (3204, 3207):
+     - Much closer to kitchen/range
+     - Avoids navigating through dining room
+     - Northern staircase (3204, 3229) requires more walking
+
+  4. COOKING WORKFLOW:
+     a. INTERACT_OBJECT Range Cook (opens interface)
+     b. KEY_PRESS Space (confirms cook all)
+     c. Wait for no_item:Raw shrimps
+     d. Level-up dialogues now auto-dismissed by LevelUpHandler!
+
+  5. LEVEL-UP DIALOGUES:
+     - LevelUpHandler now auto-dismisses by spamming Space 5x
+     - Cooking continues automatically after level-up
+     - No manual intervention needed!
+
+  6. CRITICAL NAVIGATION WARNING:
+     - ALWAYS use SOUTHERN staircase (3205, 3209)
+     - NEVER use northern staircase - leads to dining room
+     - Northern path requires complex indoor navigation through tables
+     - Pathfinder gets stuck trying to route through dining room
+
+  7. INDOOR NAVIGATION:
+     - Scan for doors before moving
+     - Large_door separates dining room from hallway
+     - Don't blindly GOTO through walls
+
+  To change fish type:
+  - Step 2: "Raw anchovies 27"
+  - Step 8 await_condition: "no_item:Raw anchovies"
+
+  Expected results:
+  - XP per shrimp: 30 (cooked) or 0 (burnt)
+  - Burn rate at level 18-19: ~10-15%
+  - Trip time: ~2-3 minutes
+
+# MCP execution pattern
+mcp_execution: |
+  # One trip example:
+  send_command("BANK_OPEN")
+  send_command("BANK_WITHDRAW Raw shrimps 27")
+  send_command("BANK_CLOSE")
+  send_and_await("INTERACT_OBJECT Staircase Climb-down", "plane:1")
+  send_and_await("INTERACT_OBJECT Staircase Climb-down", "plane:0")
+  send_command("INTERACT_OBJECT Cooking_range Cook")
+  send_command("KEY_PRESS Space")  # After 1 second delay
+  await_state_change("no_item:Raw shrimps", timeout_ms=60000)
+  send_and_await("INTERACT_OBJECT Staircase Climb-up", "plane:1")
+  send_and_await("INTERACT_OBJECT Staircase Climb-up", "plane:2")
+  send_command("BANK_OPEN")
+  send_command("BANK_DEPOSIT_ALL")
+  send_command("BANK_CLOSE")
+
+# Loop configuration
+loop:
+  enabled: true
+  repeat_from_step: 1
+  stop_conditions:
+    - "no_item_in_bank:Raw shrimps"
+    - "cooking_level:99"

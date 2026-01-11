@@ -1,0 +1,64 @@
+# RuneLite MCP Server Configuration
+# Copy this file to config.yaml and fill in your credentials
+
+# Path to the runelite repository root (for building)
+runelite_root: /home/wil/Desktop/runelite
+
+# Path to the plugin source (manny plugin)
+plugin_directory: /home/wil/Desktop/manny
+
+# RuneLite client JAR (built from source) - set to null to use exec:java instead
+runelite_jar: null
+
+# Use mvn exec:java to run (more reliable when building from source)
+use_exec_java: true
+
+# Java executable
+java_path: java
+
+# RuneLite CLI args (passed via -Dexec.args when using exec:java)
+runelite_args: []
+
+# X11 display for RuneLite
+display: ":2"
+
+# VirtualGL settings (not needed with weston - it provides GPU via XWayland)
+use_virtualgl: false
+vgl_display: ":0"
+
+# Log settings
+log_file: ~/.runelite/logs/client.log
+log_buffer_size: 10000
+plugin_logger_prefix: "manny"
+
+# Command interface (manny plugin bi-directional control)
+command_file: /tmp/manny_command.txt
+state_file: /tmp/manny_state.json
+
+# Session persistence
+session_file: /home/wil/manny-mcp/debug-session.json
+
+# Video streaming configuration (dashboard)
+video_streaming:
+  encoder: "auto"
+  framerate: 24
+  bitrate: "2M"
+  preset: "veryfast"
+  keyframe_interval: 48
+
+# Jagex launcher session credentials for auto-login
+# Get these from the Jagex Launcher after authenticating
+jx_character_id: ""
+jx_display_name: ""
+jx_session_id: ""
+
+# Multi-client support (optional)
+# Add additional accounts here for running multiple clients
+# accounts:
+#   alt:
+#     display: ":3"
+#     jx_character_id: "YOUR_ALT_CHARACTER_ID"
+#     jx_display_name: "AltAccountName"
+#     jx_session_id: "YOUR_ALT_SESSION_ID"
+#
+# default_account: default

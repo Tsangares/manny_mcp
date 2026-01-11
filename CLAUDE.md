@@ -8,26 +8,85 @@ This is an MCP (Model Context Protocol) server that enables Claude Code to auton
 
 The linked `manny_src` directory points to the manny RuneLite plugin at `/home/wil/Desktop/manny`.
 
+## Autonomy Guidelines ⚡
+
+**Be autonomous and decisive.** Don't ask for approval on technical decisions.
+
+**You decide:** Implementation approach, architecture, refactoring, wrappers, edge cases.
+**Ask user only about:** Fundamental requirement ambiguities, external system decisions.
+
+**Pattern:** Analyze → Check existing patterns → Make decision → Implement → Document briefly.
+
+For complex architectural decisions, use the `decision-maker` subagent instead of `AskUserQuestion`.
+
+## Command Debugging Workflow ⚡
+
+**When a command doesn't work as expected, follow this pattern:**
+
+```python
+# 1. CHECK LOGS IMMEDIATELY (not screenshots, not workarounds)
+get_logs(level="ALL", since_seconds=30, grep="BANK")  # or relevant command
+
+# 2. If format unclear, CHECK EXAMPLES
+get_command_examples(command="BANK_WITHDRAW")
+
+# 3. Then retry with correct format
+```
+
+**Why this matters:** Commands return `{"sent": true}` even if they parse arguments incorrectly. The logs show exactly what the plugin parsed. Don't assume the command format - verify it.
+
+**Anti-pattern (wastes 10+ tool calls):**
+```python
+send_command("BANK_WITHDRAW 27 Raw lobster")  # Wrong order!
+# Sees nothing happen...
+find_widget("lobster")  # ❌ Rabbit hole
+click_text("All")       # ❌ More rabbit holes
+send_input(click, x, y) # ❌ Even more rabbit holes
+```
+
+**Correct pattern (2-3 tool calls):**
+```python
+send_command("BANK_WITHDRAW 27 Raw lobster")  # Wrong order
+# Sees nothing happen...
+get_logs(grep="BANK")  # Shows: "Item name: '27 Raw lobster'" - AH!
+get_command_examples(command="BANK_WITHDRAW")  # Shows correct format
+send_command("BANK_WITHDRAW Raw lobster 27")  # Fixed!
+```
+
+## Working with Manny Plugin Code
+
+**IMPORTANT:** Always use the `manny_src` symlink for accessing plugin code:
+
+```python
+# ✅ GOOD - Relative paths via symlink
+Read("manny_src/utility/PlayerHelpers.java")
+Edit(file_path="manny_src/CLAUDE.md", ...)
+Glob("manny_src/**/*.java")
+
+# ❌ AVOID - Absolute paths
+Read("/home/wil/Desktop/manny/utility/PlayerHelpers.java")
+```
+
+**Quick navigation:** See `.claude/workspace-nav.md` for common paths and workflows.
+
+**Context access:** The manny plugin has its own CLAUDE.md at `manny_src/CLAUDE.md`. When making code changes:
+- Read it directly: `Read("manny_src/CLAUDE.md")`
+- Use `prepare_code_change()` which auto-includes condensed guidelines
+
 ## Performance Optimizations ⚡
 
-This MCP server has been optimized for production use (see `OPTIMIZATIONS.md` for details):
+This MCP server has been optimized for production use:
 
-- **10x faster builds** - Incremental compilation by default (30s vs 5min)
-- **500x faster commands** - Event-driven file monitoring (<1ms vs 500ms)
-- **1,000x faster searches** - Indexed code navigation (0.05ms vs 50ms)
-- **938x faster queries** - LRU caching for repeated operations
+- **10x faster builds** - Incremental compilation (30s vs 5min)
+- **500x faster commands** - Event-driven file monitoring
+- **1,000x faster searches** - Indexed code navigation
+- **938x faster queries** - LRU caching
 - **90% less I/O** - Smart state change detection
 - **99% smaller context** - Intelligent file sectioning
 
-All optimizations are automatic and backward compatible. No configuration needed.
+All optimizations are automatic. No configuration needed.
 
-**Documentation:**
-- `OPTIMIZATION_QUICK_REFERENCE.md` - Quick lookup (start here!)
-- `OPTIMIZATIONS.md` - Phases 1-3 implementation details
-- `CONFIGURATION.md` - Settings tuning guide
-- `OPTIMIZATION_ROADMAP.md` - All phases overview
-- `OPTIMIZATION_PHASE4_AUDIT.md` - Future optimizations (Phase 4)
-- `monitor.py` - Performance monitoring tool
+**Documentation:** See `OPTIMIZATION_QUICK_REFERENCE.md` (start here!) and `OPTIMIZATIONS.md`.
 
 **Quick monitoring:**
 ```bash
@@ -35,7 +94,19 @@ All optimizations are automatic and backward compatible. No configuration needed
 ./monitor.py --watch           # Live monitoring mode
 ```
 
-**Status:** Phases 1-3 complete (production ready), Phase 4 audited and planned
+## Available Skills
+
+This project has specialized skills for autonomous Claude Code sessions:
+
+### diagnose-performance
+Proactively check performance health and suggest optimizations.
+
+**Use when:** Performance issues, after implementing features, periodically during long sessions.
+
+### fix-manny-plugin
+Fix bugs and issues in the manny plugin codebase.
+
+**Use when:** Code changes needed to fix observed bugs or add features.
 
 ## Architecture
 
@@ -57,94 +128,467 @@ All optimizations are automatic and backward compatible. No configuration needed
 ## Available MCP Tools
 
 ### Core Tools
-
-- **build_plugin**: Compile the manny plugin (`mvn compile -pl runelite-client`)
-- **start_runelite**: Launch RuneLite on display :2 via `mvn exec:java`
+- **build_plugin**: Compile the manny plugin
+- **start_runelite**: Launch RuneLite on display :2
 - **stop_runelite**: Stop the managed RuneLite process
-- **get_logs**: Get filtered logs from RuneLite (by level, time, grep, plugin_only)
+- **get_logs**: Get filtered logs (by level, time, grep, plugin_only)
 - **runelite_status**: Check if RuneLite is running
-- **send_command**: Write command to `/tmp/manny_command.txt` for the manny plugin
+- **send_command**: Write command to `/tmp/manny_command.txt`
 - **get_game_state**: Read game state from `/tmp/manny_state.json`
-- **get_screenshot**: Capture RuneLite window screenshot (fullscreen by default)
-- **analyze_screenshot**: Use Gemini AI to analyze game screenshot (always fullscreen for better context)
+- **get_screenshot**: Capture RuneLite window screenshot
+- **analyze_screenshot**: Use Gemini AI to analyze game screenshot
 - **check_health**: Verify process, state file, and window health
+- **is_alive**: Fast crash check (<1 second) - use for quick polling
+- **auto_reconnect**: Automatically handle disconnection (click OK, wait for reconnect)
+
+**Detecting Plugin Freeze:**
+
+The state file (`/tmp/manny_state.json`) is updated every GameTick (~600ms). If it becomes stale, the plugin has frozen.
+
+```python
+health = check_health()
+stale_seconds = health["state_file"]["age_seconds"]
+
+if stale_seconds > 30:
+    # Plugin frozen - restart required
+    start_runelite()
+```
+
+**Staleness thresholds:**
+- < 5 seconds: Normal
+- 5-30 seconds: Possible lag or loading screen
+- > 30 seconds: Plugin frozen, restart needed
+
+### State-Aware Waiting Tools ⚡
+These tools replace manual `sleep` + `get_game_state` polling:
+
+- **await_state_change**: Wait for a game state condition to be met
+- **send_and_await**: Send command AND wait for condition (combined)
+
+**Supported conditions:**
+- `plane:N` - Player on plane N (0, 1, or 2)
+- `has_item:ItemName` - Inventory contains item (case-insensitive)
+- `no_item:ItemName` - Inventory doesn't have item
+- `inventory_count:<=N` or `>=N` or `<N` or `>N` - Slot count comparison
+- `location:X,Y` - Player within 3 tiles of coordinates
+- `idle` - Player not moving
+
+**Example - Before (3 tool calls):**
+```python
+send_command("INTERACT_OBJECT Ladder Climb-up")
+Bash("sleep 3")  # Wasteful fixed delay
+get_game_state()  # Manual verification
+```
+
+**Example - After (1 tool call):**
+```python
+send_and_await(
+    command="INTERACT_OBJECT Ladder Climb-up",
+    await_condition="plane:2",
+    timeout_ms=10000
+)
+# Returns: {"success": true, "elapsed_ms": 2004, "final_state": {...}}
+```
+
+**Benefits:**
+- 70% fewer tool calls
+- Early exit when condition met (avg 2s vs 3s fixed sleep)
+- Returns final state for verification
+- Reduces context usage during long sessions
 
 ### Code Change Tools
-
-- **prepare_code_change**: Gather file contents, logs, game state, AND manny guidelines for a code-fixing subagent. Auto-includes CLAUDE.md, architecture summary, and wrapper reference.
-- **validate_code_change**: Compile to verify changes work. Use with backup_files/rollback_code_change for safety.
+- **prepare_code_change**: Gather context for code-fixing subagent (auto-includes CLAUDE.md guidelines)
+- **validate_code_change**: Compile to verify changes work
 - **deploy_code_change**: Real build + restart signal
-- **backup_files**: Create backups before modifications (for rollback)
+- **backup_files**: Create backups before modifications
 - **rollback_code_change**: Restore files from backup if fix fails
-- **diagnose_issues**: Analyze logs and game state to detect issues needing code fixes
+- **diagnose_issues**: Analyze logs and game state to detect issues
 
 ### Manny Plugin Navigation Tools
-
-- **get_plugin_context**: Get architectural context (architecture summary, available wrappers, command reference)
-- **get_section**: Navigate large files by section markers. PlayerHelpers.java has sections like "SECTION 4: SKILLING OPERATIONS"
-- **find_command**: Find a command's switch case AND handler method in PlayerHelpers.java
-- **find_pattern**: Search for patterns: "command", "wrapper", "thread", "anti_pattern", or "custom"
+- **get_plugin_context**: Get architectural context (architecture, wrappers, commands)
+- **get_section**: Navigate large files by section markers
+- **find_command**: Find command's switch case AND handler method
+- **find_pattern**: Search for patterns (command, wrapper, thread, anti_pattern, custom)
 - **find_relevant_files**: Search plugin source by class name, search term, or error message
+- **generate_command_template**: Generate skeleton command handler
+- **check_anti_patterns**: Scan code for known anti-patterns
+- **get_manny_guidelines**: Get development guidelines (full/condensed/section modes)
 
-### Code Generation Tools
+### Code Intelligence Tools
+IDE-like features for navigating and understanding code:
 
-- **generate_command_template**: Generate skeleton command handler following project patterns
-- **check_anti_patterns**: Scan code for known anti-patterns (CountDownLatch, smartClick for NPCs, etc.)
+- **find_usages**: Find all usages of a symbol (method, class, field) with context
+- **find_definition**: Jump to definition of a symbol (class, method, field)
+- **get_call_graph**: Show what a method calls and what calls it (call graph analysis)
+- **run_tests**: Execute Maven tests with pattern matching
+
+Examples:
+```python
+# Find where a method is used
+find_usages(symbol="interactWithNPC", context_lines=3)
+
+# Jump to a class definition
+find_definition(symbol="GameEngine", symbol_type="class")
+
+# Analyze method dependencies
+get_call_graph(method="handleBankOpen", depth=2)
+
+# Run specific tests
+run_tests(pattern="PathingManagerTest")
+```
 
 ### Routine Building Tools
+Discover game state, find interactable elements, and verify actions:
 
-These tools help you discover game state, find interactable elements, and verify actions worked:
+- **list_available_commands**: Discover all 90 commands instantly
+- **get_command_examples**: Learn from existing routines
+- **validate_routine_deep**: Pre-flight error checking with typo suggestions
+- **scan_widgets**: Scan all visible widgets (IDs, text, bounds)
+- **get_dialogue**: Check if dialogue is open, get available options
+- **click_text**: Find a widget by text and click it
+- **click_continue**: Click "Click here to continue" in dialogues
+- **query_nearby**: Get nearby NPCs, objects, and ground items with available actions
+- **get_command_response**: Read last response from plugin
 
-- **scan_widgets**: Scan all visible widgets (returns IDs, text, bounds). Use `filter_text` to find specific elements.
-- **get_dialogue**: Check if dialogue is open, get available options and their widget IDs.
-- **click_text**: Find a widget by text and click it. Returns success/failure.
-- **click_continue**: Click "Click here to continue" in dialogues.
-- **query_nearby**: Get nearby NPCs and objects with their available actions.
-- **get_command_response**: Read the last response from `/tmp/manny_response.json`.
+### Ground Item Interaction
+To pick up items on the ground (including items on tables/shelves which are TileItems):
 
-## Routine Building Workflow
+1. **Discover ground items:**
+   ```python
+   query_nearby(include_ground_items=True)
+   # Or use scan_tile_objects for detailed info:
+   scan_tile_objects(object_name="Bucket")
+   ```
 
-When building routines (multi-step automations), follow this pattern:
+2. **Pick up the item:**
+   ```python
+   send_and_await(
+       command="PICK_UP_ITEM Bucket",
+       await_condition="has_item:Bucket",
+       timeout_ms=10000
+   )
+   ```
 
-### 1. Discover → 2. Act → 3. Verify
+**Note:** Items displayed on tables (like buckets in Lumbridge cellar) appear as GroundItems with "Take" action. Use `PICK_UP_ITEM <itemName>` to collect them.
+
+## Routine Building
+
+**Quick workflow:** Use new MCP tools for 12x faster routine creation (5 min vs 55 min) with 90% error prevention.
+
+```python
+# 1. Discover (30 sec)
+list_available_commands(search="FISH")
+
+# 2. Learn (1 min)
+get_command_examples(command="FISH_DRAYNOR_LOOP")
+
+# 3. Create (3 min) - Write your_routine.yaml
+
+# 4. Validate (30 sec)
+validate_routine_deep(routine_path="your_routine.yaml")
+```
+
+**Documentation:** See `TOOLS_USAGE_GUIDE.md`, `COMMAND_REFERENCE.md`, and `ROUTINE_CATALOG.md`.
+
+**Pattern: Discover → Act → Verify**
 
 ```
 # 1. DISCOVER: What's available?
-query_nearby(name_filter="Cook")           → Find NPCs/objects
-scan_widgets(filter_text="What's wrong")   → Find UI elements
-get_dialogue()                              → Check dialogue state
+query_nearby(name_filter="Cook")
+scan_widgets(filter_text="What's wrong")
+get_dialogue()
 
 # 2. ACT: Do something
-send_command("INTERACT_NPC Cook Talk-to")  → Interact with game
-click_text("What's wrong?")                 → Click dialogue option
-click_continue()                            → Advance dialogue
+send_command("INTERACT_NPC Cook Talk-to")
+click_text("What's wrong?")
+click_continue()
 
 # 3. VERIFY: Did it work?
-get_dialogue()                              → Check new state
-get_command_response()                      → Check last command result
+get_dialogue()
+get_command_response()
 ```
 
-### Example: Quest Dialogue
+**Key Principles:**
+1. Always verify - Check responses and game state
+2. Use game data, not positions - Prefer `click_text("...")` over `send_input(click, x, y)`
+3. Scan before acting - Use `query_nearby` and `scan_widgets` first
+4. Handle failures - If `click_text` fails, use `scan_widgets` to see what's visible
 
+## Indoor Navigation Protocol
+
+**CRITICAL:** Indoor navigation requires spatial awareness. NEVER naively click toward a destination inside buildings.
+
+### The Problem
+
+Inside buildings (castles, houses, dungeons):
+- Walls block direct paths
+- Multiple doors may exist - wrong door = trapped in wrong room
+- Object names vary ("Door" vs "Large_door" vs "Trapdoor")
+
+### The Protocol
+
+**BEFORE any indoor navigation:**
+
+```python
+# 1. SCAN: Understand surroundings
+env = scan_environment(radius=15)
+# Returns: player position, doors with directions, objects of interest
+
+# 2. UNDERSTAND: Build mental model
+# - "I am at (3211, 3218)"
+# - "Target (Cooking range) is south at (3212, 3215)"
+# - "Doors: Large_door (north), Door (west)"
+# - "Wall blocks direct path to target"
+
+# 3. PLAN: Route through doors
+# - "To reach range (south), exit via Large_door (north) first"
+# - "Walk around to kitchen entrance"
+
+# 4. EXECUTE: Step by step
+send_command("INTERACT_OBJECT Large_door Open")  # Open correct door
+get_game_state()  # Verify door opened
+send_and_await("GOTO 3212 3216 0", "location:3212,3216")  # Walk to destination
 ```
-1. send_command("INTERACT_NPC Cook Talk-to")
-2. Wait briefly, then get_dialogue()
-   → {"dialogue_open": true, "has_continue": true}
-3. click_continue()
-   → {"success": true}
-4. get_dialogue()
-   → {"dialogue_open": true, "options": [{"text": "What's wrong?", ...}]}
-5. click_text("What's wrong?")
-   → {"success": true, "clicked": "What's wrong?"}
-6. Repeat until quest started
+
+### Object Naming Rules
+
+| Type | Convention | Example |
+|------|------------|---------|
+| Objects | Underscores for multi-word | `Large_door`, `Cooking_range` |
+| Items | Spaces | `Raw shrimps`, `Pot of flour` |
+
+**ALWAYS scan first** to get exact names:
+```python
+scan_tile_objects("door")  # Find: "Large_door", "Door", "Trapdoor"
+scan_tile_objects("range")  # Find: "Cooking range" (exact name)
 ```
 
-### Key Principles
+### Anti-Patterns (NEVER DO)
 
-1. **Always verify** - Don't assume commands worked. Check the response or game state.
-2. **Use game data, not positions** - Prefer `click_text("What's wrong?")` over `send_input(click, x=450, y=670)`.
-3. **Scan before acting** - Use `query_nearby` and `scan_widgets` to discover what's available.
-4. **Handle failures** - If `click_text` fails, try `scan_widgets` to see what text is actually visible.
+```python
+# ❌ BAD: Click toward destination through walls
+send_command("GOTO 3212 3215 0")  # Fails - wall in the way
+
+# ❌ BAD: Open "nearest door" without checking
+send_command("INTERACT_OBJECT Door Open")  # Might be wrong door!
+
+# ❌ BAD: Assume object names
+send_command("INTERACT_OBJECT Range Cook")  # Wrong - it's "Cooking_range"
+```
+
+### Correct Pattern
+
+```python
+# ✅ GOOD: Scan → Plan → Execute → Verify
+env = scan_environment()
+# See: Large_door (north), Cooking_range (south, blocked by wall)
+
+# Plan: Exit north, walk around, enter kitchen
+send_command("INTERACT_OBJECT Large_door Open")
+get_game_state()  # Verify position changed
+
+send_and_await("GOTO 3212 3220 0", "location:3212,3220")  # Walk to hallway
+send_and_await("GOTO 3212 3216 0", "location:3212,3216")  # Walk to kitchen
+send_command("INTERACT_OBJECT Cooking_range Cook")
+```
+
+### Location Knowledge
+
+Pre-defined locations are available via `get_location_info()`:
+```python
+get_location_info(area="lumbridge_castle", room="kitchen")
+# Returns: center coords, key objects, nearby doors, connections
+```
+
+See `data/locations/lumbridge.yaml` for defined locations.
+
+## Port Sarim / Karamja Travel
+
+**Key locations:**
+- **Deposit Box**: (3029, 3210, 0) - Port Sarim dock
+- **Captain Tobias**: Near (3029, 3216, 0) - Karamja ferry captain
+- **Karamja (Musa Point)**: ~(2954, 3146, 0) - Fishing spot destination
+
+**CRITICAL - Do NOT cross the gangplank!**
+The gangplank at Port Sarim leads to a different ship (charter/quest ship), NOT the Karamja ferry. Crossing it traps you on a ship that requires talking to sailors.
+
+**Correct travel method:**
+1. Use `INTERACT_NPC Captain_Tobias Travel` (Port Sarim → Karamja)
+2. Use `INTERACT_NPC Customs_officer Pay-fare` (Karamja → Port Sarim)
+3. Wait for automatic travel (~3 seconds)
+
+**Troubleshooting NPC interactions:**
+- If INTERACT_NPC isn't working, try zooming in with `CAMERA_PITCH 512`
+- Always right-click NPCs for travel actions (Pay-fare, Travel)
+- The ferry NPCs are: Captain Tobias (Port Sarim), Customs Officer (Karamja return)
+
+## Code Fix Workflow
+
+When you observe a bug requiring code changes to the manny plugin:
+
+### Quick Steps
+
+1. **Identify the problem**
+   ```
+   get_logs(level="ERROR", since_seconds=60)
+   get_game_state()
+   ```
+
+2. **Backup files** (for rollback if needed)
+   ```
+   backup_files(file_paths=["/path/to/File.java"])
+   ```
+
+3. **Gather context** (auto-includes CLAUDE.md!)
+   ```
+   prepare_code_change(
+     problem_description="Player gets stuck when pathfinding...",
+     relevant_files=["src/.../PathingManager.java"],
+     logs="<error logs>",
+     game_state={...},
+     compact=True  # For large files - subagent uses Read tool
+   )
+   ```
+
+4. **Spawn subagent** to implement the fix
+   ```
+   Task(
+     prompt="Fix this issue in the manny plugin.
+             CRITICAL:
+             1. Read /home/wil/Desktop/manny/CLAUDE.md for complete guidelines
+             2. Use check_anti_patterns to validate changes BEFORE responding
+             3. Make minimal, targeted changes
+
+             Context: {result from step 3}",
+     subagent_type="general-purpose"
+   )
+   ```
+
+5. **Validate** → **Deploy** → **Test**
+   ```
+   validate_code_change(modified_files=["File.java"])
+   check_anti_patterns(file_path="/path/to/File.java")
+   deploy_code_change(restart_after=True)
+   # Test by observing game behavior
+   ```
+
+### Why This Workflow?
+
+- **Rich context**: `prepare_code_change` auto-includes CLAUDE.md, architecture, wrappers
+- **Safety net**: `backup_files` + `rollback_code_change` let you undo broken fixes
+- **Automated validation**: `check_anti_patterns` catches common mistakes before deployment
+
+## Common Pitfalls
+
+The `check_anti_patterns` tool detects these automatically:
+
+1. **Using smartClick() for NPCs** → Use `interactionSystem.interactWithNPC(name, action)`
+2. **Manual GameObject boilerplate** → Use `interactionSystem.interactWithGameObject(name, action, radius)`
+3. **F-key usage for tab switching** → Use tab widget IDs instead
+4. **Missing interrupt checks in loops** → Add `shouldInterrupt` check in loop body
+5. **Forgetting ResponseWriter** → Always call `responseWriter.writeSuccess/writeFailure`
+6. **Manual CountDownLatch** → Use `helper.readFromClient(() -> ...)`
+
+**See examples:** Read manny_src/CLAUDE.md for detailed examples and fixes.
+
+**Update this registry:** When you discover new recurring mistakes, add them to manny_src/CLAUDE.md and update the `check_anti_patterns` tool.
+
+## Known Limitations ⚠️
+
+These are known issues that haven't been fixed yet. Work around them or fix in plugin.
+
+### Shop Interface Widget Clicking (User Error - Fixed)
+
+**Original Problem:** `CLICK_WIDGET <id>` on shop items triggered "Value" check instead of purchase.
+
+**Root Cause:** Default left-click on shop items shows Value. Need to specify action.
+
+**Solution:** Pass the action as second parameter:
+```python
+# ❌ Wrong - triggers Value check
+send_command("CLICK_WIDGET 19660816")
+
+# ✅ Correct - buys the item
+send_command('CLICK_WIDGET 19660816 "Buy 1"')
+send_command('CLICK_WIDGET 19660816 "Buy 5"')
+```
+
+**Journal:** `journals/shop_widget_click_issue_2025-01-07.md`
+
+### FISH Command NPC ID Conflict (Possibly Fixed)
+
+**Problem:** At locations with multiple fishing spot types (e.g., Musa Point), different spot types share the same name "Fishing spot" but have different NPC IDs and actions.
+
+| NPC ID | Actions | Fish Types |
+|--------|---------|------------|
+| 1521 | Small Net, Bait | Shrimp, Anchovies |
+| 1522 | Cage, Harpoon | Lobster, Tuna |
+
+**Status:** The `interactWithNPC` method now uses `findNPCByNameAndAction` which filters by action. This should fix the issue - **needs testing at Musa Point** to verify.
+
+**If still broken:** The fix filters by action, but if there's still an issue, `INTERACT_NPC_BY_ID` would be needed.
+
+**Journal:** `journals/fishing_karamja_2025-01-07.md`
+
+### Deposit Box Virtual Widgets
+
+**Note:** This was fixed! The `deposit_item()` MCP tool now handles deposit box correctly.
+
+The deposit box interface (192, 2) doesn't create real widgets for items - they're rendered directly from inventory. The grid is **4 columns x 7 rows** (not 7 columns). Coordinates are affected by UI scaling (`-Dsun.java2d.uiScale=2.0`).
+
+**Journal:** `journals/deposit_box_lessons_2025-01-08.md`
+
+### Thread Contention (Fixed)
+
+**Original Problem:** 4 background threads competed for actions, causing duplicate logs.
+
+**Fix Applied:** Commands now run sequentially - before starting a new command, the plugin:
+1. Cancels any existing command task
+2. Sets `shouldInterrupt = true` to signal loops to exit
+3. Waits 500ms for cleanup
+4. Only then starts the new command
+
+If you still see duplicate logs from different threads, it may be a different issue.
+
+## Efficient Subagent Usage
+
+MCP tools can return large responses. Use "compact" and "summary" modes for subagents:
+
+| Tool | Option | Effect |
+|------|--------|--------|
+| `prepare_code_change` | `compact=true` | Returns file metadata only. Subagent uses Read tool. |
+| `find_command` | `summary_only=true` | Returns line numbers and signatures only. |
+| `get_section` | `summary_only=true` | Returns line ranges only. |
+
+**Pattern:**
+```python
+# Compact context for subagent
+context = prepare_code_change(..., compact=True)
+
+# Subagent uses Read tool to fetch only what it needs
+Task(prompt=f"Context: {context}. Use Read tool for file contents.")
+```
+
+**When to use compact mode:**
+- Files are large (>500 lines)
+- Multiple files needed
+- Subagent only modifies small section
+
+## Model Selection & Large Outputs
+
+| Task Type | Model |
+|-----------|-------|
+| Code fixes, architecture decisions | `opus` or `sonnet` |
+| Log filtering, state summarization, finding files | `haiku` |
+| Writing routines, debugging | `sonnet` |
+
+**Large-output tools** (`scan_widgets`, `query_nearby`, `get_logs`): Use Haiku subagent to filter/summarize, or use `find_widget()` for simple text searches.
+
+```python
+# ❌ BAD: scan_widgets() floods context (~13k tokens)
+# ✅ GOOD: Use find_widget() or delegate to Haiku
+find_widget(text="Cook", max_results=5)
+```
 
 ## Setup
 
@@ -161,7 +605,6 @@ Edit `config.yaml` to customize paths. Key settings:
 
 - `runelite_root`: RuneLite repo path (for Maven builds)
 - `display`: X11 display for RuneLite (default `:2`)
-- `runelite_args`: CLI args passed to RuneLite
 - `command_file`: Where to write commands (`/tmp/manny_command.txt`)
 - `state_file`: Where plugin writes state (`/tmp/manny_state.json`)
 
@@ -169,476 +612,107 @@ Edit `config.yaml` to customize paths. Key settings:
 
 Run `./start_screen.sh` first to start a virtual display on `:2`. RuneLite runs on this display to avoid blocking the laptop's main screen.
 
+**CRITICAL: Verify RuneLite is managed before sending commands!**
+
+If RuneLite was started manually (not via MCP), commands won't execute. The plugin reads commands on GameTick events, but the MCP server won't know about an unmanaged process.
+
+```python
+# Always check at session start
+status = runelite_status()
+if not status.get("process", {}).get("managed"):
+    start_runelite()  # Kills existing, starts managed process
+```
+
+**Signs commands aren't executing:**
+- `send_command()` returns success but nothing happens in-game
+- State file exists but isn't updating
+- No log activity after commands
+
 ## Dashboard
 
-To start or restart the web dashboard:
+Start or restart the web dashboard:
 
 ```bash
 ./start_dashboard.sh
 ```
 
-The dashboard runs on `http://0.0.0.0:8080` and provides:
-- Live video stream of the game viewport (FFmpeg-based)
-- Real-time game state display
-- MCP activity log
-- Player stats and health monitoring
+The dashboard runs on `http://0.0.0.0:8080` with live video stream, game state, MCP activity log, and player stats.
 
 ## Related Paths
 
 - RuneLite source: `/home/wil/Desktop/runelite`
 - Manny plugin source: `/home/wil/Desktop/manny` (symlinked as `manny_src`)
 
-## Capture Methods (Weston/XWayland Display :2)
+## Screenshots and Video Capture
 
-**Current Window Dimensions:** 1592x1006
+**Window Dimensions:** 1592x1006
 
-### Screenshots
-- **Tool:** ImageMagick `import -window <window_id>`
-- **Why:** Works with Weston/XWayland compositing (FFmpeg x11grab shows black)
-- **Command:** `DISPLAY=:2 import -window $(xdotool search --name "RuneLite" | head -1) output.png`
-
-### Video Capture
-- **Issue:** FFmpeg x11grab doesn't work with Weston (captures black screen)
-- **Workaround:** Capture frames with ImageMagick, encode with FFmpeg
-- **Example:**
-  ```bash
-  # Capture frames in parallel
-  window_id=$(DISPLAY=:2 xdotool search --name "RuneLite" | head -1)
-  for i in $(seq 1 60); do
-    DISPLAY=:2 import -window "$window_id" "frame_$(printf %04d $i).png" &
-  done
-  wait
-  # Encode to video
-  ffmpeg -framerate 20 -i frame_%04d.png -c:v libx264 -pix_fmt yuv420p output.mp4
-  ```
-
-### Viewport Crop (Game Area Only)
-To crop to just the game viewport (3D world + chatbox, excluding minimap/inventory):
-- **Dimensions:** 892x1006
-- **Offset:** +0+0 (top-left)
-- **Crop command:** `magick <input> -crop 892x1006+0+0 +repage <output>`
-
-## Screenshot Modes
-
-The MCP server supports two screenshot modes:
-
-### Viewport Mode (892x1006 cropped)
-- Captures only the game viewport (3D world + chatbox)
-- Excludes minimap, inventory, stats, and right sidebar
-- Coordinates: 892x1006+0+0
-- Used by: Dashboard (when cropping enabled)
-
-### Fullscreen Mode (entire window)
-- Captures the complete RuneLite window with all UI elements
-- Includes minimap, inventory, stats, chatbox, and all panels
-- Used by: MCP tools (`get_screenshot`, `analyze_screenshot`)
-- Better for AI analysis - provides full context
-
-### Usage
-
-**Dashboard**: Uses FFmpeg to capture viewport directly from X11 display
-**get_screenshot**: Returns fullscreen by default (can be changed to viewport mode in future)
-**analyze_screenshot**: Always uses fullscreen for better Gemini analysis context
-
-The `take_screenshot()` function in `server.py` supports both modes via the `mode` parameter:
-- `mode="fullscreen"` (default): Entire RuneLite window
-- `mode="viewport"`: Cropped to game viewport using coordinates 1020x666+200+8
-
-## Code Fix Workflow
-
-When you observe a bug or issue that requires code changes to the manny plugin, follow this workflow. This keeps the controller Claude focused on testing while a subagent handles the actual code modifications.
-
-### Architecture
-
-```
-┌─────────────────────────────────────┐
-│  Controller Claude Code             │  ← You (uses MCP, monitors game)
-│  - Observes game behavior           │
-│  - Identifies issues                │
-│  - Tests fixes                      │
-└──────────────┬──────────────────────┘
-               │
-               │ prepare_code_change → context
-               ▼
-┌─────────────────────────────────────┐
-│  Code-writing Subagent (Task tool)  │  ← Fresh context, edits files
-│  - Analyzes problem                 │
-│  - Makes targeted code changes      │
-└──────────────┬──────────────────────┘
-               │
-               ▼
-┌─────────────────────────────────────┐
-│  Controller Claude Code             │
-│  - validate_code_change (safe)      │  ← Compiles in temp dir
-│  - deploy_code_change (rebuild)     │  ← Real build when ready
-│  - Restart and test                 │
-└─────────────────────────────────────┘
+**Screenshots:** Use ImageMagick (works with Weston/XWayland)
+```bash
+DISPLAY=:2 import -window $(xdotool search --name "RuneLite" | head -1) output.png
 ```
 
-### Step-by-Step
+**Screenshot Modes:**
+- **Viewport Mode (892x1006)**: Game viewport only (3D world + chatbox)
+- **Fullscreen Mode**: Complete RuneLite window with all UI elements (better for AI analysis)
 
-1. **Identify the problem** via logs, game state, or observation
-   ```
-   get_logs(level="ERROR", since_seconds=60)
-   get_game_state()
-   ```
+MCP tools (`get_screenshot`, `analyze_screenshot`) use fullscreen by default for better context.
 
-2. **Backup files** (for rollback if needed)
-   ```
-   backup_files(file_paths=["/path/to/File.java"])
-   ```
+**UI Scaling Note:**
 
-3. **Gather context** for the code-fixing subagent (now auto-includes CLAUDE.md!)
-   ```
-   prepare_code_change(
-     problem_description="Player gets stuck when pathfinding near obstacles...",
-     relevant_files=["src/main/java/.../PathingManager.java"],
-     logs="<error logs here>",
-     game_state={...},
-     compact=True  # For large files - subagent uses Read tool
-   )
-   ```
+RuneLite runs with `-Dsun.java2d.uiScale=2.0`. This affects coordinate calculations:
+- Widget bounds are in **logical pixels** (pre-scaled)
+- Screen measurements are in **physical pixels** (2x logical)
+- A 24px screen measurement = 12 logical pixels in code
 
-   This automatically includes:
-   - Condensed CLAUDE.md guidelines (essential patterns, anti-patterns, wrappers)
-   - Architecture summary (READ/WRITE separation, thread safety)
-   - Available wrappers reference
-
-4. **Spawn a Task subagent** to implement the fix
-
-   **CRITICAL**: The subagent prompt must instruct anti-pattern checking:
-   ```
-   Task(
-     prompt="Fix this issue in the manny plugin.
-
-             CRITICAL INSTRUCTIONS:
-             1. Read /home/wil/Desktop/manny/CLAUDE.md FIRST for complete guidelines
-             2. Use check_anti_patterns tool to validate your changes BEFORE responding
-             3. Follow manny_guidelines patterns (included in context)
-             4. Make minimal, targeted changes
-
-             If check_anti_patterns finds issues, fix them before finalizing.
-
-             Context: {result from step 3}",
-     subagent_type="general-purpose"
-   )
-   ```
-
-5. **Validate compilation**
-   ```
-   validate_code_change(modified_files=["PathingManager.java"])
-   ```
-   - If errors: return to step 4 with error details
-   - If success: proceed to step 6
-
-6. **Check anti-patterns** (automated validation)
-   ```
-   check_anti_patterns(file_path="/path/to/modified/File.java")
-   ```
-   - If issues found with severity="error": return to step 4
-   - Warnings can proceed but should be noted
-
-7. **Deploy and restart**
-   ```
-   deploy_code_change(restart_after=True)
-   stop_runelite()
-   start_runelite()
-   ```
-
-8. **Test the fix** by observing game behavior
-   - If fix doesn't work: `rollback_code_change()` and return to step 3
-
-### Why This Workflow?
-
-- **Rich context**: `prepare_code_change` auto-includes CLAUDE.md, architecture summary, and wrappers
-- **Safety net**: `backup_files` + `rollback_code_change` let you undo broken fixes
-- **Clean context**: The subagent gets only the relevant code, not your entire monitoring context
-- **Separation of concerns**: Controller stays focused on testing, subagent focuses on code
-- **Automated validation**: `check_anti_patterns` catches common mistakes before deployment
-
-## Common Pitfalls Registry
-
-**Purpose**: Document recurring mistakes across Claude Code instances to prevent repetition.
-
-### Pitfall 1: Using smartClick() for NPCs
-**Symptom**: Thread violations, menu click failures, NPCs not being clicked
-**Why it happens**: `smartClick()` was deprecated but still exists in codebase, easy to use by mistake
-**Prevention**: `check_anti_patterns` detects this (error severity)
-**Fix**: Use `interactionSystem.interactWithNPC(name, action)` instead
-
-**Example:**
-```java
-// ❌ BAD - Thread violations!
-smartClick(npc.getConvexHull().getBounds());
-
-// ✅ GOOD - Thread-safe with built-in retry
-interactionSystem.interactWithNPC("Banker", "Bank");
-```
-
-### Pitfall 2: Manual GameObject boilerplate
-**Symptom**: 60-120 lines of CountDownLatch, clickbox fetching, menu clicking code
-**Why it happens**: Subagent doesn't know the wrapper exists, copies old patterns
-**Prevention**: Condensed guidelines now explicitly mention this, anti-pattern detector catches it
-**Fix**: Use `interactionSystem.interactWithGameObject(name, action, radius)`
-
-**Example:**
-```java
-// ❌ BAD - Manual boilerplate (60+ lines)
-GameObject obj = gameEngine.getGameObject(x, y);
-CountDownLatch latch = new CountDownLatch(1);
-Shape[] clickboxHolder = new Shape[1];
-clientThread.invokeLater(() -> {
-    try { clickboxHolder[0] = obj.getClickbox(); }
-    finally { latch.countDown(); }
-});
-latch.await(5, TimeUnit.SECONDS);
-// ... 50 more lines of menu fetching, clicking, retry logic
-
-// ✅ GOOD - One line with built-in retry, camera scanning, thread safety
-interactionSystem.interactWithGameObject("Furnace", "Smelt", 15);
-```
-
-### Pitfall 3: F-key usage for tab switching
-**Symptom**: Tab switching fails silently on different user configs
-**Why it happens**: F-keys are customizable in OSRS settings, what works for one config breaks on another
-**Prevention**: `check_anti_patterns` now detects F-key usage
-**Fix**: Use tab widget IDs instead
-
-**Example:**
-```java
-// ❌ BAD - Fails if user rebinds F6!
-keyboard.pressKey(KeyEvent.VK_F6);  // Might not be Magic tab!
-
-// ✅ GOOD - Direct widget click, always works
-final int TOPLEVEL = 548;
-final int MAGIC_TAB = (TOPLEVEL << 16) | 0x56;  // 35913814
-clickWidget(MAGIC_TAB);
-```
-
-### Pitfall 4: Missing interrupt checks in long loops
-**Symptom**: Commands can't be cancelled with KILL/STOP, appear to hang
-**Why it happens**: Forgot to add `shouldInterrupt` check in loop body
-**Prevention**: `check_anti_patterns` warns about loops without interrupt checks
-**Fix**: Add interrupt check in loop body
-
-**Example:**
-```java
-// ❌ BAD - Can't be interrupted
-for (int i = 0; i < 100; i++) {
-    doWork();
-    Thread.sleep(1000);
-}
-
-// ✅ GOOD - Respects interrupt signal
-for (int i = 0; i < 100; i++) {
-    if (shouldInterrupt) {
-        log.info("[CMD] Interrupted");
-        responseWriter.writeFailure("CMD", "Interrupted");
-        return false;
-    }
-    doWork();
-    Thread.sleep(1000);
-}
-```
-
-### Pitfall 5: Forgetting ResponseWriter in command handlers
-**Symptom**: MCP client doesn't know if command succeeded/failed, appears to hang
-**Why it happens**: Pattern not obvious to subagent, easy to forget
-**Prevention**: Condensed guidelines now include command handler template
-**Fix**: Always call `responseWriter.writeSuccess/writeFailure`
-
-**Example:**
-```java
-// ❌ BAD - No response written
-private boolean handleMyCommand(String args) {
-    log.info("[MY_COMMAND] Starting...");
-    doWork();
-    return true;  // MCP client never knows it finished!
-}
-
-// ✅ GOOD - Response written
-private boolean handleMyCommand(String args) {
-    log.info("[MY_COMMAND] Starting...");
-    try {
-        doWork();
-        responseWriter.writeSuccess("MY_COMMAND", "Done");  // ← Critical!
-        return true;
-    } catch (Exception e) {
-        log.error("[MY_COMMAND] Error", e);
-        responseWriter.writeFailure("MY_COMMAND", e);  // ← Critical!
-        return false;
-    }
-}
-```
-
-### Pitfall 6: Manual CountDownLatch instead of ClientThreadHelper
-**Symptom**: UI freezes, race conditions, complex error-prone code
-**Why it happens**: CountDownLatch pattern is well-known in Java, helper is not
-**Prevention**: Existing anti-pattern check catches this
-**Fix**: Use `helper.readFromClient(() -> ...)`
-
-**Example:**
-```java
-// ❌ BAD - 9+ lines, error-prone
-Widget[] widgetHolder = new Widget[1];
-CountDownLatch latch = new CountDownLatch(1);
-clientThread.invokeLater(() -> {
-    try {
-        widgetHolder[0] = client.getWidget(widgetId);
-    } finally {
-        latch.countDown();
-    }
-});
-latch.await(5, TimeUnit.SECONDS);
-Widget widget = widgetHolder[0];
-
-// ✅ GOOD - 1 line, safe
-Widget widget = helper.readFromClient(() -> client.getWidget(widgetId));
-```
-
-### How to Update This Registry
-
-When you discover a new recurring mistake:
-1. Add entry with: **Symptom**, **Why it happens**, **Prevention**, **Fix**
-2. Update `ANTI_PATTERNS` in `manny_tools.py` if the pattern is automatable
-3. Update condensed guidelines in `request_code_change.py` if pattern is very common
-4. Test that `check_anti_patterns` catches it before deployment
-
-## Efficient Subagent Usage
-
-**Problem**: MCP tools can return very large responses (full file contents, 100+ line methods, full guidelines). When passed to a subagent via the Task tool, this can overwhelm the subagent's context, causing:
-- Context overflow and lost information
-- Slow processing
-- Incomplete fixes
-
-**Solution**: Use the "compact" and "summary" modes for MCP tools when spawning subagents.
-
-### MCP Tool Options for Subagents
-
-| Tool | Option | Effect |
-|------|--------|--------|
-| `prepare_code_change` | `compact=true` | Returns file metadata (not contents), ultra-condensed guidelines. Subagent uses Read tool for files. |
-| `prepare_code_change` | `max_file_lines=100` | Truncates each file to 100 lines |
-| `find_command` | `summary_only=true` | Returns only line numbers and signatures. Subagent uses Read tool for code. |
-| `find_command` | `max_handler_lines=30` | Truncates handler method to 30 lines |
-| `get_section` | `summary_only=true` | Returns only line ranges. Subagent uses Read tool for content. |
-| `get_section` | `max_lines=100` | Truncates section to 100 lines |
-
-### Subagent Workflow Pattern
-
-```python
-# Step 1: Get compact context (small response for subagent prompt)
-context = prepare_code_change(
-    problem_description="...",
-    relevant_files=["PlayerHelpers.java"],
-    compact=True  # <-- KEY: Only returns file metadata
-)
-
-# Step 2: Spawn subagent with compact context
-Task(
-    prompt=f"""Fix this manny plugin issue.
-
-    Context: {context}
-
-    IMPORTANT: Use Read tool to access file contents.
-    File paths are in file_paths list. Use offset/limit for large files.
-
-    Make minimal, targeted changes.""",
-    subagent_type="general-purpose"
-)
-```
-
-The subagent will:
-1. Receive the compact problem description and file metadata
-2. Use the Read tool to fetch only the specific file sections it needs
-3. Make targeted edits using the Edit tool
-
-### When to Use Compact Mode
-
-**USE compact mode when:**
-- Files are large (>500 lines)
-- You need to include multiple files
-- The subagent only needs to modify a small section
-
-**DON'T use compact mode when:**
-- Files are small (<200 lines)
-- The subagent needs full context to understand the issue
-- You're debugging a complex multi-file interaction
+When debugging coordinate issues, remember to divide visual measurements by 2.
 
 ## Discovering Manny Plugin Commands
 
-The manny plugin accepts commands via `/tmp/manny_command.txt`. To discover available commands:
-
-### Method 1: manny-cli help
-```bash
-# The manny plugin has a CLI with help options
-manny-cli --help
+### Method 1: Use MCP tools
+```python
+list_available_commands(search="FISH")  # Discover all 90 commands
+get_command_examples(command="BANK_OPEN")  # See real usage
 ```
 
 ### Method 2: Search source code
 ```bash
-# Find command handlers in PlayerHelpers.java
-grep -n 'case "' /home/wil/Desktop/manny/utility/PlayerHelpers.java | head -50
-
-# Or search for specific command patterns
-grep -rn "handleCommand\|case \"[A-Z]" /home/wil/Desktop/manny/utility/
+grep -n 'case "' manny_src/utility/PlayerHelpers.java | head -50
 ```
 
-### Method 3: Check CommandProcessor documentation
-The file `/home/wil/Desktop/manny/utility/CommandProcessor.java` has a docstring listing supported commands at the top of the file.
-
-**Note**: Don't store actual command lists here as they change frequently. Always use the methods above to get current commands.
+### Method 3: Check documentation
+Read `COMMAND_REFERENCE.md` for all 90 commands organized by category.
 
 ## Session Journals
 
-When running the manny client for extended periods (1+ hours), maintain session journals in the `journals/` directory.
+Write journals to capture **lessons for future agents**, not activity logs.
 
-### Purpose
-Track high-level observations, fixes, and issues discovered during bot operation. This helps maintain institutional knowledge about:
-- What works well
-- What doesn't work and needs fixing
-- Workarounds discovered
-- Patterns observed
+**Template:** See `journals/TEMPLATE.md` for structure and examples.
 
-### Journal Format
-Create journals named `<activity>_<date>.md` (e.g., `fishing_2025-12-19.md`).
+**When to write:**
+- Discovered a bug with non-obvious root cause
+- Found a pattern that works after significant debugging
+- Identified an interface gap (MCP↔Plugin↔Game)
 
-Include:
-- **Session goal**: What you're trying to accomplish
-- **Current progress**: Levels, XP, location
-- **High-level observations**: Navigation issues, interaction problems, timing issues
-- **Things that work well**: Reliable patterns and commands
-- **Things to fix**: Documented bugs and potential improvements
-- **Session stats**: Trips completed, levels gained, etc.
+**Don't write:** Session stats, level progress, play-by-play, routine successful runs.
 
-### When to Update
-- After discovering a significant issue or workaround
-- After completing major milestones
-- Before ending a long session
-- When switching to a different activity
+**Focus on:**
+- Root cause analysis with code references
+- BAD vs GOOD patterns with examples
+- Debugging techniques that helped
+- Interface boundaries and gaps
 
-### Example
-```markdown
-# Fishing Session - 2025-12-19
-
-## Navigation Issues
-- Bank exit stuck detection triggers too often
-- Workaround: Use intermediate waypoints
-
-## Things To Fix
-1. CountDownLatch blocking causing UI lag
-2. Fishing spot click fails when >13 tiles away
-```
+**Naming:** `<problem>_lessons_<date>.md` (e.g., `deposit_box_lessons_2025-01-08.md`)
 
 ## Effective Routine Monitoring
 
-You are a **monitor**, not the executor. The manny plugin runs autonomously - your role is to observe, detect failures, and issue high-level commands.
+You are a **monitor**, not the executor. The manny plugin runs autonomously - observe, detect failures, and issue high-level commands.
 
 ### Token-Efficient Monitoring
 
 - **Poll sparingly**: Check `get_game_state()` every 30-60 seconds during stable operation
-- **Only dive into logs on failure**: Use `get_logs()` when state indicates a problem, not continuously
-- **Trust the routine**: Don't analyze every "[FISH] Caught 1 fish" message - wait for meaningful state changes
+- **Only dive into logs on failure**: Use `get_logs()` when state indicates a problem
+- **Trust the routine**: Don't analyze every log message - wait for meaningful state changes
 
 ### When to Intervene
 
@@ -648,18 +722,13 @@ You are a **monitor**, not the executor. The manny plugin runs autonomously - yo
 - 3+ consecutive errors in logs
 
 **DON'T intervene:**
-- Multiple threads logging the same action (normal thread contention)
+- Multiple threads logging the same action (normal)
 - Occasional click retries (2/3 or 3/3 attempts is fine)
 - Brief pauses between actions (natural RNG)
 
-### Known Issues to Expect
-
-1. **Thread contention**: 4 background threads compete for the same command. Causes duplicate logs and occasional click failures. The routine still works - just noisier.
-2. **Navigation oscillation**: Distance may hover at same value before converging. Give it time.
-3. **Click verification failures**: First attempt often fails, retry usually succeeds. This is normal.
-
 ### Effective Pattern
 
+**For long-running loops:**
 ```
 1. send_command("FISH_DRAYNOR_LOOP 45")
 2. Wait 30-60 seconds
@@ -669,227 +738,16 @@ You are a **monitor**, not the executor. The manny plugin runs autonomously - yo
 6. Repeat until goal reached
 ```
 
-## Using Haiku Subagents for Fast Preprocessing
-
-Claude Code supports multiple models via the Task tool's `model` parameter. Use **Haiku** for fast, cheap preprocessing tasks that don't require complex reasoning.
-
-### Model Selection Guide
-
-| Task Type | Model | Why |
-|-----------|-------|-----|
-| Complex reasoning, code fixes, architecture decisions | `opus` or `sonnet` | Needs deep understanding |
-| Routine validation, log filtering, state summarization | `haiku` | Fast pattern matching, structured output |
-| Exploring codebase, finding files | `haiku` | Quick search, no complex reasoning |
-| Writing new routines, debugging issues | `sonnet` | Balance of speed and capability |
-
-### Haiku Subagent Recipes
-
-Use these patterns to offload preprocessing to Haiku:
-
-#### 1. Validate a Routine
-
+**For step-by-step actions (use state-aware waiting):**
 ```python
-# Read the routine file first
-routine_content = Read("/home/wil/manny-mcp/routines/quests/cooks_assistant.yaml")
-
-# Spawn Haiku to validate
-Task(
-    prompt=f"""Validate this OSRS routine YAML. Check for:
-- Required fields: each step needs 'action' and 'description'
-- Valid actions: GOTO, INTERACT_NPC, INTERACT_OBJECT, BANK_OPEN, BANK_DEPOSIT_ALL, BANK_WITHDRAW, BANK_CLOSE, PICKUP_ITEM, USE_ITEM_ON_NPC, USE_ITEM_ON_OBJECT, DIALOGUE
-- Coordinates: x/y should be 0-15000, plane should be 0-3
-- GOTO args format: "x y plane" (three space-separated integers)
-
-Return JSON: {{"valid": true/false, "errors": [...], "warnings": [...]}}
-
-Routine:
-{routine_content}""",
-    subagent_type="general-purpose",
-    model="haiku"
-)
+# Flour milling example - 7 calls instead of 20+
+send_and_await("INTERACT_OBJECT Ladder Climb-up", "plane:1")
+send_and_await("INTERACT_OBJECT Ladder Climb-up", "plane:2")
+send_and_await("USE_ITEM_ON_OBJECT Grain Hopper", "no_item:Grain")
+send_and_await("INTERACT_OBJECT Hopper controls Operate", "idle")
+send_and_await("INTERACT_OBJECT Ladder Climb-down", "plane:1")
+send_and_await("INTERACT_OBJECT Ladder Climb-down", "plane:0")
+send_and_await("USE_ITEM_ON_OBJECT Pot Flour bin", "has_item:Pot of flour")
 ```
 
-#### 2. Summarize Logs (Alert Filter)
-
-```python
-# Get raw logs via MCP
-logs = get_logs(level="ALL", since_seconds=60, max_lines=100)
-
-# Spawn Haiku to filter noise
-Task(
-    prompt=f"""Analyze these OSRS bot logs. Extract ONLY actionable issues:
-- Errors and exceptions
-- Stuck/failed patterns
-- Unexpected states
-
-Ignore: INFO messages, routine progress, expected retries (2/3, 3/3)
-
-Return JSON: {{"alerts": [{{"severity": "error|warn", "summary": "..."}}], "summary": "one line status"}}
-
-If no issues: {{"alerts": [], "summary": "Operating normally"}}
-
-Logs:
-{logs}""",
-    subagent_type="general-purpose",
-    model="haiku"
-)
-```
-
-#### 3. State Delta Summary
-
-```python
-# Compare two game states
-Task(
-    prompt=f"""Compare these OSRS game states. Summarize MEANINGFUL changes only.
-
-Format: "Moved X tiles | +Y items | -Z items | +N XP in Skill"
-If no changes: "No changes"
-
-Only report: position changes, inventory changes, XP gains, HP/Prayer changes.
-Ignore: timestamps, unchanged values.
-
-Previous: {previous_state}
-Current: {current_state}""",
-    subagent_type="general-purpose",
-    model="haiku"
-)
-```
-
-#### 4. Find Similar Patterns
-
-```python
-# When you need to find how something was done before
-Task(
-    prompt=f"""Search the routines directory for examples of multi-floor navigation.
-Look for patterns involving stairs, ladders, or plane changes.
-Summarize the patterns found with file names and step numbers.""",
-    subagent_type="Explore",
-    model="haiku"
-)
-```
-
-#### 5. Smart Widget Search
-
-The `scan_widgets` MCP command returns verbose data (widget IDs, text, bounds for every visible element). Use Haiku to extract what you need:
-
-```python
-# Get raw widget data
-widgets = scan_widgets()  # Returns {"widgets": [...], "count": 47}
-
-# Spawn Haiku to find specific elements
-Task(
-    prompt=f"""Analyze these OSRS UI widgets. Find:
-- Any dialogue options (clickable text choices)
-- The "Click here to continue" button if present
-- Bank interface elements (deposit/withdraw buttons)
-- Any quest-related text
-
-Return JSON:
-{{
-  "dialogue_options": ["option1", "option2"],
-  "has_continue_button": true/false,
-  "bank_open": true/false,
-  "quest_text": "relevant text or null"
-}}
-
-Widget data:
-{widgets}""",
-    subagent_type="general-purpose",
-    model="haiku"
-)
-```
-
-**Common widget search patterns:**
-
-| Looking for | Haiku prompt snippet |
-|-------------|---------------------|
-| Dialogue choices | "Find all clickable dialogue options" |
-| NPC speech | "Extract what the NPC is saying" |
-| Bank items | "List items visible in bank interface" |
-| Quest log | "Find quest-related text or objectives" |
-| Error messages | "Find any red/warning text" |
-| Button locations | "Find the deposit-all button bounds" |
-
-### When to Use Haiku vs MCP Tools
-
-**Use MCP tools directly when:**
-- You need raw data (game state, logs, screenshots)
-- The operation is simple (send command, check status)
-- You'll process the result yourself
-
-**Use Haiku subagent when:**
-- You need to filter/summarize large data (100 log lines → 3 alerts)
-- You need structured validation (YAML syntax + semantics)
-- You want to save tokens in your main context
-- The task is pattern matching, not reasoning
-
-### Token Savings Example
-
-**Without Haiku:**
-```
-get_logs() → 100 lines in your context → you analyze → response
-Total tokens: ~2000 input + ~500 output = 2500 tokens (Opus rate)
-```
-
-**With Haiku:**
-```
-get_logs() → spawn Haiku → Haiku returns "Operating normally"
-Total tokens: ~2000 Haiku input + ~50 Haiku output + ~100 in your context
-Savings: ~90% on the log analysis portion
-```
-
-## Extending MCP Tools with Subagents
-
-When considering whether to add AI-powered preprocessing to MCP tools, prefer spawning subagents from Claude Code rather than adding API calls to the MCP server.
-
-### Why Subagents Over MCP API Calls
-
-| Approach | Pros | Cons |
-|----------|------|------|
-| **Subagent (recommended)** | No API keys needed, uses existing billing, model selection flexibility, works with Claude Code auth | Slightly more verbose in prompts |
-| **MCP API calls** | Seamless tool interface, automatic | Requires separate API key, extra dependency, billing complexity |
-
-### Design Pattern
-
-Instead of adding Haiku/Claude API calls to `server.py`, structure MCP tools to return raw data and document subagent recipes in CLAUDE.md:
-
-```
-MCP Tool (server.py)          Claude Code (via CLAUDE.md recipes)
-─────────────────────         ─────────────────────────────────────
-get_logs() → raw lines   →    Task(model="haiku", prompt="summarize...")
-get_game_state() → JSON  →    Task(model="haiku", prompt="diff states...")
-
-Simple, no API keys           Flexible, uses existing auth
-```
-
-### When to Add MCP Tools vs Document Recipes
-
-**Add an MCP tool when:**
-- The operation is deterministic (no AI needed)
-- It wraps a system call or file read
-- It provides raw data for further processing
-
-**Document a recipe in CLAUDE.md when:**
-- The operation needs AI interpretation
-- Different situations need different models
-- The preprocessing logic might evolve
-
-### Example: Adding a New Preprocessing Task
-
-Bad approach (adds API dependency to server.py):
-```python
-# Don't do this in server.py
-@server.tool()
-async def smart_log_summary():
-    logs = get_logs_internal()
-    return await call_external_ai(logs)  # Requires API key!
-```
-
-Good approach (document recipe in CLAUDE.md):
-```markdown
-## Log Summary Recipe
-1. Call `get_logs(level="ALL", since_seconds=60)`
-2. Spawn: `Task(model="haiku", prompt="Summarize these logs: {logs}")`
-```
-
-This keeps the MCP server simple and leverages Claude Code's native multi-model support.
+**Key insight:** Use `send_and_await` for discrete actions with verifiable outcomes. Use periodic polling for long-running autonomous loops.

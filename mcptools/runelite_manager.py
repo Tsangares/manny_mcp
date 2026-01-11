@@ -1,6 +1,12 @@
 """
 RuneLite process management.
 Extracted from server.py for better modularity.
+Supports multi-client via account_id parameter.
+
+Credential Flow:
+1. Credentials stored in ~/.manny/credentials.yaml (secure, gitignored)
+2. On start_instance(), writes to ~/.runelite/credentials.properties
+3. RuneLite reads credentials.properties for JX_REFRESH_TOKEN and JX_ACCESS_TOKEN
 """
 import os
 import subprocess
@@ -8,21 +14,25 @@ import threading
 import time
 from collections import deque
 from datetime import datetime
-from typing import Dict, Any
-from .config import ServerConfig
+from pathlib import Path
+from typing import Dict, Any, Optional, List
+from .config import ServerConfig, AccountConfig
+from .credentials import credential_manager
 
 
-class RuneLiteManager:
-    """Manages RuneLite process and log capture."""
+class RuneLiteInstance:
+    """Manages a single RuneLite process instance."""
 
-    def __init__(self, config: ServerConfig):
+    def __init__(self, config: ServerConfig, account_id: str = None):
         """
-        Initialize RuneLiteManager.
+        Initialize RuneLiteInstance.
 
         Args:
             config: Server configuration
+            account_id: Account identifier (for multi-client support)
         """
         self.config = config
+        self.account_id = account_id or "default"
         self.process = None
         self.log_buffer = deque(maxlen=config.log_buffer_size)
         self.log_lock = threading.Lock()
@@ -43,56 +53,58 @@ class RuneLiteManager:
             pass
 
     def start(self, developer_mode: bool = True) -> Dict[str, Any]:
-        """
-        Start RuneLite process.
-
-        Args:
-            developer_mode: Enable RuneLite developer mode
-
-        Returns:
-            Dict with pid, status, startup_logs, command
-        """
+        """Start RuneLite process for this account."""
         if self.process and self.process.poll() is None:
-            # Already running, restart
             self.stop()
             status = "restarted"
         else:
             status = "started"
 
-        # Build the command based on config
+        # Get account-specific config
+        account_config = self.config.get_account_config(self.account_id)
+
+        # Build the command
         use_vgl = self.config.use_virtualgl
         vgl_display = self.config.vgl_display
 
         if self.config.use_exec_java:
-            # Use mvn exec:java
             args = " ".join(self.config.runelite_args)
             base_cmd = [
                 "mvn", "exec:java",
                 "-pl", "runelite-client",
                 "-Dexec.mainClass=net.runelite.client.RuneLite",
-                "-Dsun.java2d.uiScale=2.0",  # HiDPI scaling
+                "-Dsun.java2d.uiScale=2.0",
             ]
             if args:
                 base_cmd.append(f"-Dexec.args={args}")
             cwd = str(self.config.runelite_root)
         else:
-            # Use JAR directly
             base_cmd = [self.config.java_path, "-jar", str(self.config.runelite_jar)]
             base_cmd.extend(self.config.runelite_args)
             cwd = None
 
-        # Wrap with vglrun if VirtualGL is enabled
         if use_vgl:
             cmd = ["vglrun", "-d", vgl_display] + base_cmd
         else:
             cmd = base_cmd
 
         env = os.environ.copy()
-        env["DISPLAY"] = self.config.display
-        # Jagex launcher session credentials for auto-login (from .env)
-        env["JX_CHARACTER_ID"] = os.environ.get("JX_CHARACTER_ID", "")
-        env["JX_DISPLAY_NAME"] = os.environ.get("JX_DISPLAY_NAME", "")
-        env["JX_SESSION_ID"] = os.environ.get("JX_SESSION_ID", "")
+
+        # Increase Java heap to prevent OutOfMemoryError during map loading
+        # _JAVA_OPTIONS has higher priority and can override Maven's -Xmx512m
+        env["_JAVA_OPTIONS"] = "-Xmx1536m"
+
+        # Account-specific display
+        env["DISPLAY"] = account_config.display
+
+        # Account-specific credentials from config (config already falls back to env vars)
+        env["JX_CHARACTER_ID"] = account_config.jx_character_id
+        env["JX_DISPLAY_NAME"] = account_config.jx_display_name
+        env["JX_SESSION_ID"] = account_config.jx_session_id
+
+        # Set account ID for plugin to use in file paths
+        if self.account_id and self.account_id != "default":
+            env["MANNY_ACCOUNT_ID"] = self.account_id
 
         self.log_buffer.clear()
 
@@ -106,36 +118,30 @@ class RuneLiteManager:
             bufsize=1
         )
 
-        # Start log capture thread
         self.log_thread = threading.Thread(target=self._capture_logs, daemon=True)
         self.log_thread.start()
 
-        # Wait briefly for startup
         time.sleep(3)
 
         with self.log_lock:
             startup_logs = [line for _, line in list(self.log_buffer)[:50]]
 
         return {
+            "account_id": self.account_id,
             "pid": self.process.pid,
             "status": status,
+            "display": account_config.display,
             "startup_logs": startup_logs,
             "command": " ".join(cmd)
         }
 
     def stop(self) -> Dict[str, Any]:
-        """
-        Stop RuneLite process.
-
-        Returns:
-            Dict with stopped, exit_code, pid
-        """
+        """Stop this RuneLite instance."""
         if not self.process:
-            return {"stopped": False, "exit_code": None, "message": "No process running"}
+            return {"stopped": False, "account_id": self.account_id, "message": "No process running"}
 
         pid = self.process.pid
 
-        # Try graceful termination first
         self.process.terminate()
         try:
             exit_code = self.process.wait(timeout=5)
@@ -144,10 +150,10 @@ class RuneLiteManager:
             exit_code = self.process.wait()
 
         self.process = None
-        return {"stopped": True, "exit_code": exit_code, "pid": pid}
+        return {"stopped": True, "account_id": self.account_id, "exit_code": exit_code, "pid": pid}
 
     def is_running(self) -> bool:
-        """Check if RuneLite process is running"""
+        """Check if this instance is running."""
         return self.process is not None and self.process.poll() is None
 
     def get_logs(
@@ -158,19 +164,7 @@ class RuneLiteManager:
         max_lines: int = 100,
         plugin_only: bool = True
     ) -> Dict[str, Any]:
-        """
-        Get filtered logs from the buffer.
-
-        Args:
-            level: Minimum log level (DEBUG, INFO, WARN, ERROR, ALL)
-            since_seconds: Only logs from last N seconds
-            grep: Filter to lines containing this substring
-            max_lines: Maximum number of lines to return
-            plugin_only: Only show logs from the manny plugin
-
-        Returns:
-            Dict with lines, truncated, total_matching
-        """
+        """Get filtered logs from this instance."""
         level_priority = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3, "ALL": -1}
         min_level = level_priority.get(level.upper(), 2)
 
@@ -187,11 +181,9 @@ class RuneLiteManager:
                 except:
                     ts = 0
 
-                # Time filter
                 if ts < cutoff_time:
                     continue
 
-                # Level filter
                 if min_level >= 0:
                     line_level = -1
                     if "[DEBUG]" in line or " DEBUG " in line:
@@ -206,11 +198,9 @@ class RuneLiteManager:
                     if line_level < min_level:
                         continue
 
-                # Plugin filter
                 if plugin_only and plugin_prefix.lower() not in line.lower():
                     continue
 
-                # Grep filter
                 if grep and grep.lower() not in line.lower():
                     continue
 
@@ -219,7 +209,252 @@ class RuneLiteManager:
                     matching_lines.append(line)
 
         return {
+            "account_id": self.account_id,
             "lines": matching_lines,
             "truncated": total_matching > max_lines,
             "total_matching": total_matching
         }
+
+
+class MultiRuneLiteManager:
+    """Manages multiple RuneLite instances for multi-client support."""
+
+    def __init__(self, config: ServerConfig):
+        self.config = config
+        self.instances: Dict[str, RuneLiteInstance] = {}
+
+    def _kill_all_runelite(self) -> Dict[str, Any]:
+        """
+        Kill ALL RuneLite processes (not just tracked ones).
+
+        This ensures a clean slate before starting a new instance,
+        preventing credential conflicts between accounts.
+        """
+        killed_tracked = []
+        killed_external = 0
+
+        # Stop all tracked instances first
+        for aid in list(self.instances.keys()):
+            if self.instances[aid].is_running():
+                self.instances[aid].stop()
+                killed_tracked.append(aid)
+        self.instances.clear()
+
+        # Kill any external RuneLite processes (pkill by pattern)
+        try:
+            # Kill by java process running RuneLite
+            result = subprocess.run(
+                ["pkill", "-f", "net.runelite.client.RuneLite"],
+                capture_output=True,
+                text=True
+            )
+            if result.returncode == 0:
+                killed_external += 1
+        except Exception:
+            pass
+
+        try:
+            # Also try killing by mvn exec pattern
+            subprocess.run(
+                ["pkill", "-f", "runelite-client.*exec:java"],
+                capture_output=True,
+                text=True
+            )
+        except Exception:
+            pass
+
+        # Brief pause to ensure clean shutdown
+        time.sleep(1)
+
+        return {
+            "killed_tracked": killed_tracked,
+            "killed_external": killed_external > 0
+        }
+
+    def _write_credentials(self, account_id: str) -> Dict[str, Any]:
+        """
+        Write credentials.properties for the selected account.
+
+        RuneLite reads ~/.runelite/credentials.properties for JX_REFRESH_TOKEN
+        and JX_ACCESS_TOKEN. This method overwrites that file with the
+        credentials for the specified account.
+
+        Args:
+            account_id: Account alias from credentials.yaml
+
+        Returns:
+            Dict with success status and any warnings.
+        """
+        creds = credential_manager.get_account(account_id)
+
+        if not creds:
+            # No credentials in store - this is OK, will use manual login
+            return {
+                "success": True,
+                "warning": f"No credentials found for '{account_id}'. Manual login required.",
+                "credentials_written": False
+            }
+
+        refresh_token = creds.get("jx_refresh_token", "")
+        access_token = creds.get("jx_access_token", "")
+
+        if not refresh_token and not access_token:
+            return {
+                "success": True,
+                "warning": f"Account '{account_id}' has no tokens. Manual login required.",
+                "credentials_written": False
+            }
+
+        # Write to ~/.runelite/credentials.properties
+        creds_file = Path.home() / ".runelite" / "credentials.properties"
+
+        try:
+            # Ensure .runelite directory exists
+            creds_file.parent.mkdir(parents=True, exist_ok=True)
+
+            content = f"""#Do not share this file with anyone
+#Generated by manny-mcp for account: {account_id}
+JX_REFRESH_TOKEN={refresh_token}
+JX_ACCESS_TOKEN={access_token}
+"""
+            creds_file.write_text(content)
+
+            return {
+                "success": True,
+                "credentials_written": True,
+                "account": account_id,
+                "display_name": creds.get("display_name", "")
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to write credentials: {e}",
+                "credentials_written": False
+            }
+
+    def start_instance(self, account_id: str = None, developer_mode: bool = True) -> Dict[str, Any]:
+        """
+        Start a RuneLite instance for the given account.
+
+        This method:
+        1. Kills ALL running RuneLite instances (ensures clean slate)
+        2. Writes credentials.properties for the specified account
+        3. Starts a new RuneLite instance
+
+        Args:
+            account_id: Account alias from credentials.yaml, or None for default
+            developer_mode: Enable RuneLite developer mode
+
+        Returns:
+            Dict with startup result and credential status.
+        """
+        # Resolve account_id: credential_manager.default -> config.default_account -> "default"
+        if account_id is None:
+            if credential_manager.default and credential_manager.default != "default":
+                account_id = credential_manager.default
+            else:
+                account_id = self.config.default_account
+
+        # Step 1: Kill ALL RuneLite instances
+        kill_result = self._kill_all_runelite()
+
+        # Step 2: Write credentials for this account
+        creds_result = self._write_credentials(account_id)
+
+        # Step 3: Start new instance
+        instance = RuneLiteInstance(self.config, account_id)
+        self.instances[account_id] = instance
+        start_result = instance.start(developer_mode)
+
+        # Combine results
+        start_result["credentials"] = creds_result
+        start_result["killed_previous"] = kill_result
+
+        return start_result
+
+    def stop_instance(self, account_id: str = None) -> Dict[str, Any]:
+        """Stop a specific RuneLite instance."""
+        account_id = account_id or self.config.default_account
+
+        if account_id not in self.instances:
+            return {"stopped": False, "account_id": account_id, "message": f"No instance for account: {account_id}"}
+
+        result = self.instances[account_id].stop()
+        del self.instances[account_id]
+        return result
+
+    def get_instance(self, account_id: str = None) -> Optional[RuneLiteInstance]:
+        """Get instance by account ID."""
+        account_id = account_id or self.config.default_account
+        return self.instances.get(account_id)
+
+    def list_instances(self) -> List[Dict[str, Any]]:
+        """List all running instances."""
+        return [
+            {
+                "account_id": aid,
+                "pid": inst.process.pid if inst.process else None,
+                "running": inst.is_running()
+            }
+            for aid, inst in self.instances.items()
+        ]
+
+    def stop_all(self) -> List[Dict[str, Any]]:
+        """Stop all running instances."""
+        results = []
+        for account_id in list(self.instances.keys()):
+            results.append(self.stop_instance(account_id))
+        return results
+
+
+# Backwards-compatible alias
+class RuneLiteManager:
+    """Backwards-compatible single-instance manager (wraps MultiRuneLiteManager)."""
+
+    def __init__(self, config: ServerConfig):
+        self.config = config
+        self._multi = MultiRuneLiteManager(config)
+        self._default_account = config.default_account
+
+    @property
+    def process(self):
+        instance = self._multi.get_instance(self._default_account)
+        return instance.process if instance else None
+
+    @property
+    def log_buffer(self):
+        instance = self._multi.get_instance(self._default_account)
+        return instance.log_buffer if instance else deque()
+
+    @property
+    def log_lock(self):
+        instance = self._multi.get_instance(self._default_account)
+        return instance.log_lock if instance else threading.Lock()
+
+    def start(self, developer_mode: bool = True) -> Dict[str, Any]:
+        """Start default RuneLite instance."""
+        return self._multi.start_instance(self._default_account, developer_mode)
+
+    def stop(self) -> Dict[str, Any]:
+        """Stop default RuneLite instance."""
+        return self._multi.stop_instance(self._default_account)
+
+    def is_running(self) -> bool:
+        """Check if default instance is running."""
+        instance = self._multi.get_instance(self._default_account)
+        return instance.is_running() if instance else False
+
+    def get_logs(
+        self,
+        level: str = "WARN",
+        since_seconds: float = 30,
+        grep: str = None,
+        max_lines: int = 100,
+        plugin_only: bool = True
+    ) -> Dict[str, Any]:
+        """Get logs from default instance."""
+        instance = self._multi.get_instance(self._default_account)
+        if instance:
+            return instance.get_logs(level, since_seconds, grep, max_lines, plugin_only)
+        return {"lines": [], "truncated": False, "total_matching": 0}

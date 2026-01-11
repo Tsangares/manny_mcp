@@ -1,0 +1,6 @@
+{
+  "name": "monitor-bot-session",
+  "description": "Monitor long-running OSRS bot sessions efficiently with token-aware polling",
+  "tags": ["monitoring", "bot", "efficiency", "token-optimization"],
+  "proactive": false
+}

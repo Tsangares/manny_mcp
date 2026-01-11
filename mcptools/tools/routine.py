@@ -4,18 +4,121 @@ Used for building multi-step game automations.
 """
 import os
 import json
+import time
+import asyncio
+import uuid
 from ..registry import registry
 
 
-# Dependencies (send_command_with_response function)
+# Dependencies (send_command_with_response function and config)
 send_command_with_response = None
-RESPONSE_FILE = "/tmp/manny_response.json"
+config = None
+
+# Late-imported handlers
+_handle_send_and_await = None
+_handle_await_state_change = None
 
 
-def set_dependencies(send_command_func):
+def set_dependencies(send_command_func, server_config):
     """Inject dependencies (called from server.py startup)"""
-    global send_command_with_response
+    global send_command_with_response, config
+    global _handle_send_and_await, _handle_await_state_change
     send_command_with_response = send_command_func
+    config = server_config
+
+    # Late import handlers from other modules to avoid circular deps
+    from . import commands, monitoring
+    _handle_send_and_await = commands.handle_send_and_await
+    _handle_await_state_change = monitoring.handle_await_state_change
+
+
+async def execute_simple_command(command: str, timeout_ms: int = 10000, account_id: str = None) -> dict:
+    """
+    Execute a command and poll for response confirmation.
+
+    Unlike send_and_await, this doesn't check game state conditions - it just
+    verifies the plugin processed the command by watching for a new response.
+
+    REQUEST ID CORRELATION: Appends --rid=xxx to command for unique request/response matching.
+    This prevents race conditions when multiple commands of the same type are sent rapidly.
+
+    Args:
+        command: The command to send
+        timeout_ms: Maximum time to wait for response
+        account_id: Optional account ID for multi-client support
+
+    Returns:
+        dict with success, response, elapsed_ms, error
+    """
+    command_file = config.get_command_file(account_id)
+    response_file = config.get_response_file(account_id)
+
+    # Generate unique request ID for correlation
+    request_id = uuid.uuid4().hex[:8]
+
+    # Get current response timestamp before sending
+    old_ts = 0
+    try:
+        with open(response_file) as f:
+            old_response = json.load(f)
+            old_ts = old_response.get("timestamp", 0)
+    except (FileNotFoundError, json.JSONDecodeError):
+        pass
+
+    # Send command with request ID appended
+    command_with_rid = f"{command} --rid={request_id}"
+    try:
+        with open(command_file, "w") as f:
+            f.write(command_with_rid + "\n")
+    except Exception as e:
+        return {"success": False, "error": f"Failed to write command: {e}"}
+
+    # Poll for NEW response (different timestamp)
+    start_time = time.time()
+    timeout_sec = timeout_ms / 1000.0
+    poll_interval = 0.3  # 300ms between checks
+
+    while (time.time() - start_time) < timeout_sec:
+        try:
+            with open(response_file) as f:
+                response = json.load(f)
+
+            new_ts = response.get("timestamp", 0)
+            if new_ts > old_ts:
+                # PRIMARY: Match by request_id (bulletproof correlation)
+                if response.get("request_id") == request_id:
+                    elapsed_ms = int((time.time() - start_time) * 1000)
+                    return {
+                        "success": response.get("status") == "success",
+                        "response": response,
+                        "elapsed_ms": elapsed_ms,
+                        "error": response.get("error") if response.get("status") != "success" else None
+                    }
+                # FALLBACK: For backwards compat with old Java plugin, match by command name
+                # (only if response has no request_id)
+                if response.get("request_id") is None:
+                    resp_cmd = response.get("command", "").upper()
+                    our_cmd = command.split()[0].upper()
+                    if resp_cmd == our_cmd:
+                        elapsed_ms = int((time.time() - start_time) * 1000)
+                        return {
+                            "success": response.get("status") == "success",
+                            "response": response,
+                            "elapsed_ms": elapsed_ms,
+                            "error": response.get("error") if response.get("status") != "success" else None
+                        }
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass
+
+        await asyncio.sleep(poll_interval)
+
+    # Timeout
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    return {
+        "success": False,
+        "error": f"Timeout after {elapsed_ms}ms waiting for response",
+        "elapsed_ms": elapsed_ms
+    }
 
 
 @registry.register({
@@ -23,18 +126,29 @@ def set_dependencies(send_command_func):
     "description": """[Routine Building] Scan all visible widgets in the game UI. Returns widget IDs, text content, and bounds.
 
 Use this to discover clickable elements, dialogue options, interface buttons, etc.
-Filter by text to find specific widgets.""",
+Filter by text to find specific widgets.
+
+Supports filtering by:
+- Widget text content
+- Widget name
+- Item name (for inventory/bank/deposit box item widgets)
+
+For item widgets (inventory, bank, deposit box), returns itemId, itemQuantity, and itemName.""",
     "inputSchema": {
         "type": "object",
         "properties": {
             "filter_text": {
                 "type": "string",
-                "description": "Optional text to filter widgets by (case-insensitive)"
+                "description": "Optional text to filter widgets by - matches text, name, and item names (case-insensitive)"
             },
             "timeout_ms": {
                 "type": "integer",
                 "description": "Timeout in milliseconds (default: 3000)",
                 "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
             }
         }
     }
@@ -43,15 +157,14 @@ async def handle_scan_widgets(arguments: dict) -> dict:
     """Scan all visible widgets."""
     timeout_ms = arguments.get("timeout_ms", 3000)
     filter_text = arguments.get("filter_text")
+    account_id = arguments.get("account_id")
 
-    response = await send_command_with_response("SCAN_WIDGETS", timeout_ms)
+    # Pass filter_text to Java command for server-side filtering (more efficient)
+    command = f"SCAN_WIDGETS {filter_text}" if filter_text else "SCAN_WIDGETS"
+    response = await send_command_with_response(command, timeout_ms, account_id)
 
     if response.get("status") == "success":
         widgets = response.get("result", {}).get("widgets", [])
-        # Apply text filter if provided
-        if filter_text:
-            filter_lower = filter_text.lower()
-            widgets = [w for w in widgets if filter_lower in (w.get("text") or "").lower()]
         return {
             "success": True,
             "widgets": widgets,
@@ -79,6 +192,10 @@ the speaker name, text, and clickable options with their widget IDs.""",
                 "type": "integer",
                 "description": "Timeout in milliseconds (default: 3000)",
                 "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
             }
         }
     }
@@ -86,9 +203,10 @@ the speaker name, text, and clickable options with their widget IDs.""",
 async def handle_get_dialogue(arguments: dict) -> dict:
     """Get current dialogue state."""
     timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
 
     # Scan widgets to find dialogue elements
-    response = await send_command_with_response("SCAN_WIDGETS", timeout_ms)
+    response = await send_command_with_response("SCAN_WIDGETS", timeout_ms, account_id)
 
     if response.get("status") != "success":
         return {
@@ -153,6 +271,10 @@ Returns success/failure and the widget ID that was clicked.""",
                 "type": "integer",
                 "description": "Timeout in milliseconds (default: 3000)",
                 "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
             }
         },
         "required": ["text"]
@@ -162,12 +284,13 @@ async def handle_click_text(arguments: dict) -> dict:
     """Click widget by text."""
     text = arguments.get("text", "")
     timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
 
     if not text:
         return {"success": False, "error": "No text provided"}
 
     # Use plugin's CLICK_DIALOGUE command
-    response = await send_command_with_response(f'CLICK_DIALOGUE {text}', timeout_ms)
+    response = await send_command_with_response(f'CLICK_DIALOGUE {text}', timeout_ms, account_id)
 
     if response.get("status") == "success":
         return {
@@ -196,6 +319,10 @@ Returns success/failure.""",
                 "type": "integer",
                 "description": "Timeout in milliseconds (default: 3000)",
                 "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
             }
         }
     }
@@ -203,8 +330,9 @@ Returns success/failure.""",
 async def handle_click_continue(arguments: dict) -> dict:
     """Click continue button."""
     timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
 
-    response = await send_command_with_response("CLICK_CONTINUE", timeout_ms)
+    response = await send_command_with_response("CLICK_CONTINUE", timeout_ms, account_id)
 
     if response.get("status") == "success":
         return {
@@ -220,11 +348,15 @@ async def handle_click_continue(arguments: dict) -> dict:
 
 @registry.register({
     "name": "query_nearby",
-    "description": """[Routine Building] Query nearby NPCs and objects with their available actions.
+    "description": """[Routine Building] Query nearby NPCs, objects, and ground items with their available actions.
 
-Returns lists of NPCs and objects within range, including their names,
-distances, and available right-click actions. Useful for discovering
-what can be interacted with.""",
+Returns lists of NPCs, objects, and ground items within range, including their names,
+distances, and available right-click actions. Useful for discovering what can be interacted with.
+
+Ground items include:
+- Dropped items on the ground
+- Items displayed on tables/shelves (scenery items)
+- Spawned items (like wine of zamorak)""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -238,6 +370,11 @@ what can be interacted with.""",
                 "description": "Include objects in results (default: true)",
                 "default": True
             },
+            "include_ground_items": {
+                "type": "boolean",
+                "description": "Include ground items (items on ground/tables) in results (default: true)",
+                "default": True
+            },
             "name_filter": {
                 "type": "string",
                 "description": "Optional name filter (case-insensitive)"
@@ -246,26 +383,33 @@ what can be interacted with.""",
                 "type": "integer",
                 "description": "Timeout in milliseconds (default: 3000)",
                 "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
             }
         }
     }
 })
 async def handle_query_nearby(arguments: dict) -> dict:
-    """Query nearby NPCs and objects."""
+    """Query nearby NPCs, objects, and ground items."""
     include_npcs = arguments.get("include_npcs", True)
     include_objects = arguments.get("include_objects", True)
+    include_ground_items = arguments.get("include_ground_items", True)
     name_filter = arguments.get("name_filter")
     timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
 
     result = {
         "success": True,
         "npcs": [],
-        "objects": []
+        "objects": [],
+        "ground_items": []
     }
 
     # Query NPCs
     if include_npcs:
-        response = await send_command_with_response("QUERY_NPCS", timeout_ms)
+        response = await send_command_with_response("QUERY_NPCS", timeout_ms, account_id)
         if response.get("status") == "success":
             npcs = response.get("result", {}).get("npcs", [])
             if name_filter:
@@ -275,13 +419,23 @@ async def handle_query_nearby(arguments: dict) -> dict:
 
     # Query objects
     if include_objects:
-        response = await send_command_with_response("SCAN_OBJECTS", timeout_ms)
+        response = await send_command_with_response("SCAN_OBJECTS", timeout_ms, account_id)
         if response.get("status") == "success":
             objects = response.get("result", {}).get("objects", [])
             if name_filter:
                 filter_lower = name_filter.lower()
                 objects = [o for o in objects if filter_lower in (o.get("name") or "").lower()]
             result["objects"] = objects
+
+    # Query ground items (items on ground/tables)
+    if include_ground_items:
+        response = await send_command_with_response("QUERY_GROUND_ITEMS", timeout_ms, account_id)
+        if response.get("status") == "success":
+            ground_items = response.get("result", {}).get("ground_items", [])
+            if name_filter:
+                filter_lower = name_filter.lower()
+                ground_items = [i for i in ground_items if filter_lower in (i.get("name") or "").lower()]
+            result["ground_items"] = ground_items
 
     return result
 
@@ -294,19 +448,30 @@ Returns the most recent response from /tmp/manny_response.json.
 Useful for checking results of commands sent via send_command.""",
     "inputSchema": {
         "type": "object",
-        "properties": {}
+        "properties": {
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
+            }
+        }
     }
 })
 async def handle_get_command_response(arguments: dict) -> dict:
     """Read last command response."""
+    account_id = arguments.get("account_id")
+    response_file = config.get_response_file(account_id)
+
     try:
-        if os.path.exists(RESPONSE_FILE):
-            with open(RESPONSE_FILE) as f:
+        if os.path.exists(response_file):
+            with open(response_file) as f:
                 response = json.load(f)
-            return {
+            result = {
                 "success": True,
                 "response": response
             }
+            if account_id:
+                result["account_id"] = account_id
+            return result
         else:
             return {
                 "success": False,
@@ -316,6 +481,85 @@ async def handle_get_command_response(arguments: dict) -> dict:
         return {
             "success": False,
             "error": str(e)
+        }
+
+
+@registry.register({
+    "name": "scan_tile_objects",
+    "description": """[Routine Building] Scan for ANY type of TileObject near the player.
+
+Unlike query_nearby (which only finds GameObjects), this searches ALL TileObject types:
+- GameObject (normal scenery)
+- WallObject (doors, gates, fences, walls)
+- DecorativeObject (decorations)
+- GroundObject (ground-layer objects)
+- GroundItem (items on ground/tables - TileItems)
+
+Essential for finding doors, gates, fences (WallObjects) AND items on tables (GroundItems).
+Returns object type, ID, location, distance, and available actions.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "object_name": {
+                "type": "string",
+                "description": "Name of object to search for (underscores replaced with spaces)"
+            },
+            "max_distance": {
+                "type": "integer",
+                "description": "Maximum search distance in tiles (default: 15)",
+                "default": 15
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 3000)",
+                "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
+            }
+        },
+        "required": ["object_name"]
+    }
+})
+async def handle_scan_tile_objects(arguments: dict) -> dict:
+    """Scan for TileObjects by name (includes WallObjects for doors/gates)."""
+    object_name = arguments.get("object_name", "")
+    max_distance = arguments.get("max_distance", 15)
+    timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
+
+    if not object_name:
+        return {"success": False, "error": "object_name is required"}
+
+    # Build command with optional distance
+    command = f"SCAN_TILEOBJECTS {object_name} {max_distance}"
+    response = await send_command_with_response(command, timeout_ms, account_id)
+
+    if response.get("status") == "success":
+        result = response.get("result", {})
+        # Handle single vs multiple objects
+        if "objects" in result:
+            return {
+                "success": True,
+                "count": result.get("count", len(result["objects"])),
+                "objects": result["objects"],
+                "searched_for": object_name
+            }
+        else:
+            # Single object returned directly
+            return {
+                "success": True,
+                "count": 1,
+                "objects": [result],
+                "searched_for": object_name
+            }
+    else:
+        return {
+            "success": False,
+            "error": response.get("error", f"'{object_name}' not found"),
+            "searched_for": object_name,
+            "note": "Searched: GameObject, WallObject, DecorativeObject, GroundObject, GroundItem"
         }
 
 
@@ -337,6 +581,10 @@ commands the plugin supports without reading source code.""",
                 "type": "integer",
                 "description": "Timeout in milliseconds (default: 3000)",
                 "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
             }
         }
     }
@@ -345,9 +593,10 @@ async def handle_list_plugin_commands(arguments: dict) -> dict:
     """List all plugin commands with metadata."""
     timeout_ms = arguments.get("timeout_ms", 3000)
     category_filter = arguments.get("category")
+    account_id = arguments.get("account_id")
 
     # Send LIST_COMMANDS to plugin
-    response = await send_command_with_response("LIST_COMMANDS", timeout_ms)
+    response = await send_command_with_response("LIST_COMMANDS", timeout_ms, account_id)
 
     if response.get("status") == "success":
         commands_data = response.get("result", {})
@@ -384,3 +633,429 @@ async def handle_list_plugin_commands(arguments: dict) -> dict:
             "error": response.get("error", "Failed to list commands"),
             "raw_response": response
         }
+
+
+import yaml
+import asyncio
+import time
+
+# Late-import handlers from other modules (set in set_dependencies)
+_handle_send_and_await = None
+_handle_await_state_change = None
+
+
+@registry.register({
+    "name": "execute_routine",
+    "description": """[Routine Execution] Execute a YAML routine file step by step.
+
+Loads a routine YAML file and executes each step in order:
+- Sends commands to the game
+- Waits for await_conditions (plane changes, inventory changes, etc.)
+- Handles delays between steps
+- Reports progress after each step
+- Loops if loop.enabled is true
+
+Returns progress updates and final results.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "routine_path": {
+                "type": "string",
+                "description": "Path to the routine YAML file"
+            },
+            "start_step": {
+                "type": "integer",
+                "description": "Step ID to start from (default: 1)",
+                "default": 1
+            },
+            "max_loops": {
+                "type": "integer",
+                "description": "Maximum number of loop iterations (default: 100)",
+                "default": 100
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional)"
+            }
+        },
+        "required": ["routine_path"]
+    }
+})
+async def handle_execute_routine(arguments: dict) -> dict:
+    """Execute a YAML routine step by step."""
+    routine_path = arguments.get("routine_path")
+    start_step = arguments.get("start_step", 1)
+    max_loops = arguments.get("max_loops", 100)
+    account_id = arguments.get("account_id")
+
+    # Load routine YAML
+    try:
+        with open(routine_path, 'r') as f:
+            routine = yaml.safe_load(f)
+    except FileNotFoundError:
+        return {"success": False, "error": f"Routine file not found: {routine_path}"}
+    except yaml.YAMLError as e:
+        return {"success": False, "error": f"Invalid YAML: {e}"}
+
+    if not routine or 'steps' not in routine:
+        return {"success": False, "error": "Routine has no steps"}
+
+    steps = routine['steps']
+    loop_config = routine.get('loop', {})
+    loop_enabled = loop_config.get('enabled', False)
+    repeat_from = loop_config.get('repeat_from_step', 1)
+
+    results = {
+        "success": True,
+        "routine_name": routine.get('name', 'Unknown'),
+        "total_steps": len(steps),
+        "completed_steps": [],
+        "loops_completed": 0,
+        "errors": []
+    }
+
+    loop_count = 0
+    current_step_idx = start_step - 1  # Convert to 0-indexed
+
+    while loop_count < max_loops:
+        # Execute steps
+        while current_step_idx < len(steps):
+            step = steps[current_step_idx]
+            step_id = step.get('id', current_step_idx + 1)
+            action = step.get('action')
+            args = step.get('args', '')
+            await_condition = step.get('await_condition')
+            delay_before = step.get('delay_before_ms', 0)
+            timeout_ms = step.get('timeout_ms', 30000)
+
+            # Apply delay before action
+            if delay_before > 0:
+                await asyncio.sleep(delay_before / 1000)
+
+            # Build and send command
+            command = f"{action} {args}".strip() if args else action
+
+            step_result = {
+                "step_id": step_id,
+                "phase": step.get('phase'),
+                "action": action,
+                "command": command
+            }
+
+            # Handle step execution using existing tested handlers
+            if action == "WAIT":
+                # Pure wait - use await_state_change
+                if await_condition:
+                    result = await _handle_await_state_change({
+                        "condition": await_condition,
+                        "timeout_ms": timeout_ms,
+                        "poll_interval_ms": 200,
+                        "account_id": account_id
+                    })
+                    step_result["success"] = result.get("success", False)
+                    step_result["elapsed_ms"] = result.get("elapsed_ms")
+                    step_result["await_result"] = "success" if result.get("success") else "timeout"
+                else:
+                    await asyncio.sleep(timeout_ms / 1000)
+                    step_result["success"] = True
+                    step_result["await_result"] = "waited"
+
+            elif await_condition:
+                # Command with condition - use send_and_await (atomic operation)
+                result = await _handle_send_and_await({
+                    "command": command,
+                    "await_condition": await_condition,
+                    "timeout_ms": timeout_ms,
+                    "poll_interval_ms": 200,
+                    "account_id": account_id
+                })
+                step_result["success"] = result.get("success", False)
+                step_result["elapsed_ms"] = result.get("elapsed_ms")
+                step_result["checks"] = result.get("checks")
+                step_result["await_result"] = "success" if result.get("success") else "timeout"
+
+                # Retry once if condition not met
+                if not result.get("success"):
+                    result = await _handle_send_and_await({
+                        "command": command,
+                        "await_condition": await_condition,
+                        "timeout_ms": timeout_ms * 2,  # Double timeout on retry
+                        "poll_interval_ms": 200,
+                        "account_id": account_id
+                    })
+                    if result.get("success"):
+                        step_result["success"] = True
+                        step_result["await_result"] = "success"
+                        step_result["retried"] = True
+
+            else:
+                # Simple command without condition - poll for response confirmation
+                result = await execute_simple_command(command, timeout_ms, account_id)
+                step_result["success"] = result.get("success", False)
+                step_result["response"] = result.get("response", {}).get("status")
+                step_result["elapsed_ms"] = result.get("elapsed_ms")
+                if result.get("error"):
+                    step_result["error"] = result["error"]
+
+            # Track failures
+            if not step_result.get("success", True):
+                results["errors"].append(f"Step {step_id} ({action}): {step_result.get('error', 'failed')}")
+
+            results["completed_steps"].append(step_result)
+            current_step_idx += 1
+
+        # Check if we should loop
+        if loop_enabled:
+            loop_count += 1
+            results["loops_completed"] = loop_count
+            current_step_idx = repeat_from - 1  # Reset to repeat step
+
+            # Check stop conditions
+            stop_conditions = loop_config.get('stop_conditions', [])
+            should_stop = False
+            for condition in stop_conditions:
+                if await check_stop_condition(condition, account_id):
+                    should_stop = True
+                    results["stop_reason"] = condition
+                    break
+
+            if should_stop:
+                break
+        else:
+            break
+
+    return results
+
+
+async def check_stop_condition(condition: str, account_id: str = None) -> bool:
+    """Check if a loop stop condition is met."""
+    state = await get_game_state(account_id)
+    if not state:
+        return False
+
+    # no_item_in_bank:ItemName - No more of item in bank (can't withdraw)
+    # This is checked implicitly when withdraw returns 0 items
+    if condition.startswith("no_item_in_bank:"):
+        # We'd need to check bank contents - for now return False
+        return False
+
+    # skill_level:N - Skill reached level N
+    if "_level:" in condition:
+        parts = condition.split("_level:")
+        skill_name = parts[0].lower()
+        target_level = int(parts[1])
+        skills = state.get("player", {}).get("skills", {})
+        current_level = skills.get(skill_name, {}).get("level", 0)
+        return current_level >= target_level
+
+    return False
+
+
+async def get_game_state(account_id: str = None) -> dict:
+    """Read current game state from file."""
+    state_file = config.get_state_file(account_id) if config else "/tmp/manny_state.json"
+    try:
+        with open(state_file, 'r') as f:
+            return json.load(f)
+    except:
+        return {}
+
+
+@registry.register({
+    "name": "click_widget",
+    "description": """[Routine Building] Click a widget by its ID.
+
+Uses the plugin's CLICK_WIDGET command with proper coordinate handling.
+The widget is clicked at its center using absolute screen coordinates.
+
+Example: click_widget(widget_id=17694735) to click the cooking interface shrimp button.
+
+For virtual widgets (deposit box items, shop items, etc.) that share a container ID,
+pass the bounds from find_widget() to click at the correct position:
+  click_widget(widget_id=12582914, bounds={"x": 269, "y": 106, "width": 36, "height": 32})
+
+To find widget IDs:
+1. Use scan_widgets() to see all visible widgets
+2. Or use find_widget() to search for specific text""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "widget_id": {
+                "type": "integer",
+                "description": "The packed widget ID (e.g., 17694735)"
+            },
+            "bounds": {
+                "type": "object",
+                "description": "Optional bounds for virtual widgets: {x, y, width, height}. When provided, clicks at center of bounds instead of using Java's widget lookup.",
+                "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "width": {"type": "integer"},
+                    "height": {"type": "integer"}
+                }
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 5000)",
+                "default": 5000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
+            }
+        },
+        "required": ["widget_id"]
+    }
+})
+async def handle_click_widget(arguments: dict) -> dict:
+    """Click a widget by ID, or by bounds for virtual widgets."""
+    widget_id = arguments.get("widget_id")
+    bounds = arguments.get("bounds")
+    timeout_ms = arguments.get("timeout_ms", 5000)
+    account_id = arguments.get("account_id")
+
+    if not widget_id:
+        return {"success": False, "error": "widget_id is required"}
+
+    # If bounds provided, use direct mouse click (for virtual widgets like deposit box items)
+    if bounds and all(k in bounds for k in ("x", "y", "width", "height")):
+        # Calculate center of widget
+        click_x = bounds["x"] + bounds["width"] // 2
+        click_y = bounds["y"] + bounds["height"] // 2
+
+        # Use direct mouse command
+        command_file = config.get_command_file(account_id)
+        command = f"MOUSE_MOVE {click_x} {click_y}\nMOUSE_CLICK left"
+
+        try:
+            with open(command_file, "w") as f:
+                f.write(command + "\n")
+            return {
+                "success": True,
+                "widget_id": widget_id,
+                "click_position": {"x": click_x, "y": click_y},
+                "bounds": bounds,
+                "message": f"Clicked virtual widget at ({click_x}, {click_y})"
+            }
+        except Exception as e:
+            return {"success": False, "error": f"Failed to send click: {e}"}
+
+    # Otherwise use Java's CLICK_WIDGET command (for real widgets)
+    response = await send_command_with_response(f"CLICK_WIDGET {widget_id}", timeout_ms, account_id)
+
+    if response.get("status") == "success":
+        result = response.get("result", {})
+        return {
+            "success": True,
+            "widget_id": widget_id,
+            "message": result.get("message", "Widget clicked")
+        }
+    else:
+        return {
+            "success": False,
+            "widget_id": widget_id,
+            "error": response.get("error", "Failed to click widget")
+        }
+
+
+@registry.register({
+    "name": "find_widget",
+    "description": """[Routine Building] Find widgets by text and return compact results.
+
+Scans visible widgets and filters by text, name, OR item name. Returns only essential info for clicking:
+- widget_id: The ID to pass to click_widget()
+- text: The widget's text/item name
+- bounds: {x, y, width, height} for reference
+- actions: Available actions
+- itemId/itemQuantity: For item widgets (inventory, bank, deposit box)
+
+Much lighter than scan_widgets() - designed for finding clickable elements.
+
+Examples:
+- find_widget(text="Cook") - find cooking options in a menu
+- find_widget(text="Raw lobster") - find lobster items in inventory/bank/deposit box
+- find_widget(text="Deposit") - find deposit buttons""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "text": {
+                "type": "string",
+                "description": "Text to search for - matches widget text, name, and item names (case-insensitive)"
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Maximum number of results (default: 5)",
+                "default": 5
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 3000)",
+                "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
+            }
+        },
+        "required": ["text"]
+    }
+})
+async def handle_find_widget(arguments: dict) -> dict:
+    """Find widgets by text with compact output."""
+    text = arguments.get("text", "")
+    max_results = arguments.get("max_results", 5)
+    timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
+
+    if not text:
+        return {"success": False, "error": "text is required"}
+
+    # Use server-side filtering for efficiency (Java command now supports itemName filtering)
+    command = f"SCAN_WIDGETS {text}"
+    response = await send_command_with_response(command, timeout_ms, account_id)
+
+    if response.get("status") != "success":
+        return {
+            "success": False,
+            "error": response.get("error", "Failed to scan widgets")
+        }
+
+    widgets = response.get("result", {}).get("widgets", [])
+
+    # Compact results for output
+    matches = []
+    for w in widgets:
+        # Get display text: prefer itemName for item widgets, then text, then name
+        widget_text = w.get("itemName") or w.get("text") or w.get("name") or ""
+
+        # Get bounds from the nested bounds object
+        bounds_obj = w.get("bounds", {})
+
+        result = {
+            "widget_id": w.get("id"),
+            "text": widget_text[:50] + "..." if len(widget_text) > 50 else widget_text,
+            "bounds": {
+                "x": bounds_obj.get("x"),
+                "y": bounds_obj.get("y"),
+                "width": bounds_obj.get("width"),
+                "height": bounds_obj.get("height")
+            },
+            "actions": w.get("actions", [])[:3]  # Max 3 actions
+        }
+
+        # Include item info if present
+        if w.get("itemId"):
+            result["itemId"] = w.get("itemId")
+            result["itemQuantity"] = w.get("itemQuantity")
+
+        matches.append(result)
+        if len(matches) >= max_results:
+            break
+
+    return {
+        "success": True,
+        "query": text,
+        "found": len(matches),
+        "total_widgets_scanned": len(widgets),
+        "widgets": matches
+    }

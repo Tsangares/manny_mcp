@@ -264,6 +264,7 @@ DASHBOARD_HTML = """
             background: #1a1a2e;
             color: #eee;
             min-height: 100vh;
+            overflow-x: hidden;
         }
         .container {
             display: grid;
@@ -273,25 +274,74 @@ DASHBOARD_HTML = """
             padding: 10px;
             height: 100vh;
         }
+
+        /* Mobile-first responsive design */
         @media (max-width: 900px) {
-            .container { grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
-            .video-panel { grid-row: 1; }
-            .video-panel img { width: 100%; height: auto; }
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto 1fr;
+                height: 100vh;
+                padding: 8px;
+                gap: 8px;
+            }
+            .video-panel {
+                grid-row: 1;
+                max-height: 35vh;
+                min-height: 200px;
+            }
+            .stats-panel {
+                grid-row: 2;
+                max-height: 40vh;
+            }
+            .mcp-panel {
+                grid-row: 3;
+                min-height: 150px;
+            }
+        }
+
+        /* Pixel 6 specific optimizations (portrait: 412x915 CSS pixels) */
+        @media (max-width: 480px) {
+            body {
+                font-size: 14px;
+            }
+            .container {
+                padding: 4px;
+                gap: 6px;
+            }
+            h2 {
+                font-size: 12px !important;
+                margin-bottom: 8px !important;
+            }
+            .stat-row {
+                padding: 6px 0 !important;
+            }
+            .mcp-call {
+                padding: 10px !important;
+                margin-bottom: 8px !important;
+                font-size: 11px !important;
+            }
+            .stats-panel, .mcp-panel {
+                padding: 12px !important;
+            }
         }
 
         .video-panel {
             grid-row: 1 / 3;
-            background: #1a1a2e;
+            background: #0a0a14;
             border-radius: 8px;
             overflow: hidden;
             display: flex;
             align-items: flex-start;
             justify-content: center;
+            position: relative;
         }
         .video-panel video {
             max-width: 100%;
-            height: auto;
+            max-height: 100%;
             width: 100%;
+            height: auto;
+            display: block;
+            object-fit: contain;
         }
 
         .stats-panel, .mcp-panel {
@@ -299,6 +349,7 @@ DASHBOARD_HTML = """
             border-radius: 8px;
             padding: 15px;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
         }
 
         h2 {
@@ -307,6 +358,7 @@ DASHBOARD_HTML = """
             margin-bottom: 10px;
             text-transform: uppercase;
             letter-spacing: 1px;
+            font-weight: 600;
         }
 
         .stat-row {
@@ -314,47 +366,95 @@ DASHBOARD_HTML = """
             justify-content: space-between;
             padding: 4px 0;
             border-bottom: 1px solid #ffffff10;
+            min-height: 28px; /* Better touch targets on mobile */
+            align-items: center;
         }
-        .stat-label { color: #888; }
-        .stat-value { color: #fff; font-weight: 600; }
+        .stat-label {
+            color: #888;
+            font-size: 13px;
+        }
+        .stat-value {
+            color: #fff;
+            font-weight: 600;
+            font-size: 14px;
+        }
 
         .hp-bar, .prayer-bar, .run-bar {
-            height: 8px;
-            border-radius: 4px;
+            height: 10px;
+            border-radius: 5px;
             margin: 2px 0 8px 0;
             background: #333;
+            overflow: hidden;
         }
-        .hp-bar .fill { background: #e74c3c; height: 100%; border-radius: 4px; }
-        .prayer-bar .fill { background: #3498db; height: 100%; border-radius: 4px; }
-        .run-bar .fill { background: #f39c12; height: 100%; border-radius: 4px; }
+        .hp-bar .fill {
+            background: linear-gradient(90deg, #e74c3c, #c0392b);
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.3s ease;
+        }
+        .prayer-bar .fill {
+            background: linear-gradient(90deg, #3498db, #2980b9);
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.3s ease;
+        }
+        .run-bar .fill {
+            background: linear-gradient(90deg, #f39c12, #e67e22);
+            height: 100%;
+            border-radius: 5px;
+            transition: width 0.3s ease;
+        }
 
         .mcp-call {
             background: #0d1b2a;
-            border-radius: 4px;
+            border-radius: 6px;
             padding: 8px;
             margin-bottom: 6px;
             font-size: 12px;
+            border-left: 2px solid transparent;
+            transition: all 0.2s ease;
         }
         .mcp-call.active {
             border-left: 3px solid #0f9;
+            background: #0f1f2f;
             animation: pulse 1s infinite;
         }
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.7; }
         }
-        .mcp-tool { color: #0f9; font-weight: bold; }
-        .mcp-time { color: #666; font-size: 10px; }
-        .mcp-args { color: #888; font-size: 11px; word-break: break-all; }
+        .mcp-tool {
+            color: #0f9;
+            font-weight: bold;
+            font-size: 13px;
+        }
+        .mcp-time {
+            color: #666;
+            font-size: 10px;
+            margin-left: 8px;
+        }
+        .mcp-args {
+            color: #888;
+            font-size: 11px;
+            word-break: break-all;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
 
         .current-action {
             background: #2d4a22;
-            padding: 8px;
-            border-radius: 4px;
-            margin-bottom: 10px;
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
             font-size: 13px;
+            font-weight: 500;
+            border-left: 3px solid #4CAF50;
+            transition: all 0.3s ease;
         }
-        .current-action.idle { background: #333; }
+        .current-action.idle {
+            background: #333;
+            border-left: 3px solid #666;
+        }
 
         .health-indicator {
             width: 10px;
@@ -642,7 +742,8 @@ class DashboardBackgroundTasks:
 
     def _detect_h264_encoder(self) -> str:
         """Test encoders in priority order, return first working one."""
-        encoders = ['h264_nvenc', 'h264_vaapi', 'h264_amf', 'libx264']
+        # Prioritize h264_vaapi for Intel GPU (low CPU usage)
+        encoders = ['h264_vaapi', 'h264_nvenc', 'h264_amf', 'libx264']
         display = self.config.get('display', ':2')
 
         for encoder in encoders:
@@ -681,6 +782,57 @@ class DashboardBackgroundTasks:
         STATE.add_log("All encoders failed, using libx264 as fallback")
         return 'libx264'
 
+    def _build_ffmpeg_cmd(self, display: str, x: int, y: int) -> list:
+        """Build FFmpeg command optimized for the selected encoder."""
+        base_cmd = [
+            'ffmpeg',
+            '-f', 'x11grab',
+            '-video_size', '1020x666',
+        ]
+
+        # Use lower framerate for hardware encoding (less load)
+        if self.ffmpeg_encoder == 'h264_vaapi':
+            framerate = '15'  # 15fps for low CPU usage
+        else:
+            framerate = '20'  # 20fps for software
+
+        base_cmd.extend(['-framerate', framerate])
+        base_cmd.extend(['-i', f'{display}+{x},{y}'])
+
+        # Hardware encoding (h264_vaapi) - uses Intel GPU
+        if self.ffmpeg_encoder == 'h264_vaapi':
+            base_cmd.extend([
+                '-vaapi_device', '/dev/dri/renderD128',  # Intel GPU device
+                '-vf', 'format=nv12,hwupload',  # Upload to GPU
+                '-c:v', 'h264_vaapi',
+                '-qp', '24',  # Quality (lower = better, 18-28 is good range)
+                '-g', '30',  # Keyframe every 2s at 15fps
+                '-b:v', '1.5M',  # Lower bitrate for 15fps
+                '-maxrate', '2M',
+                '-bufsize', '1M',
+            ])
+        # Software encoding fallback
+        else:
+            base_cmd.extend([
+                '-c:v', self.ffmpeg_encoder,
+                '-preset', 'veryfast',
+                '-tune', 'zerolatency',
+                '-g', '40',  # Keyframe every 2s at 20fps
+                '-b:v', '1.5M',
+                '-maxrate', '2M',
+                '-bufsize', '1M',
+            ])
+
+        # Common final settings
+        base_cmd.extend([
+            '-pix_fmt', 'yuv420p',
+            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
+            '-f', 'mp4',
+            'pipe:1'
+        ])
+
+        return base_cmd
+
     def _start_ffmpeg(self):
         """Start FFmpeg process with detected encoder - capture window and crop."""
         if self.ffmpeg_process:
@@ -716,25 +868,7 @@ class DashboardBackgroundTasks:
                         viewport_y = win_y + 8
 
                         STATE.add_log(f"RuneLite window at ({win_x},{win_y}), viewport at ({viewport_x},{viewport_y})")
-
-                        cmd = [
-                            'ffmpeg',
-                            '-f', 'x11grab',
-                            '-video_size', '1020x666',
-                            '-framerate', '24',
-                            '-i', f'{display}+{viewport_x},{viewport_y}',
-                            '-c:v', self.ffmpeg_encoder,
-                            '-preset', 'veryfast',
-                            '-tune', 'zerolatency',
-                            '-g', '48',  # keyframe every 2s at 24fps
-                            '-b:v', '2M',
-                            '-maxrate', '2.5M',
-                            '-bufsize', '1M',
-                            '-pix_fmt', 'yuv420p',
-                            '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-                            '-f', 'mp4',
-                            'pipe:1'
-                        ]
+                        cmd = self._build_ffmpeg_cmd(display, viewport_x, viewport_y)
                         break
                 else:
                     raise ValueError("Could not parse window position")
@@ -743,23 +877,7 @@ class DashboardBackgroundTasks:
         except Exception as e:
             STATE.add_log(f"Error finding window: {e}, using default coordinates")
             # Fallback to default coordinates
-            cmd = [
-                'ffmpeg', '-f', 'x11grab',
-                '-video_size', '1020x666',
-                '-framerate', '24',
-                '-i', f'{display}+200,8',
-                '-c:v', self.ffmpeg_encoder,
-                '-preset', 'veryfast',
-                '-tune', 'zerolatency',
-                '-g', '48',
-                '-b:v', '2M',
-                '-maxrate', '2.5M',
-                '-bufsize', '1M',
-                '-pix_fmt', 'yuv420p',
-                '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-                '-f', 'mp4',
-                'pipe:1'
-            ]
+            cmd = self._build_ffmpeg_cmd(display, 200, 8)
 
         STATE.add_log(f"Starting FFmpeg with encoder: {self.ffmpeg_encoder}")
         self.ffmpeg_process = subprocess.Popen(

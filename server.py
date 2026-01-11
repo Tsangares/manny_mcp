@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import signal
+import uuid
 from pathlib import Path
 from dotenv import load_dotenv
 from watchdog.observers import Observer
@@ -17,10 +18,10 @@ from mcp.types import Tool, TextContent
 # Import modular components
 from mcptools.config import ServerConfig
 from mcptools.registry import registry
-from mcptools.runelite_manager import RuneLiteManager
+from mcptools.runelite_manager import MultiRuneLiteManager
 
 # Import tool modules (they register themselves on import)
-from mcptools.tools import core, monitoring, screenshot, routine, commands
+from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial
 
 # Import code change tools (not yet refactored)
 from request_code_change import (
@@ -61,6 +62,7 @@ from manny_tools import (
     get_command_examples,
     validate_routine_deep,
     generate_command_reference,
+    GET_MANNY_GUIDELINES_TOOL,
     GET_PLUGIN_CONTEXT_TOOL,
     GET_SECTION_TOOL,
     FIND_COMMAND_TOOL,
@@ -158,7 +160,7 @@ class ResponseFileMonitor:
 _response_monitor = None
 
 
-async def send_command_with_response(command: str, timeout_ms: int = 3000) -> dict:
+async def send_command_with_response(command: str, timeout_ms: int = 3000, account_id: str = None) -> dict:
     """
     Send a command to the plugin and wait for the response.
 
@@ -167,54 +169,79 @@ async def send_command_with_response(command: str, timeout_ms: int = 3000) -> di
 
     The plugin writes responses to /tmp/manny_response.json after processing commands.
     This function sends the command and waits for file modification events.
+
+    REQUEST ID CORRELATION: Appends --rid=xxx to command for unique request/response matching.
+    This prevents race conditions when multiple commands of the same type are sent rapidly.
+
+    Args:
+        command: Command to send to the plugin
+        timeout_ms: Timeout in milliseconds
+        account_id: Optional account ID for multi-client support
     """
     global _response_monitor
 
-    command_file = config.command_file
+    # Get account-specific file paths
+    command_file = config.get_command_file(account_id)
+    response_file = config.get_response_file(account_id)
     timeout_sec = timeout_ms / 1000.0
 
-    # Record the old response timestamp (if exists) to detect new response
-    old_mtime = None
-    if os.path.exists(RESPONSE_FILE):
-        old_mtime = os.path.getmtime(RESPONSE_FILE)
-
-    # Write the command
-    with open(command_file, "w") as f:
-        f.write(command + "\n")
-
-    # Wait for response using event-driven monitoring
     import time
-    start = time.time()
+
+    # Generate unique request ID for correlation
+    request_id = uuid.uuid4().hex[:8]
+
+    # Record time BEFORE writing command - response must be newer than this
+    command_write_time = time.time()
+
+    # Write the command with request ID appended
+    command_with_rid = f"{command} --rid={request_id}"
+    with open(command_file, "w") as f:
+        f.write(command_with_rid + "\n")
+    start = command_write_time  # Also use as start time for timeout
+
+    def _check_response():
+        """Check if response file has a valid response to our command."""
+        if os.path.exists(response_file):
+            current_mtime = os.path.getmtime(response_file)
+            # Response must be newer than when we wrote the command
+            if current_mtime >= command_write_time:
+                try:
+                    with open(response_file) as f:
+                        response = json.load(f)
+                    # PRIMARY: Match by request_id (bulletproof correlation)
+                    if response.get("request_id") == request_id:
+                        return response
+                    # FALLBACK: For backwards compat with old Java plugin, match by command name
+                    # (only if response has no request_id)
+                    if response.get("request_id") is None:
+                        if response.get("command", "").upper() == command.split()[0].upper():
+                            return response
+                except (json.JSONDecodeError, IOError):
+                    pass
+        return None
+
     while (time.time() - start) < timeout_sec:
-        # If monitor available, use event-driven waiting
-        if _response_monitor:
+        # FIRST: Check if response is already available (fixes race condition)
+        response = _check_response()
+        if response:
+            return response
+
+        # THEN: Wait for file change event or poll
+        if _response_monitor and (account_id is None or account_id == config.default_account):
             remaining_time = timeout_sec - (time.time() - start)
             if remaining_time <= 0:
                 break
-
             # Wait for file change event (instant notification)
             changed = await _response_monitor.wait_for_change(remaining_time)
             if not changed:
-                break  # Timeout
+                # Timeout from wait_for_change, but still check one more time
+                response = _check_response()
+                if response:
+                    return response
+                break
         else:
-            # Fallback to polling if monitor not initialized
+            # Fallback to polling for non-default accounts
             await asyncio.sleep(0.05)
-
-        # Check if response file was updated
-        if os.path.exists(RESPONSE_FILE):
-            current_mtime = os.path.getmtime(RESPONSE_FILE)
-            # Check if file was modified after we sent the command
-            if old_mtime is None or current_mtime > old_mtime:
-                try:
-                    with open(RESPONSE_FILE) as f:
-                        response = json.load(f)
-                    # Verify it's a response to our command
-                    if response.get("command", "").upper() == command.split()[0].upper():
-                        return response
-                except (json.JSONDecodeError, IOError):
-                    # File still being written, wait for next event
-                    await asyncio.sleep(0.01)
-                    continue
 
     return {
         "command": command,
@@ -227,15 +254,16 @@ async def send_command_with_response(command: str, timeout_ms: int = 3000) -> di
 # INITIALIZE COMPONENTS
 # ============================================================================
 
-# Initialize RuneLite manager
-runelite_manager = RuneLiteManager(config)
+# Initialize multi-client RuneLite manager
+runelite_manager = MultiRuneLiteManager(config)
 
 # Inject dependencies into tool modules
 core.set_dependencies(runelite_manager, config)
 monitoring.set_dependencies(runelite_manager, config)
-screenshot.set_dependencies(config, genai if GEMINI_AVAILABLE else None)
-routine.set_dependencies(send_command_with_response)
+screenshot.set_dependencies(runelite_manager, config, genai if GEMINI_AVAILABLE else None)
+routine.set_dependencies(send_command_with_response, config)
 commands.set_dependencies(send_command_with_response, config)
+spatial.set_dependencies(send_command_with_response, config)
 
 
 # ============================================================================
@@ -292,6 +320,11 @@ async def list_tools():
             name=DIAGNOSE_ISSUES_TOOL["name"],
             description=DIAGNOSE_ISSUES_TOOL["description"],
             inputSchema=DIAGNOSE_ISSUES_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=GET_MANNY_GUIDELINES_TOOL["name"],
+            description=GET_MANNY_GUIDELINES_TOOL["description"],
+            inputSchema=GET_MANNY_GUIDELINES_TOOL["inputSchema"]
         ),
         Tool(
             name=GET_PLUGIN_CONTEXT_TOOL["name"],
@@ -452,6 +485,26 @@ async def call_tool(name: str, arguments: dict):
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
     # Manny-specific tools
+    elif name == "get_manny_guidelines":
+        result = get_manny_guidelines(
+            plugin_dir=config.plugin_directory,
+            mode=arguments.get("mode", "full"),
+            section=arguments.get("section")
+        )
+        if result.get("success"):
+            content_text = f"# Manny Plugin Guidelines ({result['mode']} mode)\n\n"
+            if result.get('section'):
+                content_text += f"Section: {result['section']}\n\n"
+            content_text += f"Path: {result['path']}\n\n"
+            content_text += "---\n\n"
+            content_text += result['content']
+            return [TextContent(type="text", text=content_text)]
+        else:
+            error_text = f"Error: {result['error']}"
+            if result.get('available_sections'):
+                error_text += f"\n\nAvailable sections: {', '.join(result['available_sections'])}"
+            return [TextContent(type="text", text=error_text)]
+
     elif name == "get_plugin_context":
         result = get_plugin_context(
             plugin_dir=config.plugin_directory,
@@ -547,7 +600,7 @@ async def call_tool(name: str, arguments: dict):
     # Routine building and command discovery tools
     elif name == "list_available_commands":
         result = list_available_commands(
-            plugin_dir=config.plugin_directory,
+            plugin_dir=str(config.plugin_directory),
             category=arguments.get("category", "all"),
             search=arguments.get("search")
         )
@@ -562,7 +615,7 @@ async def call_tool(name: str, arguments: dict):
     elif name == "validate_routine_deep":
         result = validate_routine_deep(
             routine_path=arguments["routine_path"],
-            plugin_dir=config.plugin_directory,
+            plugin_dir=str(config.plugin_directory),
             check_commands=arguments.get("check_commands", True),
             suggest_fixes=arguments.get("suggest_fixes", True)
         )
@@ -570,7 +623,7 @@ async def call_tool(name: str, arguments: dict):
 
     elif name == "generate_command_reference":
         result = generate_command_reference(
-            plugin_dir=config.plugin_directory,
+            plugin_dir=str(config.plugin_directory),
             format=arguments.get("format", "markdown"),
             category_filter=arguments.get("category_filter")
         )

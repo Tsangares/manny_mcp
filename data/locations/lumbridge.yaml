@@ -1,0 +1,224 @@
+# Lumbridge Castle Location Knowledge
+# Used by scan_environment() for room identification and navigation hints
+
+lumbridge_castle:
+  # Ground floor (plane 0)
+  kitchen:
+    center: [3211, 3216, 0]
+    bounds: [3206, 3212, 3214, 3220]
+    plane: 0
+    key_objects:
+      - "Cooking range"
+    nearby_doors:
+      - "Large_door"
+    connections:
+      - to: "main_hall"
+        via: "Large_door"
+        direction: "north"
+        door_location: [3213, 3222]
+    tips:
+      - "Cooking range is in the southwest corner"
+      - "Exit via Large_door to the north to reach main hall"
+
+  main_hall:
+    center: [3212, 3225, 0]
+    bounds: [3205, 3220, 3220, 3232]
+    plane: 0
+    key_objects:
+      - "Staircase"
+    nearby_doors:
+      - "Large_door"
+      - "Door"
+    connections:
+      - to: "kitchen"
+        via: "Large_door"
+        direction: "south"
+        door_location: [3213, 3222]
+      - to: "side_room_east"
+        via: "Door"
+        direction: "east"
+      - to: "floor1"
+        via: "Staircase"
+        direction: "up"
+    tips:
+      - "Central hub of the castle"
+      - "Staircase in the center leads to upper floors"
+
+  side_room_east:
+    center: [3218, 3218, 0]
+    bounds: [3215, 3215, 3222, 3222]
+    plane: 0
+    key_objects: []
+    nearby_doors:
+      - "Door"
+    connections:
+      - to: "main_hall"
+        via: "Door"
+        direction: "west"
+    tips:
+      - "Small side room - usually NOT where you want to go"
+      - "Contains the trapdoor to cellar"
+      - "If you end up here, exit west back to main hall"
+
+  cellar:
+    center: [3209, 9617, 0]  # Note: Cellar uses different Y coordinates (underground)
+    bounds: [3206, 9614, 3212, 9620]
+    plane: 0  # Technically plane 0 but in basement region
+    key_objects:
+      - "Hopper"
+      - "Flour bin"
+    nearby_doors:
+      - "Trapdoor"
+      - "Ladder"
+    connections:
+      - to: "mill_floor2"
+        via: "Ladder"
+        direction: "up"
+    tips:
+      - "Use for flour milling"
+      - "Hopper is on floor 2, Flour bin is in cellar"
+
+  # Upper floors
+  floor1:
+    center: [3210, 3224, 1]
+    bounds: [3205, 3220, 3220, 3232]
+    plane: 1
+    key_objects:
+      - "Staircase"
+      - "Bank chest"
+    nearby_doors: []
+    connections:
+      - to: "main_hall"
+        via: "Staircase"
+        direction: "down"
+      - to: "floor2"
+        via: "Staircase"
+        direction: "up"
+    tips:
+      - "Bank chest available on this floor"
+      - "Shortcut for banking during castle activities"
+
+  floor2:
+    center: [3210, 3224, 2]
+    bounds: [3205, 3220, 3220, 3232]
+    plane: 2
+    key_objects:
+      - "Staircase"
+    nearby_doors: []
+    connections:
+      - to: "floor1"
+        via: "Staircase"
+        direction: "down"
+    tips:
+      - "Top floor of main castle"
+
+  # Windmill (separate structure)
+  mill_floor0:
+    center: [3166, 3306, 0]
+    bounds: [3164, 3304, 3168, 3308]
+    plane: 0
+    key_objects:
+      - "Ladder"
+    nearby_doors: []
+    connections:
+      - to: "mill_floor1"
+        via: "Ladder"
+        direction: "up"
+    tips:
+      - "Ground floor of Lumbridge windmill"
+      - "Flour bin is here after milling"
+
+  mill_floor1:
+    center: [3166, 3306, 1]
+    bounds: [3164, 3304, 3168, 3308]
+    plane: 1
+    key_objects:
+      - "Ladder"
+    nearby_doors: []
+    connections:
+      - to: "mill_floor0"
+        via: "Ladder"
+        direction: "down"
+      - to: "mill_floor2"
+        via: "Ladder"
+        direction: "up"
+    tips:
+      - "Middle floor - just pass through"
+
+  mill_floor2:
+    center: [3166, 3306, 2]
+    bounds: [3164, 3304, 3168, 3308]
+    plane: 2
+    key_objects:
+      - "Hopper"
+      - "Hopper controls"
+      - "Ladder"
+    nearby_doors: []
+    connections:
+      - to: "mill_floor1"
+        via: "Ladder"
+        direction: "down"
+    tips:
+      - "Top floor with hopper for flour milling"
+      - "Use grain on hopper, then operate controls"
+      - "Collect flour from bin on ground floor"
+
+# Lumbridge Bank area
+lumbridge_bank:
+  main:
+    center: [3208, 3220, 2]  # Top floor bank
+    bounds: [3206, 3218, 3210, 3222]
+    plane: 2
+    key_objects:
+      - "Bank booth"
+      - "Bank chest"
+    nearby_doors: []
+    connections:
+      - to: "lumbridge_castle.floor2"
+        via: "Staircase"
+        direction: "down"
+    tips:
+      - "Use Bank booth or Bank chest"
+      - "Access via castle staircase"
+
+# Cooking area shortcut reference
+lumbridge_cooking:
+  range_area:
+    center: [3212, 3215, 0]
+    bounds: [3210, 3213, 3214, 3218]
+    plane: 0
+    key_objects:
+      - "Cooking range"
+    nearby_doors:
+      - "Large_door"
+    tips:
+      - "Enter from main hall via Large_door"
+      - "Range is against south wall"
+      - "Exit north to return to main hall"
+
+# Common navigation routes
+# (Reference for Claude to plan multi-step routes)
+common_routes:
+  bank_to_range:
+    description: "From Lumbridge bank to cooking range"
+    steps:
+      - "From bank (plane 2), take Staircase down twice to main hall"
+      - "Go south through Large_door to kitchen"
+      - "Range is in southwest corner"
+
+  range_to_bank:
+    description: "From cooking range to Lumbridge bank"
+    steps:
+      - "Exit kitchen north through Large_door"
+      - "In main hall, take Staircase up twice"
+      - "Bank is on plane 2"
+
+  mill_flour_route:
+    description: "Flour milling at Lumbridge windmill"
+    steps:
+      - "Go to mill (3166, 3306)"
+      - "Climb ladder twice to floor 2"
+      - "Use grain on Hopper"
+      - "Operate Hopper controls"
+      - "Climb ladder down twice"
+      - "Use pot on Flour bin"

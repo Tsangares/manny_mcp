@@ -5,6 +5,7 @@
 *.pem
 secrets*.yaml
 credentials*.json
+config.yaml
 
 # Python
 __pycache__/

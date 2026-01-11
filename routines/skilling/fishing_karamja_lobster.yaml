@@ -1,0 +1,193 @@
+# Karamja Lobster Fishing Routine
+# Fish lobsters at Musa Point, Karamja with Port Sarim deposit box banking
+# Requirements: Lobster pot in inventory, Coins for ferry (60gp round trip)
+
+name: "Karamja Lobster Fishing"
+description: "Fish lobsters at Musa Point, bank at Port Sarim deposit box"
+type: "skilling"
+skill: "fishing"
+level_required: 40
+
+requirements:
+  items:
+    - name: "Lobster pot"
+      quantity: 1
+      note: "Required for cage fishing lobsters"
+    - name: "Coins"
+      quantity: 1000
+      note: "For ferry fare (30gp each way, need plenty for multiple trips)"
+
+locations:
+  port_sarim_deposit_box:
+    x: 3029
+    y: 3210
+    plane: 0
+    description: "Port Sarim deposit box on the dock"
+  captain_tobias:
+    x: 3029
+    y: 3217
+    plane: 0
+    description: "Captain Tobias - Karamja ferry captain"
+  karamja_dock:
+    x: 2954
+    y: 3146
+    plane: 0
+    description: "Karamja arrival point at Musa Point dock"
+  karamja_fishing_spot:
+    x: 2925
+    y: 3175
+    plane: 0
+    description: "Lobster/swordfish fishing spot at Musa Point"
+  customs_officer:
+    x: 2955
+    y: 3147
+    plane: 0
+    description: "Customs officer for return ferry"
+
+# Enable looping for continuous fishing
+loop:
+  enabled: true
+  max_iterations: 50
+  start_step: 1
+
+steps:
+  # ========== PHASE 1: TRAVEL TO KARAMJA ==========
+  - id: 1
+    phase: "travel_to_karamja"
+    action: GOTO
+    args: "3029 3217 0"
+    description: "Walk to Captain Tobias at Port Sarim dock"
+    await_condition: "location:3029,3217"
+    timeout_ms: 15000
+
+  - id: 2
+    phase: "travel_to_karamja"
+    action: INTERACT_NPC
+    args: "Captain_Tobias Travel"
+    description: "Take ferry to Karamja (30gp fare)"
+    delay_after_ms: 5000
+    notes: "Ferry travel takes a few seconds"
+
+  - id: 3
+    phase: "travel_to_karamja"
+    action: GOTO
+    args: "2930 3155 0"
+    description: "Walk WEST from dock (waypoint to avoid bay)"
+    await_condition: "location:2930,3155"
+    timeout_ms: 45000
+    notes: "Must go west first to avoid the bay blocking path. Extended timeout for slow pathfinding."
+
+  - id: 4
+    phase: "travel_to_karamja"
+    action: GOTO
+    args: "2924 3178 0"
+    description: "Walk to lobster fishing spot"
+    await_condition: "location:2924,3178"
+    timeout_ms: 30000
+    notes: "Lobster/swordfish fishing area at Musa Point"
+
+  # ========== PHASE 2: FISH LOBSTERS ==========
+  - id: 5
+    phase: "fishing"
+    action: CAMERA_STABILIZE
+    args: ""
+    description: "Reset camera to stable zoom and pitch"
+    delay_after_ms: 1000
+    notes: "Prevents camera viewport issues blocking NPC clicks"
+
+  - id: 6
+    phase: "fishing"
+    action: FISH
+    args: "lobster"
+    description: "Fish lobsters until inventory full"
+    await_condition: "inventory_count:>=28"
+    timeout_ms: 600000
+    notes: "Fishing takes several minutes. Lobster pot + coins = 2 slots, so 26 lobsters fill inventory"
+
+  # ========== PHASE 3: RETURN TO PORT SARIM ==========
+  - id: 7
+    phase: "return_to_port_sarim"
+    action: GOTO
+    args: "2955 3147 0"
+    description: "Walk to Customs officer at dock"
+    await_condition: "location:2955,3147"
+    timeout_ms: 30000
+
+  - id: 8
+    phase: "return_to_port_sarim"
+    action: CAMERA_STABILIZE
+    args: ""
+    description: "Reset camera before NPC interaction"
+    delay_after_ms: 1000
+    notes: "Ensures Customs officer is in view for reliable clicking"
+
+  - id: 9
+    phase: "return_to_port_sarim"
+    action: INTERACT_NPC
+    args: "Customs_officer Travel"
+    description: "Take ferry back to Port Sarim (30gp fare)"
+    delay_after_ms: 5000
+    notes: "Right-click Travel option skips all dialogue"
+
+  # ========== PHASE 4: DEPOSIT LOBSTERS ==========
+  - id: 10
+    phase: "deposit"
+    action: GOTO
+    args: "3028 3211 0"
+    description: "Walk to deposit box (closer position)"
+    await_condition: "location:3028,3211"
+    timeout_ms: 15000
+    notes: "Adjusted coords to be directly adjacent to deposit box"
+
+  - id: 11
+    phase: "deposit"
+    action: CAMERA_STABILIZE
+    args: ""
+    description: "Reset camera before deposit"
+    delay_after_ms: 1000
+    notes: "Ensures deposit box is in view"
+
+  - id: 12
+    phase: "deposit"
+    action: INTERACT_OBJECT
+    args: "Bank_deposit_box Deposit"
+    description: "Open deposit box interface"
+    delay_after_ms: 2500
+    notes: "Extended delay to ensure deposit box fully opens"
+
+  - id: 13
+    phase: "deposit"
+    action: BANK_DEPOSIT_ITEM
+    args: "Raw_lobster"
+    description: "Deposit all raw lobsters"
+    await_condition: "no_item:Raw lobster"
+    timeout_ms: 10000
+    notes: "BANK_DEPOSIT_ITEM works with deposit box interface"
+
+  - id: 14
+    phase: "deposit"
+    action: KEY_PRESS
+    args: "Escape"
+    description: "Close deposit box"
+    delay_after_ms: 1000
+    notes: "Ready for next loop iteration"
+
+# Execution notes
+notes: |
+  This routine requires starting at Port Sarim dock near the deposit box.
+
+  Key learnings from manual testing (2025-01-09):
+  - Captain Tobias and Customs officer both use "Travel" action (right-click)
+  - No dialogue needed for either ferry - Travel action is direct
+  - FISH lobster command handles finding and re-clicking fishing spots
+  - Fishing spots move periodically, FISH command handles this
+  - Deposit box object is named "Bank_deposit_box"
+  - BANK_DEPOSIT_ITEM works with deposit box interface
+  - CAMERA_STABILIZE before fishing prevents viewport issues
+
+  Expected yields:
+  - ~26 lobsters per trip
+  - ~90 XP per lobster = 2340 XP per trip
+  - ~5-10 minutes per trip depending on fishing luck
+
+  CRITICAL: Do NOT cross the gangplank at Port Sarim - it leads to a different ship!

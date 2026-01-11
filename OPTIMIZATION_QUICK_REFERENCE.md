@@ -19,7 +19,32 @@ Quick reference card for all Manny MCP optimizations.
 
 ---
 
-## 🔍 How to Check Performance
+## 🤖 Automated Performance Diagnostics
+
+**diagnose-performance skill** - Let Claude automatically check performance and suggest fixes.
+
+```
+Use the Skill tool: diagnose-performance
+```
+
+**What it does:**
+- Runs monitor.py automatically
+- Interprets results vs baselines
+- Diagnoses root causes
+- Provides copy-paste ready fixes
+- Suggests Phase 4 optimizations
+
+**When to use:**
+- You report performance issues
+- After implementing new features
+- Periodically during long sessions
+- When you ask "is everything optimized?"
+
+See `.claude/skills/diagnose-performance/skill.md` for details.
+
+---
+
+## 🔍 Manual Performance Checks
 
 ### Quick Health Check
 ```bash

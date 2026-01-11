@@ -1,0 +1,110 @@
+# Flour Milling Routine - Lumbridge Mill
+# Converts Grain into Pot of flour at the Lumbridge windmill
+# Requirements: Grain in inventory, Pot in inventory
+
+name: "Flour Milling"
+description: "Mill grain into flour at Lumbridge windmill"
+type: "skilling"
+skill: "cooking"
+
+requirements:
+  items:
+    - name: "Grain"
+      quantity: 1
+      note: "One grain produces one flour"
+    - name: "Pot"
+      quantity: 1
+      note: "Required to collect flour from bin"
+
+locations:
+  mill_outside:
+    x: 3166
+    y: 3306
+    plane: 0
+    description: "Outside Lumbridge windmill"
+  mill_top_floor:
+    x: 3166
+    y: 3306
+    plane: 2
+    description: "Top floor with hopper"
+  flour_bin:
+    x: 3166
+    y: 3306
+    plane: 0
+    description: "Ground floor with flour bin"
+
+# Step-by-step routine
+# Each step can use send_and_await for efficient execution
+steps:
+  # ========== PHASE 1: CLIMB TO TOP FLOOR ==========
+  - id: 1
+    phase: "climb_to_top"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb first ladder (ground to 1st floor)"
+    await_condition: "plane:1"
+    notes: "Player should end on plane 1"
+
+  - id: 2
+    phase: "climb_to_top"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb second ladder (1st to 2nd floor)"
+    await_condition: "plane:2"
+    notes: "Player should end on plane 2 (top floor)"
+
+  # ========== PHASE 2: MILL GRAIN ==========
+  - id: 3
+    phase: "mill_grain"
+    action: USE_ITEM_ON_OBJECT
+    args: "Grain Hopper"
+    description: "Put grain in the hopper"
+    await_condition: "no_item:Grain"
+    notes: "Grain is removed from inventory when used on hopper"
+
+  - id: 4
+    phase: "mill_grain"
+    action: INTERACT_OBJECT
+    args: "Hopper controls Operate"
+    description: "Operate hopper controls to grind grain"
+    await_condition: "idle"
+    expected_chatbox: "You operate the hopper. The grain slides down the chute."
+    notes: "After this, flour is in the bin on ground floor"
+
+  # ========== PHASE 3: COLLECT FLOUR ==========
+  - id: 5
+    phase: "collect_flour"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down from 2nd to 1st floor"
+    await_condition: "plane:1"
+
+  - id: 6
+    phase: "collect_flour"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down from 1st to ground floor"
+    await_condition: "plane:0"
+
+  - id: 7
+    phase: "collect_flour"
+    action: USE_ITEM_ON_OBJECT
+    args: "Pot Flour bin"
+    description: "Use pot on flour bin to collect flour"
+    await_condition: "has_item:Pot of flour"
+    expected_result: "Pot of flour in inventory"
+
+# Execution notes
+notes:
+  - "For multiple grains: repeat steps 3-4 for each grain before climbing down"
+  - "The flour bin can hold multiple flour - add all grain first, then collect"
+  - "If flour bin is not found, try: USE_ITEM_ON_OBJECT Pot 'Flour bin'"
+
+# Usage examples with new send_and_await tool:
+# send_and_await(command="INTERACT_OBJECT Ladder Climb-up", await_condition="plane:1")
+# send_and_await(command="INTERACT_OBJECT Ladder Climb-up", await_condition="plane:2")
+# send_and_await(command="USE_ITEM_ON_OBJECT Grain Hopper", await_condition="no_item:Grain")
+# send_and_await(command="INTERACT_OBJECT Hopper controls Operate", await_condition="idle")
+# send_and_await(command="INTERACT_OBJECT Ladder Climb-down", await_condition="plane:1")
+# send_and_await(command="INTERACT_OBJECT Ladder Climb-down", await_condition="plane:0")
+# send_and_await(command="USE_ITEM_ON_OBJECT Pot Flour bin", await_condition="has_item:Pot of flour")

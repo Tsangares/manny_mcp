@@ -47,6 +47,25 @@ class ToolRegistry:
             return handler
         return decorator
 
+    def tool(self, name: str, description: str, inputSchema: dict):
+        """
+        Alternative decorator to register a tool (keyword-based).
+
+        Args:
+            name: Tool name
+            description: Tool description
+            inputSchema: JSON schema for tool arguments
+
+        Returns:
+            Decorator function that registers the handler
+        """
+        schema = {
+            "name": name,
+            "description": description,
+            "inputSchema": inputSchema
+        }
+        return self.register(schema)
+
     def list_tools(self) -> List[Tool]:
         """Return all tool schemas for MCP list_tools() endpoint"""
         return [tool["schema"] for tool in self._tools.values()]
