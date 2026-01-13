@@ -923,13 +923,22 @@ async def handle_click_widget(arguments: dict) -> dict:
         click_x = bounds["x"] + bounds["width"] // 2
         click_y = bounds["y"] + bounds["height"] // 2
 
-        # Use direct mouse command
+        # Use direct mouse commands - send MOUSE_MOVE first, then MOUSE_CLICK
+        # Must be sent as separate commands since plugin only processes one command per file
         command_file = config.get_command_file(account_id)
-        command = f"MOUSE_MOVE {click_x} {click_y}\nMOUSE_CLICK left"
 
         try:
+            # Step 1: Move mouse to position
             with open(command_file, "w") as f:
-                f.write(command + "\n")
+                f.write(f"MOUSE_MOVE {click_x} {click_y}\n")
+
+            # Wait for move to be processed (plugin polls every 200ms)
+            await asyncio.sleep(0.3)
+
+            # Step 2: Click at current position
+            with open(command_file, "w") as f:
+                f.write("MOUSE_CLICK left\n")
+
             return {
                 "success": True,
                 "widget_id": widget_id,
@@ -1058,4 +1067,228 @@ async def handle_find_widget(arguments: dict) -> dict:
         "found": len(matches),
         "total_widgets_scanned": len(widgets),
         "widgets": matches
+    }
+
+
+@registry.register({
+    "name": "click_widget_by_action",
+    "description": """[Routine Building] Find a widget by action text and click it atomically.
+
+Combines find_widget + click_widget into one operation with fresh bounds at click time.
+Ideal for GE buttons, shop items, and other interfaces where widgets share container IDs.
+
+The tool:
+1. Scans all visible widgets for matching action
+2. Gets fresh bounds at click time (avoids stale coordinate issues)
+3. Clicks center of the matched widget
+
+Examples:
+- click_widget_by_action(action="+10%") - Click GE price +10% button
+- click_widget_by_action(action="+10") - Click GE quantity +10 button
+- click_widget_by_action(action="Buy 1") - Click shop Buy 1 option
+- click_widget_by_action(action="-5%", container_id=30474266) - Limit search to GE container""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "action": {
+                "type": "string",
+                "description": "Action text to match (e.g., '+10%', 'Buy 1', '-5%')"
+            },
+            "container_id": {
+                "type": "integer",
+                "description": "Optional: Only match widgets with this container/parent ID"
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 3000)",
+                "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional)"
+            }
+        },
+        "required": ["action"]
+    }
+})
+async def handle_click_widget_by_action(arguments: dict) -> dict:
+    """Find a widget by action and click it in one atomic operation."""
+    action = arguments.get("action", "")
+    container_id = arguments.get("container_id")
+    timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
+
+    if not action:
+        return {"success": False, "error": "action is required"}
+
+    # Step 1: Scan for widgets matching the action
+    command = f"SCAN_WIDGETS {action}"
+    response = await send_command_with_response(command, timeout_ms, account_id)
+
+    if response.get("status") != "success":
+        return {
+            "success": False,
+            "error": response.get("error", "Failed to scan widgets")
+        }
+
+    widgets = response.get("result", {}).get("widgets", [])
+
+    # Step 2: Find widget with matching action
+    match = None
+    for w in widgets:
+        actions = w.get("actions", [])
+        if not actions:
+            continue
+
+        # Check if any action matches (exact or contains)
+        for widget_action in actions:
+            if widget_action and (action in widget_action or action == widget_action):
+                # If container_id specified, verify it matches
+                if container_id is not None and w.get("id") != container_id:
+                    continue
+                match = w
+                break
+        if match:
+            break
+
+    if not match:
+        return {
+            "success": False,
+            "error": f"No widget with action '{action}' found",
+            "widgets_scanned": len(widgets)
+        }
+
+    # Step 3: Get bounds and click
+    bounds = match.get("bounds", {})
+    if not bounds or not all(k in bounds for k in ("x", "y", "width", "height")):
+        return {
+            "success": False,
+            "error": f"Widget found but has invalid bounds: {bounds}"
+        }
+
+    click_x = bounds["x"] + bounds["width"] // 2
+    click_y = bounds["y"] + bounds["height"] // 2
+
+    # Send mouse commands
+    command_file = config.get_command_file(account_id)
+
+    try:
+        # Move mouse to position
+        with open(command_file, "w") as f:
+            f.write(f"MOUSE_MOVE {click_x} {click_y}\n")
+
+        await asyncio.sleep(0.3)
+
+        # Click
+        with open(command_file, "w") as f:
+            f.write("MOUSE_CLICK left\n")
+
+        return {
+            "success": True,
+            "action": action,
+            "widget_id": match.get("id"),
+            "clicked_at": {"x": click_x, "y": click_y},
+            "bounds": bounds,
+            "message": f"Clicked widget with action '{action}' at ({click_x}, {click_y})"
+        }
+    except Exception as e:
+        return {"success": False, "error": f"Failed to send click: {e}"}
+
+
+@registry.register({
+    "name": "debug_widget_children",
+    "description": """[Routine Building] List all clickable children of a widget container.
+
+Returns all widgets that share a container ID, showing their bounds and actions.
+Useful for debugging GE, shop, and other interfaces with virtual/child widgets.
+
+Use this to visualize what Claude sees when interacting with complex interfaces.
+
+Example:
+- debug_widget_children(container_id=30474266) - List all GE offer screen buttons""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "container_id": {
+                "type": "integer",
+                "description": "The container widget ID to inspect"
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 3000)",
+                "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional)"
+            }
+        },
+        "required": ["container_id"]
+    }
+})
+async def handle_debug_widget_children(arguments: dict) -> dict:
+    """List all clickable children of a container widget."""
+    container_id = arguments.get("container_id")
+    timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
+
+    if not container_id:
+        return {"success": False, "error": "container_id is required"}
+
+    # Scan all widgets (no filter)
+    command = "SCAN_WIDGETS"
+    response = await send_command_with_response(command, timeout_ms, account_id)
+
+    if response.get("status") != "success":
+        return {
+            "success": False,
+            "error": response.get("error", "Failed to scan widgets")
+        }
+
+    all_widgets = response.get("result", {}).get("widgets", [])
+
+    # Filter to only widgets matching the container ID
+    children = []
+    for w in all_widgets:
+        if w.get("id") == container_id:
+            bounds = w.get("bounds", {})
+            actions = w.get("actions", [])
+            text = w.get("text") or w.get("name") or w.get("itemName") or ""
+
+            # Only include if has bounds and either actions or text
+            if bounds and (actions or text):
+                children.append({
+                    "text": text[:30] if text else None,
+                    "actions": actions,
+                    "bounds": {
+                        "x": bounds.get("x"),
+                        "y": bounds.get("y"),
+                        "width": bounds.get("width"),
+                        "height": bounds.get("height")
+                    },
+                    "click_center": {
+                        "x": bounds.get("x", 0) + bounds.get("width", 0) // 2,
+                        "y": bounds.get("y", 0) + bounds.get("height", 0) // 2
+                    }
+                })
+
+    # Sort by x position then y for visual order
+    children.sort(key=lambda c: (c["bounds"]["y"], c["bounds"]["x"]))
+
+    # Group by unique bounds (deduplicate)
+    unique_children = []
+    seen_bounds = set()
+    for child in children:
+        bounds_key = (child["bounds"]["x"], child["bounds"]["y"],
+                      child["bounds"]["width"], child["bounds"]["height"])
+        if bounds_key not in seen_bounds:
+            seen_bounds.add(bounds_key)
+            unique_children.append(child)
+
+    return {
+        "success": True,
+        "container_id": container_id,
+        "child_count": len(unique_children),
+        "total_widgets_scanned": len(all_widgets),
+        "children": unique_children
     }

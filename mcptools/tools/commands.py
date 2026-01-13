@@ -424,6 +424,125 @@ async def handle_deposit_item(arguments: dict) -> dict:
 
 
 @registry.register({
+    "name": "teleport_home",
+    "description": """[Commands] Cast Home Teleport to return to Lumbridge.
+
+Opens the magic tab, clicks Home Teleport spell, and waits for teleport.
+Home Teleport has a 30-minute cooldown and takes ~10 seconds to cast.
+
+Note: The spell will fail if:
+- On cooldown (30 min between casts)
+- In combat
+- Player moves during casting
+
+Returns success/failure and final player location.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "wait_for_arrival": {
+                "type": "boolean",
+                "description": "If true, wait for player to arrive in Lumbridge (default: true)",
+                "default": True
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Maximum time to wait for teleport in milliseconds (default: 15000)",
+                "default": 15000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional)"
+            }
+        },
+        "required": []
+    }
+})
+async def handle_teleport_home(arguments: dict) -> dict:
+    """Cast Home Teleport to Lumbridge."""
+    wait_for_arrival = arguments.get("wait_for_arrival", True)
+    timeout_ms = arguments.get("timeout_ms", 15000)
+    account_id = arguments.get("account_id")
+
+    command_file = config.get_command_file(account_id)
+    state_file = config.get_state_file(account_id)
+
+    # Send the command
+    try:
+        with open(command_file, "w") as f:
+            f.write("TELEPORT_HOME\n")
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to send command: {e}"
+        }
+
+    if not wait_for_arrival:
+        return {
+            "success": True,
+            "command_sent": True,
+            "waited": False,
+            "note": "TELEPORT_HOME sent. Teleport takes ~10 seconds."
+        }
+
+    # Wait for arrival near Lumbridge spawn (3222, 3218)
+    # Using location:3222,3218 with default 3-tile tolerance
+    condition_str = "location:3222,3218"
+    try:
+        condition = _parse_condition(condition_str)
+    except ValueError as e:
+        return {
+            "success": False,
+            "error": f"Invalid condition: {e}"
+        }
+
+    start_time = time.time()
+    timeout_sec = timeout_ms / 1000.0
+    poll_interval_sec = 0.5
+
+    last_state = None
+    checks = 0
+
+    while (time.time() - start_time) < timeout_sec:
+        checks += 1
+
+        try:
+            with open(state_file) as f:
+                state = json.load(f)
+            last_state = state
+        except (FileNotFoundError, json.JSONDecodeError):
+            await asyncio.sleep(poll_interval_sec)
+            continue
+
+        if _check_condition(state, condition):
+            elapsed_ms = int((time.time() - start_time) * 1000)
+            location = state.get("player", {}).get("location", {})
+            return {
+                "success": True,
+                "teleported": True,
+                "elapsed_ms": elapsed_ms,
+                "checks": checks,
+                "location": location
+            }
+
+        await asyncio.sleep(poll_interval_sec)
+
+    # Timeout
+    elapsed_ms = int((time.time() - start_time) * 1000)
+    location = None
+    if last_state:
+        location = last_state.get("player", {}).get("location", {})
+
+    return {
+        "success": False,
+        "teleported": False,
+        "elapsed_ms": elapsed_ms,
+        "checks": checks,
+        "error": f"Timeout after {elapsed_ms}ms - teleport may have failed (cooldown, interrupted, or combat)",
+        "location": location
+    }
+
+
+@registry.register({
     "name": "stabilize_camera",
     "description": """[Commands] Reset camera to a stable medium zoom and pitch.
 

@@ -53,6 +53,64 @@ get_command_examples(command="BANK_WITHDRAW")  # Shows correct format
 send_command("BANK_WITHDRAW Raw lobster 27")  # Fixed!
 ```
 
+## Widget Clicking (CRITICAL) ⚡
+
+**ALWAYS use `CLICK_WIDGET <container_id> "<action>"` for clicking UI buttons.**
+
+This finds the child widget by action text and clicks it atomically. Works reliably on Wayland + UI scaling.
+
+```python
+# ✅ CORRECT - atomic child widget click
+send_command('CLICK_WIDGET 30474266 "+10"')      # GE quantity +10
+send_command('CLICK_WIDGET 30474266 "+5%"')      # GE price +5%
+send_command('CLICK_WIDGET 30474264 "Collect-item"')  # Collect from GE
+
+# ❌ WRONG - coordinate clicking is unreliable
+send_command("MOUSE_MOVE 92 212")   # Commands race
+send_command("MOUSE_CLICK left")    # Click lands elsewhere
+
+# ❌ WRONG - clickWidgetWithParam clicks parent center, not button
+# (internal method issue - don't use for GE buttons)
+```
+
+**Why this matters:** Separate MOUSE_MOVE + MOUSE_CLICK commands race and cancel each other. Coordinate-based clicking is unreliable on Wayland with UI scaling. The `CLICK_WIDGET` command handles everything atomically.
+
+## High-Token MCP Tools (MANDATORY) ⚡
+
+**CRITICAL:** These tools return massive responses (10k-35k tokens). You MUST delegate them to a Haiku subagent:
+
+| Tool | Typical Response | Action |
+|------|------------------|--------|
+| `scan_widgets` | ~35k tokens | **ALWAYS use Haiku subagent** |
+| `query_nearby` | ~10k tokens | Use Haiku subagent for exploration |
+| `get_logs` (long) | Variable | Use Haiku if expecting large output |
+
+**MANDATORY PATTERN for scan_widgets:**
+
+```python
+# ❌ NEVER call scan_widgets directly - floods context with 35k tokens
+scan_widgets(filter_text="Cook")
+
+# ✅ ALWAYS delegate to Haiku subagent
+Task(
+    prompt="Use scan_widgets to find any widget with 'All' in the text. Return only the widget_id.",
+    subagent_type="general-purpose",
+    model="haiku"
+)
+```
+
+**Why this matters:** Direct `scan_widgets` calls consume your entire context budget in one call. A Haiku subagent processes the same data for 1/20th the cost and returns just what you need.
+
+**Preferred alternatives (no subagent needed):**
+- `find_widget(text="All")` - Returns compact results for simple text searches
+- `click_text("All")` - Find and click in one call
+- `get_dialogue()` - For dialogue options specifically
+
+**When to use each:**
+1. First try `click_text()` or `find_widget()` - they're lightweight
+2. If those fail (widget not found), delegate to Haiku with `scan_widgets`
+3. Never call `scan_widgets` directly from your main context
+
 ## Working with Manny Plugin Code
 
 **IMPORTANT:** Always use the `manny_src` symlink for accessing plugin code:
@@ -292,10 +350,10 @@ validate_routine_deep(routine_path="your_routine.yaml")
 
 **Pattern: Discover → Act → Verify**
 
-```
+```python
 # 1. DISCOVER: What's available?
 query_nearby(name_filter="Cook")
-scan_widgets(filter_text="What's wrong")
+find_widget(text="What's wrong")  # Lightweight alternative to scan_widgets
 get_dialogue()
 
 # 2. ACT: Do something
@@ -311,8 +369,8 @@ get_command_response()
 **Key Principles:**
 1. Always verify - Check responses and game state
 2. Use game data, not positions - Prefer `click_text("...")` over `send_input(click, x, y)`
-3. Scan before acting - Use `query_nearby` and `scan_widgets` first
-4. Handle failures - If `click_text` fails, use `scan_widgets` to see what's visible
+3. Scan before acting - Use `query_nearby` and `find_widget()` first
+4. Handle failures - If `click_text` fails, use `find_widget()` or delegate `scan_widgets` to Haiku subagent (see "High-Token MCP Tools" section)
 
 ## Indoor Navigation Protocol
 
@@ -488,6 +546,7 @@ The `check_anti_patterns` tool detects these automatically:
 4. **Missing interrupt checks in loops** → Add `shouldInterrupt` check in loop body
 5. **Forgetting ResponseWriter** → Always call `responseWriter.writeSuccess/writeFailure`
 6. **Manual CountDownLatch** → Use `helper.readFromClient(() -> ...)`
+7. **Manual menu verification for widgets** → Use `playerHelpers.smartMoveToWidget(widgetId, expectedTarget)` - auto-verifies hover and corrects with movePrecisely if Bezier misses
 
 **See examples:** Read manny_src/CLAUDE.md for detailed examples and fixes.
 
@@ -581,14 +640,9 @@ Task(prompt=f"Context: {context}. Use Read tool for file contents.")
 | Code fixes, architecture decisions | `opus` or `sonnet` |
 | Log filtering, state summarization, finding files | `haiku` |
 | Writing routines, debugging | `sonnet` |
+| **`scan_widgets` calls** | **`haiku` (MANDATORY)** |
 
-**Large-output tools** (`scan_widgets`, `query_nearby`, `get_logs`): Use Haiku subagent to filter/summarize, or use `find_widget()` for simple text searches.
-
-```python
-# ❌ BAD: scan_widgets() floods context (~13k tokens)
-# ✅ GOOD: Use find_widget() or delegate to Haiku
-find_widget(text="Cook", max_results=5)
-```
+**REMINDER:** See "High-Token MCP Tools (MANDATORY)" section at top of this file. Never call `scan_widgets` directly - always delegate to Haiku subagent.
 
 ## Setup
 
