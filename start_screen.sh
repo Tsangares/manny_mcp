@@ -4,10 +4,49 @@
 # Primary: Gamescope (Valve's gaming compositor)
 # Fallback: Rootful Xwayland
 #
-# Usage: ./start_screen.sh
+# Usage: ./start_screen.sh [display_num]
+#   ./start_screen.sh       - Start primary display (kills existing, uses gamescope)
+#   ./start_screen.sh 3     - Start display :3 (adds to existing, uses Xwayland)
+#   ./start_screen.sh 4     - Start display :4 (adds to existing, uses Xwayland)
+#
 # Then run RuneLite with: DISPLAY=:2 <command>
 
 set -e
+
+# Parse arguments
+TARGET_DISPLAY="${1:-}"
+
+if [ -n "$TARGET_DISPLAY" ]; then
+    # Starting additional display - don't kill existing ones
+    echo "Starting additional display :$TARGET_DISPLAY..."
+
+    # Check if already running
+    if [ -S "/tmp/.X11-unix/X$TARGET_DISPLAY" ]; then
+        echo "Display :$TARGET_DISPLAY already running"
+        exit 0
+    fi
+
+    # Start Xwayland for additional displays (gamescope picks its own display)
+    Xwayland -geometry 1920x1080 -decorate -host-grab :$TARGET_DISPLAY &
+    XWAYLAND_PID=$!
+
+    # Wait for socket
+    for i in {1..10}; do
+        sleep 1
+        if [ -S "/tmp/.X11-unix/X$TARGET_DISPLAY" ]; then
+            if kill -0 $XWAYLAND_PID 2>/dev/null; then
+                echo "Display :$TARGET_DISPLAY started (PID: $XWAYLAND_PID)"
+                exit 0
+            fi
+        fi
+    done
+
+    echo "Failed to start display :$TARGET_DISPLAY"
+    kill $XWAYLAND_PID 2>/dev/null || true
+    exit 1
+fi
+
+# Primary display startup (original behavior)
 
 # Kill any existing virtual displays
 pkill -f "gamescope" 2>/dev/null || true
@@ -38,8 +77,8 @@ start_gamescope() {
     # --force-windows-fullscreen: makes X11 apps fill the gamescope window
     # --xwayland-count 1: single Xwayland server
     gamescope \
-        -W 1600 -H 1000 \
-        -w 1600 -h 1000 \
+        -W 1920 -H 1080 \
+        -w 1920 -h 1080 \
         --force-windows-fullscreen \
         --xwayland-count 1 \
         -- sleep infinity &
@@ -81,7 +120,7 @@ start_xwayland() {
     # Rootful Xwayland runs as a Wayland client with its own X server
     # -decorate: window decorations
     # -host-grab: allows grabbing input
-    Xwayland -geometry 1600x1000 -decorate -host-grab :2 &
+    Xwayland -geometry 1920x1080 -decorate -host-grab :2 &
 
     XWAYLAND_PID=$!
 

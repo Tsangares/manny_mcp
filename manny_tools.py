@@ -2851,3 +2851,195 @@ Useful for:
         }
     }
 }
+
+
+# =============================================================================
+# TELEPORT INFO
+# =============================================================================
+
+# Teleport database - comprehensive info about standard spellbook teleports
+TELEPORT_DATABASE = {
+    "home": {
+        "spell_name": "Home Teleport",
+        "command": "TELEPORT home",
+        "alt_command": "CAST_SPELL Home_Teleport",
+        "level": 0,
+        "runes": "None (free, 30 min cooldown)",
+        "destination": "Lumbridge spawn point",
+        "destination_coords": (3222, 3218, 0),
+        "cast_time": "10 seconds",
+        "notes": "Free but takes 10 seconds and has 30 minute cooldown"
+    },
+    "varrock": {
+        "spell_name": "Varrock Teleport",
+        "command": "TELEPORT varrock",
+        "alt_command": "CAST_SPELL Varrock_Teleport",
+        "level": 25,
+        "runes": "1 law, 3 air, 1 fire",
+        "destination": "Varrock center (near fountain)",
+        "destination_coords": (3212, 3424, 0),
+        "cast_time": "3 seconds",
+        "notes": "Staff of fire provides unlimited fire runes"
+    },
+    "lumbridge": {
+        "spell_name": "Lumbridge Teleport",
+        "command": "TELEPORT lumbridge",
+        "alt_command": "CAST_SPELL Lumbridge_Teleport",
+        "level": 31,
+        "runes": "1 law, 3 air, 1 earth",
+        "destination": "Lumbridge castle courtyard",
+        "destination_coords": (3222, 3218, 0),
+        "cast_time": "3 seconds",
+        "notes": "Similar destination to Home Teleport but faster"
+    },
+    "falador": {
+        "spell_name": "Falador Teleport",
+        "command": "TELEPORT falador",
+        "alt_command": "CAST_SPELL Falador_Teleport",
+        "level": 37,
+        "runes": "1 law, 3 air, 1 water",
+        "destination": "Falador center (near statue)",
+        "destination_coords": (2965, 3378, 0),
+        "cast_time": "3 seconds",
+        "notes": "Near bank and mining guild entrance"
+    },
+    "house": {
+        "spell_name": "Teleport to House",
+        "command": "TELEPORT house",
+        "alt_command": "CAST_SPELL Teleport_to_House",
+        "level": 40,
+        "runes": "1 law, 1 air, 1 earth",
+        "destination": "Player's house",
+        "destination_coords": None,
+        "cast_time": "3 seconds",
+        "notes": "Requires a house. Location varies by house setting"
+    },
+    "camelot": {
+        "spell_name": "Camelot Teleport",
+        "command": "TELEPORT camelot",
+        "alt_command": "CAST_SPELL Camelot_Teleport",
+        "level": 45,
+        "runes": "1 law, 5 air",
+        "destination": "Camelot / Seers Village",
+        "destination_coords": (2757, 3477, 0),
+        "cast_time": "3 seconds",
+        "notes": "Near Seers Village bank. Popular for training"
+    },
+    "ardougne": {
+        "spell_name": "Ardougne Teleport",
+        "command": "TELEPORT ardougne",
+        "alt_command": "CAST_SPELL Ardougne_Teleport",
+        "level": 51,
+        "runes": "2 law, 2 water",
+        "destination": "East Ardougne market",
+        "destination_coords": (2662, 3305, 0),
+        "cast_time": "3 seconds",
+        "notes": "Requires Plague City quest completion"
+    },
+    "watchtower": {
+        "spell_name": "Watchtower Teleport",
+        "command": "TELEPORT watchtower",
+        "alt_command": "CAST_SPELL Watchtower_Teleport",
+        "level": 58,
+        "runes": "2 law, 2 earth",
+        "destination": "Yanille (Watchtower)",
+        "destination_coords": (2549, 3112, 0),
+        "cast_time": "3 seconds",
+        "notes": "Requires Watchtower quest completion"
+    },
+    "trollheim": {
+        "spell_name": "Trollheim Teleport",
+        "command": "TELEPORT trollheim",
+        "alt_command": "CAST_SPELL Trollheim_Teleport",
+        "level": 61,
+        "runes": "2 law, 2 fire",
+        "destination": "Trollheim (Troll Stronghold)",
+        "destination_coords": (2891, 3676, 0),
+        "cast_time": "3 seconds",
+        "notes": "Requires Eadgar's Ruse quest completion"
+    }
+}
+
+
+def get_teleport_info(destination: str = None, include_all: bool = False) -> dict:
+    """
+    Get information about available teleport spells.
+
+    Args:
+        destination: Specific destination to look up (e.g., 'varrock', 'lumbridge')
+                    If None and include_all=False, returns summary list
+        include_all: If True, returns full details for all teleports
+
+    Returns:
+        Dictionary with teleport information
+    """
+    if destination:
+        # Look up specific destination
+        key = destination.lower().strip()
+        if key in TELEPORT_DATABASE:
+            return {
+                "success": True,
+                "teleport": TELEPORT_DATABASE[key]
+            }
+        else:
+            return {
+                "success": False,
+                "error": f"Unknown destination: {destination}",
+                "available": list(TELEPORT_DATABASE.keys())
+            }
+
+    if include_all:
+        # Return all teleport details
+        return {
+            "success": True,
+            "teleports": TELEPORT_DATABASE
+        }
+
+    # Return summary list
+    summary = []
+    for key, info in TELEPORT_DATABASE.items():
+        summary.append({
+            "destination": key,
+            "level": info["level"],
+            "runes": info["runes"],
+            "command": info["command"]
+        })
+
+    # Sort by level
+    summary.sort(key=lambda x: x["level"])
+
+    return {
+        "success": True,
+        "teleports_summary": summary,
+        "tip": "Use get_teleport_info(destination='varrock') for full details"
+    }
+
+
+GET_TELEPORT_INFO_TOOL = {
+    "name": "get_teleport_info",
+    "description": """Get information about available teleport spells.
+
+Returns teleport requirements (magic level, runes), destinations, and commands.
+Use this before teleporting to check if you have the required level and runes.
+
+Examples:
+- get_teleport_info() → Summary of all teleports
+- get_teleport_info(destination='varrock') → Full details for Varrock teleport
+- get_teleport_info(include_all=True) → Complete database
+
+Available destinations: home, varrock, lumbridge, falador, house, camelot, ardougne, watchtower, trollheim""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "destination": {
+                "type": "string",
+                "description": "Specific destination to look up (e.g., 'varrock', 'falador')"
+            },
+            "include_all": {
+                "type": "boolean",
+                "description": "If true, return full details for all teleports",
+                "default": False
+            }
+        }
+    }
+}

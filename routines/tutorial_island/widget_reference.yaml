@@ -1,0 +1,88 @@
+# Tutorial Island Widget Reference
+# STATUS: IN PROGRESS
+#
+# Widget IDs discovered during Tutorial Island automation.
+# Note: Tutorial Island uses different widget structures than main game!
+#
+# ==========================================
+# KEY PRINCIPLE: ALWAYS USE WIDGET IDs!
+# ==========================================
+# NEVER use coordinate-based clicking (send_input click x y)
+# Coordinate clicks cause server disconnections on Tutorial Island
+# ALWAYS use: CLICK_WIDGET <id> "action" or CLICK_CHILD_WIDGET
+# ==========================================
+
+# Tab Widgets (Main Game - may not work on Tutorial Island)
+tabs:
+  combat_tab: 35913808       # (548 << 16) | 0x50
+  skills_tab: 35913809       # (548 << 16) | 0x51  - NOT VISIBLE on Tutorial Island
+  quest_tab: 35913810        # (548 << 16) | 0x52
+  inventory_tab: 35913811    # (548 << 16) | 0x53
+  equipment_tab: 35913812    # (548 << 16) | 0x54
+  prayer_tab: 35913813       # (548 << 16) | 0x55
+  magic_tab: 35913814        # (548 << 16) | 0x56
+
+# Icon Widgets (clickable)
+icons:
+  inventory_icon: 35913795   # Opens inventory - WORKS
+  settings_tab: 35913780     # Spanner icon - Settings
+
+# Inventory Widgets
+inventory:
+  container: 9764864         # Inventory container widget
+
+# Dialogue Widgets
+dialogue:
+  continue_button: 12648448  # "Click here to continue" button
+  # Action: "Continue"
+
+# Banking Widgets
+banking:
+  deposit_box_container: 12582914  # (192 << 16) + 2
+  deposit_inventory: 786476        # (12 << 16) + 44
+  bank_item_container: 786445
+
+# Experience Selection (Tutorial Island specific)
+experience_selection:
+  parent_widget: 7995392     # Group 122 experience selection
+  # Static children:
+  # index 0 = "I'm brand new"
+  # index 1 = "I've played before"
+  # index 2 = "I'm an experienced player"
+
+# Tutorial Island Widget Groups (add to ScanWidgetsCommand.java for deep scans)
+tutorial_groups:
+  - 122   # Experience selection
+  - 263   # Tutorial chatbox hints
+  - 303   # Tutorial container
+  - 614   # Tutorial hints
+  - 651   # Tutorial buttons
+  - 678   # Character creation
+  - 708   # Tutorial container
+
+# Commands Reference
+commands:
+  # Inventory
+  open_inventory: 'CLICK_WIDGET 35913795 "Inventory"'
+
+  # Dialogue
+  click_continue: 'CLICK_WIDGET 12648448 "Continue"'
+
+  # Experience Selection (Tutorial Island)
+  select_experienced: 'CLICK_CHILD_WIDGET 7995392 2 static'
+  select_played_before: 'CLICK_CHILD_WIDGET 7995392 1 static'
+  select_brand_new: 'CLICK_CHILD_WIDGET 7995392 0 static'
+
+# PITFALLS DISCOVERED:
+# - TAB_OPEN skills fails on Tutorial Island - widget (548, 0x51) not visible
+# - Must use direct widget clicks or find Tutorial Island-specific widgets
+# - Tutorial Island fishing spots use action "Net" not "Small Net"
+# - Coordinate-based clicking causes server disconnections!
+#
+# SKILLS TAB INVESTIGATION (BLOCKED - need client running):
+# Widget 35913809 (group 548, child 0x51) is NOT VISIBLE on Tutorial Island
+# Attempts that FAILED:
+#   - CLICK_WIDGET 35913809 → "widget not found or hidden"
+#   - KEY_PRESS F2 → no effect
+#   - Coordinate clicking → caused disconnections
+# Next step: Deep scan for Tutorial Island skills widget when client available

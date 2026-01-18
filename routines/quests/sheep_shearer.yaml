@@ -1,0 +1,195 @@
+# Sheep Shearer Quest Routine
+# Quest Requirements: None (F2P)
+# Items Needed: Shears (obtainable from Fred's house), 20 wool (from sheep)
+# Starting Location: Fred the Farmer's house (north of Lumbridge)
+# Quest Points: 1
+#
+# STATUS: VALIDATED - Successfully completed 2025-01-15
+#
+# CRITICAL LESSONS LEARNED:
+# 1. INTERACT_OBJECT MUST use underscores: "Spinning_wheel" NOT "Spinning wheel"
+#    - Spaces cause parsing errors: "wheel Spin on Spinning" instead of correct
+# 2. INTERACT_NPC uses underscores: "Fred_the_Farmer" works
+# 3. Some sheep are already sheared (no "Shear" action) - need retry/move logic
+# 4. Spinning wheel accessed via Ladder (not Staircase) on plane 1
+# 5. Pathing can timeout on long distances - use intermediate waypoints
+
+name: "Sheep Shearer"
+type: quest
+difficulty: novice
+quest_points: 1
+
+# Items tracking
+items_needed:
+  - shears  # Found on table in Fred's house
+  - wool: 20  # From shearing sheep
+  - ball_of_wool: 20  # After spinning
+
+# VALIDATED Locations
+locations:
+  fred_house:
+    x: 3189
+    y: 3273
+    plane: 0
+    description: "Fred the Farmer's house"
+    validated: true
+
+  sheep_pen:
+    x: 3195
+    y: 3270
+    plane: 0
+    description: "Sheep pen east of Fred's house"
+    validated: true
+
+  spinning_wheel:
+    x: 3209
+    y: 3212
+    plane: 1
+    description: "Spinning wheel in Lumbridge Castle 1st floor"
+    validated: true
+
+  lumbridge_castle_ground:
+    x: 3207
+    y: 3214
+    plane: 0
+    description: "Lumbridge Castle ground floor (near ladder)"
+    validated: true
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: START QUEST ==========
+  - id: 1
+    phase: "start_quest"
+    action: GOTO
+    args: "3189 3276 0"
+    description: "Walk to Fred the Farmer"
+
+  - id: 2
+    phase: "start_quest"
+    action: INTERACT_NPC
+    args: "Fred_the_Farmer Talk-to"
+    description: "Talk to Fred the Farmer to start quest"
+    # VALIDATED: Underscore naming works
+
+  - id: 3
+    phase: "start_quest"
+    action: DIALOGUE_CONTINUE
+    description: "Accept quest - need to bring 20 balls of wool"
+    notes: "Multiple continue clicks needed through dialogue"
+
+  # ========== PHASE 2: GET SHEARS ==========
+  - id: 4
+    phase: "get_shears"
+    action: PICK_UP_ITEM
+    args: "Shears"
+    description: "Pick up shears from table in Fred's house"
+    skip_if: "has_item:Shears"
+    notes: "Shears spawn on table inside house"
+
+  # ========== PHASE 3: SHEAR SHEEP ==========
+  - id: 5
+    phase: "shear_sheep"
+    action: GOTO
+    args: "3195 3270 0"
+    description: "Walk to sheep pen"
+
+  - id: 6
+    phase: "shear_sheep"
+    action: INTERACT_NPC
+    args: "Sheep Shear"
+    description: "Shear sheep to get wool"
+    repeat: 20
+    await_condition: "inventory_count:>=20"
+    notes: |
+      PITFALL: Some sheep are already sheared (no "Shear" action).
+      If shearing fails, move to different part of pen and retry.
+      Sheep respawn with wool after a few minutes.
+
+  # ========== PHASE 4: SPIN WOOL ==========
+  - id: 7
+    phase: "spin_wool"
+    action: GOTO
+    args: "3207 3214 0"
+    description: "Walk to Lumbridge Castle ground floor"
+
+  - id: 8
+    phase: "spin_wool"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb ladder to 1st floor"
+    await_condition: "plane:1"
+    notes: "Use Ladder, not Staircase"
+
+  - id: 9
+    phase: "spin_wool"
+    action: GOTO
+    args: "3209 3212 1"
+    description: "Walk to spinning wheel"
+
+  - id: 10
+    phase: "spin_wool"
+    action: INTERACT_OBJECT
+    args: "Spinning_wheel Spin"
+    description: "Spin all wool into balls of wool"
+    await_condition: "no_item:Wool"
+    notes: |
+      CRITICAL: Use "Spinning_wheel" with underscore!
+      "Spinning wheel" with space causes parsing error.
+      The spin interface lets you spin all at once.
+
+  # ========== PHASE 5: COMPLETE QUEST ==========
+  - id: 11
+    phase: "complete_quest"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down ladder"
+    await_condition: "plane:0"
+
+  - id: 12
+    phase: "complete_quest"
+    action: GOTO
+    args: "3187 3277 0"
+    description: "Return to Fred the Farmer"
+    notes: "May need intermediate waypoints if pathing fails"
+
+  - id: 13
+    phase: "complete_quest"
+    action: INTERACT_NPC
+    args: "Fred_the_Farmer Talk-to"
+    description: "Talk to Fred with 20 balls of wool"
+
+  - id: 14
+    phase: "complete_quest"
+    action: DIALOGUE_SELECT
+    args: "shearing these sheep"
+    description: "Select dialogue option about wool"
+
+  - id: 15
+    phase: "complete_quest"
+    action: DIALOGUE_CONTINUE
+    repeat: 5
+    description: "Continue through dialogue to complete quest"
+    expected_result: "Quest complete!"
+
+# Rewards (VALIDATED)
+rewards:
+  - quest_points: 1
+  - crafting_xp: 150
+  - coins: 60
+
+# AUTOMATION PITFALLS DISCOVERED:
+# 1. OBJECT NAMING: Multi-word objects need underscores in INTERACT_OBJECT
+#    - "Spinning_wheel" CORRECT
+#    - "Spinning wheel" WRONG (parses as object="Spinning", action="wheel ...")
+#
+# 2. SHEEP SHEARING: Not all sheep have wool
+#    - Sheared sheep have no "Shear" action
+#    - Need to scan for sheep with "Shear" action or move and retry
+#
+# 3. NAVIGATION: Long-distance GOTO can timeout
+#    - Break into shorter segments with intermediate waypoints
+#    - Fred -> Spinning wheel is ~30 tiles, may need midpoint
+#
+# 4. DIALOGUE: Multiple continues needed
+#    - Quest completion has ~5 dialogue screens
+#    - Need to handle both continue and option selection

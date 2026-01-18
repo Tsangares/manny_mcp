@@ -17,6 +17,28 @@ _parse_condition = None
 _check_condition = None
 _extract_relevant_state = None
 
+# Session recorder (lazy import to avoid circular deps)
+_session_recorder = None
+_command_log = None
+
+
+def _get_recorder():
+    """Lazy import session recorder."""
+    global _session_recorder
+    if _session_recorder is None:
+        from .session import recorder
+        _session_recorder = recorder
+    return _session_recorder
+
+
+def _get_command_log():
+    """Lazy import always-on command log."""
+    global _command_log
+    if _command_log is None:
+        from .session import command_log
+        _command_log = command_log
+    return _command_log
+
 
 def set_dependencies(send_command_func, server_config):
     """Inject dependencies (called from server.py startup)"""
@@ -60,6 +82,13 @@ async def handle_send_command(arguments: dict) -> dict:
     account_id = arguments.get("account_id")
     command_file = config.get_command_file(account_id)
 
+    # Always log to daily command history (lightweight, always-on)
+    _get_command_log().log_command(command)
+
+    # Also record to explicit session if active (with state tracking)
+    recorder = _get_recorder()
+    cmd_id = recorder.record_command(command) if recorder.is_active() else None
+
     try:
         with open(command_file, "w") as f:
             f.write(command + "\n")
@@ -72,6 +101,9 @@ async def handle_send_command(arguments: dict) -> dict:
             result["account_id"] = account_id
         return result
     except Exception as e:
+        # Record error if session active
+        if recorder.is_active():
+            recorder.record_error(command, str(e))
         return {"dispatched": False, "error": str(e)}
 
 
@@ -241,6 +273,33 @@ async def handle_send_and_await(arguments: dict) -> dict:
             "command": command,
             "condition": condition_str
         }
+
+    # Pre-flight check: Detect stale state file (plugin may be frozen)
+    # If state file is >30s stale, warn caller before wasting time on a frozen plugin
+    STALE_THRESHOLD = 30  # seconds
+    try:
+        if os.path.exists(state_file):
+            state_age = time.time() - os.path.getmtime(state_file)
+            if state_age > STALE_THRESHOLD:
+                return {
+                    "success": False,
+                    "error": f"Plugin appears frozen - state file is {state_age:.0f}s stale. Use restart_if_frozen() or auto_reconnect() first.",
+                    "command": command,
+                    "condition": condition_str,
+                    "state_age_seconds": round(state_age, 1),
+                    "diagnosis": "PLUGIN_FROZEN"
+                }
+        else:
+            return {
+                "success": False,
+                "error": "State file does not exist - is RuneLite running with manny plugin?",
+                "command": command,
+                "condition": condition_str,
+                "diagnosis": "NO_STATE_FILE"
+            }
+    except Exception as e:
+        # Don't block on pre-flight check failures, just proceed
+        pass
 
     # Send the command
     try:
@@ -544,12 +603,12 @@ async def handle_teleport_home(arguments: dict) -> dict:
 
 @registry.register({
     "name": "stabilize_camera",
-    "description": """[Commands] Reset camera to a stable medium zoom and pitch.
+    "description": """[Commands] Reset camera to a stable medium zoom and top-down pitch.
 
 Counteracts NPC zoom-in behavior by resetting to a comfortable viewing distance.
 - Zooms out to maximum (normalizes baseline)
 - Zooms back in to medium distance (8 scrolls)
-- Sets pitch to 300 (moderate angle, good visibility)
+- Sets pitch to 400 (top-down view for better spatial awareness)
 
 Use after NPC interactions that may have zoomed in too close.""",
     "inputSchema": {
@@ -577,3 +636,125 @@ async def handle_stabilize_camera(arguments: dict) -> dict:
         return result
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+@registry.register({
+    "name": "equip_item",
+    "description": """[Commands] Equip an item from inventory by clicking it with Wear/Wield action.
+
+Finds the item in inventory by name and clicks it to equip.
+Automatically determines whether to use "Wear" or "Wield" based on item type.
+
+Examples:
+- equip_item(item_name="Ghostspeak amulet") - Equips the amulet
+- equip_item(item_name="Bronze sword") - Wields the sword
+- equip_item(item_name="Leather boots") - Wears the boots""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "item_name": {
+                "type": "string",
+                "description": "Name of the item to equip (e.g., 'Ghostspeak amulet', 'Bronze sword')"
+            },
+            "action": {
+                "type": "string",
+                "description": "Override equip action (default: auto-detect 'Wear' or 'Wield' from item actions)",
+                "enum": ["Wear", "Wield", "Equip"]
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout for widget scan in milliseconds (default: 3000)",
+                "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional)"
+            }
+        },
+        "required": ["item_name"]
+    }
+})
+async def handle_equip_item(arguments: dict) -> dict:
+    """Equip an item from inventory by name."""
+    item_name = arguments.get("item_name", "")
+    action_override = arguments.get("action")
+    timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
+
+    if not item_name:
+        return {"success": False, "error": "item_name is required"}
+
+    command_file = config.get_command_file(account_id)
+
+    # Step 1: Find the item widget in inventory
+    # Use SCAN_WIDGETS with item name filter
+    scan_command = f"SCAN_WIDGETS {item_name}"
+    response = await send_command_with_response(scan_command, timeout_ms, account_id)
+
+    if response.get("status") != "success":
+        return {
+            "success": False,
+            "error": f"Failed to scan widgets: {response.get('error', 'Unknown error')}",
+            "item_name": item_name
+        }
+
+    widgets = response.get("result", {}).get("widgets", [])
+
+    # Find the inventory item widget (look for item with matching name and equip actions)
+    inventory_widget = None
+    equip_action = action_override
+
+    for widget in widgets:
+        widget_item_name = widget.get("itemName", "")
+        actions = widget.get("actions", [])
+
+        # Check if this is our item (case-insensitive match)
+        if widget_item_name.lower() == item_name.lower():
+            # Check if it has equip actions
+            available_actions = [a for a in actions if a and a in ("Wear", "Wield", "Equip")]
+            if available_actions:
+                inventory_widget = widget
+                # Auto-detect action if not specified
+                if not equip_action:
+                    equip_action = available_actions[0]  # Use first available equip action
+                break
+
+    if not inventory_widget:
+        return {
+            "success": False,
+            "error": f"Item '{item_name}' not found in inventory or has no equip action",
+            "item_name": item_name,
+            "widgets_scanned": len(widgets)
+        }
+
+    widget_id = inventory_widget.get("id")
+    if not widget_id:
+        return {
+            "success": False,
+            "error": f"Item '{item_name}' found but has no widget ID",
+            "item_name": item_name
+        }
+
+    # Step 2: Click the widget with the equip action
+    click_command = f'CLICK_WIDGET {widget_id} "{equip_action}"'
+
+    try:
+        with open(command_file, "w") as f:
+            f.write(click_command + "\n")
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to send click command: {e}",
+            "item_name": item_name
+        }
+
+    # Give the game a moment to process
+    await asyncio.sleep(0.3)
+
+    return {
+        "success": True,
+        "item_name": item_name,
+        "widget_id": widget_id,
+        "action": equip_action,
+        "command_sent": click_command
+    }

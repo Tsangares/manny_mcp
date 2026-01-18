@@ -7,6 +7,7 @@ import json
 import time
 import asyncio
 import uuid
+import re
 from ..registry import registry
 
 
@@ -133,7 +134,11 @@ Supports filtering by:
 - Widget name
 - Item name (for inventory/bank/deposit box item widgets)
 
-For item widgets (inventory, bank, deposit box), returns itemId, itemQuantity, and itemName.""",
+For item widgets (inventory, bank, deposit box), returns itemId, itemQuantity, and itemName.
+
+DEEP SCAN MODE: Use deep=True to scan ALL widget groups (0-800) instead of just common ones.
+This is slower but catches dynamic/unusual interfaces like Tutorial Island experience selection.
+Use this when the standard scan doesn't find the widget you're looking for.""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -141,9 +146,14 @@ For item widgets (inventory, bank, deposit box), returns itemId, itemQuantity, a
                 "type": "string",
                 "description": "Optional text to filter widgets by - matches text, name, and item names (case-insensitive)"
             },
+            "deep": {
+                "type": "boolean",
+                "description": "Deep scan mode: scan ALL widget groups (0-800). Slower but finds hidden/dynamic widgets.",
+                "default": False
+            },
             "timeout_ms": {
                 "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
+                "description": "Timeout in milliseconds (default: 3000, use 10000+ for deep scan)",
                 "default": 3000
             },
             "account_id": {
@@ -157,20 +167,42 @@ async def handle_scan_widgets(arguments: dict) -> dict:
     """Scan all visible widgets."""
     timeout_ms = arguments.get("timeout_ms", 3000)
     filter_text = arguments.get("filter_text")
+    deep_scan = arguments.get("deep", False)
     account_id = arguments.get("account_id")
 
-    # Pass filter_text to Java command for server-side filtering (more efficient)
-    command = f"SCAN_WIDGETS {filter_text}" if filter_text else "SCAN_WIDGETS"
+    # Build command with optional --deep flag and filter
+    parts = ["SCAN_WIDGETS"]
+    if deep_scan:
+        parts.append("--deep")
+    if filter_text:
+        parts.append(filter_text)
+    command = " ".join(parts)
+
     response = await send_command_with_response(command, timeout_ms, account_id)
 
     if response.get("status") == "success":
         widgets = response.get("result", {}).get("widgets", [])
-        return {
+
+        # Calculate which widget groups were found
+        groups_found = set()
+        for w in widgets:
+            if "group" in w:
+                groups_found.add(w["group"])
+
+        result = {
             "success": True,
             "widgets": widgets,
             "count": len(widgets),
-            "filtered_by": filter_text
+            "filtered_by": filter_text,
+            "groups_found": sorted(groups_found),
+            "deep_scan": deep_scan
         }
+
+        # For deep scan, add a hint about which groups had widgets
+        if deep_scan and groups_found:
+            result["hint"] = f"Found widgets in groups: {sorted(groups_found)}. Add these to groupsToScan for faster future scans."
+
+        return result
     else:
         return {
             "success": False,
@@ -201,7 +233,17 @@ the speaker name, text, and clickable options with their widget IDs.""",
     }
 })
 async def handle_get_dialogue(arguments: dict) -> dict:
-    """Get current dialogue state."""
+    """Get current dialogue state.
+
+    Only returns dialogue-specific widgets, filtering out chat interface elements.
+
+    Widget groups for OSRS dialogues:
+    - 217: Player dialogue (chatbox player head)
+    - 219: Options dialogue (multi-choice)
+    - 231: NPC dialogue (chatbox NPC head)
+    - 229: Continue button dialogue
+    - 193: Item received notification
+    """
     timeout_ms = arguments.get("timeout_ms", 3000)
     account_id = arguments.get("account_id")
 
@@ -228,30 +270,117 @@ async def handle_get_dialogue(arguments: dict) -> dict:
         "has_continue": False
     }
 
+    # Known dialogue widget groups (all others are filtered out)
+    # 217 = Player dialogue, 219 = Options, 231 = NPC dialogue,
+    # 229 = Continue button, 193 = Item received
+    DIALOGUE_GROUPS = {217, 219, 231, 229, 193}
+
+    # Specific widget IDs for dialogue components
+    PLAYER_NAME_ID = 14221316   # Group 217, child 4
+    PLAYER_TEXT_ID = 14221318   # Group 217, child 6
+    NPC_NAME_ID = 15138820      # Group 231, child 4
+    NPC_TEXT_ID = 15138822      # Group 231, child 6
+    OPTIONS_CONTAINER = 219     # Group 219 contains option children
+
+    seen_options = set()  # Deduplicate options
+
     for widget in widgets:
         text = widget.get("text", "") or ""
         widget_id = widget.get("id", 0)
 
-        # Check for "Click here to continue"
-        if "click here to continue" in text.lower():
+        if not widget_id or not text.strip():
+            continue
+
+        # Extract widget group from packed ID: group = id >> 16
+        widget_group = widget_id >> 16
+
+        # ONLY process dialogue-related widget groups
+        if widget_group not in DIALOGUE_GROUPS:
+            continue
+
+        text_lower = text.lower().strip()
+        text_clean = text.strip()
+
+        # Check for "Click here to continue" button
+        if "click here to continue" in text_lower:
             dialogue_info["dialogue_open"] = True
             dialogue_info["has_continue"] = True
-            dialogue_info["type"] = "continue"
+            if not dialogue_info["type"]:
+                dialogue_info["type"] = "continue"
+            continue
 
-        # Check for dialogue options
-        if text and len(text) < 200 and "click here" not in text.lower():
-            if widget_id:
+        # Extract speaker name from player or NPC dialogue
+        if widget_id == PLAYER_NAME_ID or widget_id == NPC_NAME_ID:
+            dialogue_info["speaker"] = text_clean
+            dialogue_info["dialogue_open"] = True
+            if not dialogue_info["type"]:
+                dialogue_info["type"] = "npc" if widget_id == NPC_NAME_ID else "player"
+            continue
+
+        # Extract dialogue text from player or NPC dialogue
+        if widget_id == PLAYER_TEXT_ID or widget_id == NPC_TEXT_ID:
+            dialogue_info["text"] = text_clean
+            dialogue_info["dialogue_open"] = True
+            continue
+
+        # Options dialogue (group 219)
+        if widget_group == OPTIONS_CONTAINER:
+            # Skip the "Select an option" header
+            if text_lower == "select an option":
+                dialogue_info["dialogue_open"] = True
+                dialogue_info["type"] = "options"
+                continue
+
+            # Deduplicate (widgets sometimes appear twice)
+            option_key = (widget_id, text_clean)
+            if option_key in seen_options:
+                continue
+            seen_options.add(option_key)
+
+            # Add actual dialogue options
+            if text_clean and len(text_clean) < 200:
                 dialogue_info["options"].append({
-                    "text": text,
+                    "text": text_clean,
                     "widget_id": widget_id
                 })
 
-    if dialogue_info["options"]:
+    # Set type to options if we found options but didn't set type yet
+    if dialogue_info["options"] and not dialogue_info["type"]:
         dialogue_info["dialogue_open"] = True
-        if not dialogue_info["type"]:
-            dialogue_info["type"] = "options"
+        dialogue_info["type"] = "options"
 
     return dialogue_info
+
+
+WIDGET_SELECTION_FILE = "/tmp/manny_widget_select.txt"
+
+
+@registry.register({
+    "name": "clear_widget_overlay",
+    "description": """[Widget Inspector] Clear the widget highlight overlay from the game screen.
+
+Use this when the green bounding box overlay stays visible after closing the External Widget Inspector.
+Simply clears the selection file so the overlay has nothing to highlight.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+    }
+})
+async def handle_clear_widget_overlay(arguments: dict) -> dict:
+    """Clear the widget selection overlay."""
+    try:
+        with open(WIDGET_SELECTION_FILE, 'w') as f:
+            f.write("")
+        return {
+            "success": True,
+            "message": "Widget overlay cleared"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 
 @registry.register({
@@ -644,6 +773,48 @@ _handle_send_and_await = None
 _handle_await_state_change = None
 
 
+def interpolate_variables(text: str, config: dict) -> str:
+    """
+    Interpolate ${variable} references in text using config values.
+
+    Supports:
+    - ${variable} - Direct substitution
+    - ${variable|underscore} - Replace spaces with underscores (for command args)
+
+    Examples:
+        config = {"raw_food": "Raw swordfish", "quantity": 28}
+        interpolate_variables("${raw_food}", config) -> "Raw swordfish"
+        interpolate_variables("${raw_food|underscore}", config) -> "Raw_swordfish"
+        interpolate_variables("${raw_food|underscore} ${quantity}", config) -> "Raw_swordfish 28"
+    """
+    if not text or not config:
+        return text
+
+    # Pattern matches ${variable} or ${variable|filter}
+    pattern = r'\$\{([a-zA-Z_][a-zA-Z0-9_]*)(?:\|([a-zA-Z_]+))?\}'
+
+    def replacer(match):
+        var_name = match.group(1)
+        filter_name = match.group(2)
+
+        if var_name not in config:
+            # Leave unresolved variables as-is (or could raise error)
+            return match.group(0)
+
+        value = config[var_name]
+        # Convert to string if needed
+        value = str(value) if not isinstance(value, str) else value
+
+        # Apply filter if specified
+        if filter_name == "underscore":
+            value = value.replace(" ", "_")
+        # Add more filters here as needed (e.g., lowercase, uppercase)
+
+        return value
+
+    return re.sub(pattern, replacer, text)
+
+
 @registry.register({
     "name": "execute_routine",
     "description": """[Routine Execution] Execute a YAML routine file step by step.
@@ -705,6 +876,9 @@ async def handle_execute_routine(arguments: dict) -> dict:
     loop_enabled = loop_config.get('enabled', False)
     repeat_from = loop_config.get('repeat_from_step', 1)
 
+    # Extract config for variable interpolation
+    routine_config = routine.get('config', {})
+
     results = {
         "success": True,
         "routine_name": routine.get('name', 'Unknown'),
@@ -716,17 +890,35 @@ async def handle_execute_routine(arguments: dict) -> dict:
 
     loop_count = 0
     current_step_idx = start_step - 1  # Convert to 0-indexed
+    health_check_interval = 5  # Check health every N steps
+    steps_since_health_check = 0
 
     while loop_count < max_loops:
+        # Health check at start of each loop
+        health = await check_client_health(account_id, max_stale_seconds=60)
+        if not health["alive"]:
+            results["success"] = False
+            results["crash_detected"] = True
+            results["crash_error"] = health["error"]
+            results["stale_seconds"] = health.get("stale_seconds")
+            return results
+
         # Execute steps
         while current_step_idx < len(steps):
             step = steps[current_step_idx]
             step_id = step.get('id', current_step_idx + 1)
             action = step.get('action')
-            args = step.get('args', '')
-            await_condition = step.get('await_condition')
             delay_before = step.get('delay_before_ms', 0)
             timeout_ms = step.get('timeout_ms', 30000)
+
+            # Interpolate variables in step fields
+            args = step.get('args', '')
+            if args and routine_config:
+                args = interpolate_variables(str(args), routine_config)
+
+            await_condition = step.get('await_condition')
+            if await_condition and routine_config:
+                await_condition = interpolate_variables(await_condition, routine_config)
 
             # Apply delay before action
             if delay_before > 0:
@@ -804,19 +996,37 @@ async def handle_execute_routine(arguments: dict) -> dict:
             results["completed_steps"].append(step_result)
             current_step_idx += 1
 
+            # Periodic health check every N steps to catch crashes mid-routine
+            steps_since_health_check += 1
+            if steps_since_health_check >= health_check_interval:
+                steps_since_health_check = 0
+                health = await check_client_health(account_id, max_stale_seconds=60)
+                if not health["alive"]:
+                    results["success"] = False
+                    results["crash_detected"] = True
+                    results["crash_error"] = health["error"]
+                    results["stale_seconds"] = health.get("stale_seconds")
+                    results["crashed_at_step"] = step_id
+                    return results
+
         # Check if we should loop
         if loop_enabled:
             loop_count += 1
             results["loops_completed"] = loop_count
             current_step_idx = repeat_from - 1  # Reset to repeat step
 
-            # Check stop conditions
+            # Check stop conditions (with variable interpolation)
             stop_conditions = loop_config.get('stop_conditions', [])
             should_stop = False
             for condition in stop_conditions:
-                if await check_stop_condition(condition, account_id):
+                # Interpolate variables in stop condition
+                interpolated_condition = condition
+                if routine_config:
+                    interpolated_condition = interpolate_variables(condition, routine_config)
+
+                if await check_stop_condition(interpolated_condition, account_id):
                     should_stop = True
-                    results["stop_reason"] = condition
+                    results["stop_reason"] = interpolated_condition
                     break
 
             if should_stop:
@@ -859,6 +1069,47 @@ async def get_game_state(account_id: str = None) -> dict:
             return json.load(f)
     except:
         return {}
+
+
+async def check_client_health(account_id: str = None, max_stale_seconds: float = 60) -> dict:
+    """
+    Check if the client is alive by checking state file freshness.
+
+    Returns:
+        dict with:
+        - alive: bool - True if client appears healthy
+        - stale_seconds: float - How old the state file is
+        - error: str - Error message if not alive
+    """
+    state_file = config.get_state_file(account_id) if config else "/tmp/manny_state.json"
+
+    try:
+        stat = os.stat(state_file)
+        age_seconds = time.time() - stat.st_mtime
+
+        if age_seconds > max_stale_seconds:
+            return {
+                "alive": False,
+                "stale_seconds": age_seconds,
+                "error": f"State file stale for {age_seconds:.0f}s (>{max_stale_seconds}s) - client likely crashed"
+            }
+
+        return {
+            "alive": True,
+            "stale_seconds": age_seconds
+        }
+    except FileNotFoundError:
+        return {
+            "alive": False,
+            "stale_seconds": None,
+            "error": "State file not found - client not running"
+        }
+    except Exception as e:
+        return {
+            "alive": False,
+            "stale_seconds": None,
+            "error": f"Error checking state file: {e}"
+        }
 
 
 @registry.register({
@@ -1068,6 +1319,111 @@ async def handle_find_widget(arguments: dict) -> dict:
         "total_widgets_scanned": len(widgets),
         "widgets": matches
     }
+
+
+@registry.register({
+    "name": "find_and_click_widget",
+    "description": """[Routine Building] Find a widget by text/name/item and click it in one call.
+
+Combines find_widget + click_widget into a single operation. Searches widget text,
+name, item names, AND actions (like find_widget does), then clicks the first match.
+
+This is the PREFERRED way to click UI elements when you know what text to search for.
+
+Examples:
+- find_and_click_widget(text="Inventory") - Click the Inventory tab
+- find_and_click_widget(text="Quest") - Click the Quest tab
+- find_and_click_widget(text="Continue") - Click continue button
+- find_and_click_widget(text="Raw lobster", action="Drop") - Find lobster, use Drop action""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "text": {
+                "type": "string",
+                "description": "Text to search for in widget text, name, item name, or actions"
+            },
+            "action": {
+                "type": "string",
+                "description": "Optional: Specific action to use when clicking (e.g., 'Drop', 'Use'). If not specified, uses default click."
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 3000)",
+                "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional)"
+            }
+        },
+        "required": ["text"]
+    }
+})
+async def handle_find_and_click_widget(arguments: dict) -> dict:
+    """Find a widget by text and click it in one operation."""
+    text = arguments.get("text", "")
+    action = arguments.get("action")
+    timeout_ms = arguments.get("timeout_ms", 3000)
+    account_id = arguments.get("account_id")
+
+    if not text:
+        return {"success": False, "error": "text is required"}
+
+    # Step 1: Find widgets matching the text (uses server-side filtering)
+    command = f"SCAN_WIDGETS {text}"
+    response = await send_command_with_response(command, timeout_ms, account_id)
+
+    if response.get("status") != "success":
+        return {
+            "success": False,
+            "error": response.get("error", "Failed to scan widgets")
+        }
+
+    widgets = response.get("result", {}).get("widgets", [])
+
+    if not widgets:
+        return {
+            "success": False,
+            "error": f"No widget found matching '{text}'",
+            "searched_for": text
+        }
+
+    # Step 2: Get the first match
+    widget = widgets[0]
+    widget_id = widget.get("id")
+    widget_text = widget.get("itemName") or widget.get("text") or widget.get("name") or ""
+    widget_actions = widget.get("actions", [])
+    bounds = widget.get("bounds", {})
+
+    # Step 3: Click the widget
+    if action:
+        # Click with specific action
+        click_command = f'CLICK_WIDGET {widget_id} "{action}"'
+    elif widget_actions:
+        # Use first available action
+        click_command = f'CLICK_WIDGET {widget_id} "{widget_actions[0]}"'
+    else:
+        # Just click the widget (no action)
+        click_command = f'CLICK_WIDGET {widget_id}'
+
+    click_response = await send_command_with_response(click_command, timeout_ms, account_id)
+
+    if click_response.get("status") == "success":
+        return {
+            "success": True,
+            "clicked": True,
+            "widget_id": widget_id,
+            "text": widget_text[:50] if widget_text else None,
+            "action_used": action or (widget_actions[0] if widget_actions else None),
+            "bounds": bounds
+        }
+    else:
+        return {
+            "success": False,
+            "error": click_response.get("error", "Failed to click widget"),
+            "widget_id": widget_id,
+            "widget_found": True
+        }
 
 
 @registry.register({

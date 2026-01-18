@@ -1,0 +1,99 @@
+# Tutorial Island - Part 3: Survival Expert (Fishing & Skills)
+# STATUS: VALIDATED
+#
+# This routine handles the Survival Expert section:
+# 1. Talk to Survival Expert
+# 2. Open inventory tab
+# 3. Fish shrimp
+# 4. Open skills tab
+# 5. Continue to woodcutting/fire-making
+
+name: "Tutorial Island - Survival Expert"
+type: tutorial
+phase: 3
+
+# Key NPCs
+npcs:
+  survival_expert:
+    id: 8503
+    location: {x: 3104, y: 3096, plane: 0}
+  fishing_spot:
+    id: 3317
+    action: "Net"  # NOTE: Tutorial Island uses "Net" not "Small Net"!
+    locations:
+      - {x: 3099, y: 3090}
+      - {x: 3101, y: 3092}
+      - {x: 3103, y: 3092}
+
+# Key Widgets - VALIDATED
+widgets:
+  inventory_icon: 35913795   # Action: "Inventory"
+  continue_button: 12648448  # Action: "Continue"
+  skills_tab: 10485808       # Tutorial Island specific! (group 160, child 0/48)
+  # NOTE: 35913809 (548 << 16 | 0x51) does NOT work on Tutorial Island
+
+steps:
+  - id: 1
+    description: "Talk to Survival Expert"
+    action: INTERACT_NPC
+    args: "Survival_Expert Talk-to"
+    await_condition: "dialogue"
+
+  - id: 2
+    description: "Click through dialogue"
+    action: CLICK_WIDGET
+    args: '12648448 "Continue"'
+    repeat_until: "no_dialogue"
+
+  - id: 3
+    description: "Open inventory tab"
+    action: CLICK_WIDGET
+    args: '35913795 "Inventory"'
+    notes: "Tutorial says 'click the flashing backpack icon'"
+
+  - id: 4
+    description: "Fish shrimp - click fishing spot"
+    action: INTERACT_NPC
+    args: "Fishing_spot Net"
+    await_condition: "has_item:Raw shrimps"
+    notes: |
+      CRITICAL: Tutorial Island fishing spots use action "Net" not "Small Net"!
+      This is different from main game fishing spots.
+      Found by: QUERY_NPCS which now includes NPC actions after code update.
+
+  - id: 5
+    description: "Click continue after catching shrimp"
+    action: CLICK_WIDGET
+    args: '12648448 "Continue"'
+
+  - id: 6
+    description: "Open skills tab"
+    action: CLICK_WIDGET
+    args: "10485808"
+    validated: true
+    notes: |
+      CRITICAL DISCOVERY: Tutorial Island skills tab widget!
+      - Widget ID: 10485808 (group 160, child 0 or 48)
+      - Position: x=570, y=167
+      - This is DIFFERENT from main game (35913809 does NOT work)
+      - TAB_OPEN skills command also fails on Tutorial Island
+
+# KEY PRINCIPLE:
+# ALWAYS use widget IDs from this file or widget_reference.yaml
+# NEVER use coordinate-based clicking (send_input click x y)
+# Widget commands are reliable, coordinate clicks cause disconnections
+
+# PITFALLS DISCOVERED:
+# 1. Tutorial Island fishing spots have action "Net" not "Small Net"
+#    - Fixed by adding NPC actions to QUERY_NPCS command output
+# 2. TAB_OPEN skills command fails - widget not visible on Tutorial Island
+#    - SOLUTION: Use CLICK_WIDGET 10485808 (group 160, not 548!)
+# 3. Tutorial Island uses different widget groups than main game
+#    - Skills tab: 10485808 (group 160) NOT 35913809 (group 548)
+#    - Quest tab: 35913794 (group 548, child 66) - see 06_quest_guide.yaml
+
+# VALIDATED COMMANDS:
+# - CLICK_WIDGET 35913795 "Inventory"  # Opens inventory
+# - INTERACT_NPC Fishing_spot Net      # Fish shrimp
+# - CLICK_WIDGET 12648448 "Continue"   # Click continue in dialogue
+# - CLICK_WIDGET 10485808              # Opens skills tab (Tutorial Island specific!)

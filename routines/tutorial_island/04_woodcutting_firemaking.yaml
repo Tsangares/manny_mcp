@@ -1,0 +1,74 @@
+# Tutorial Island - Part 4: Woodcutting & Firemaking
+# STATUS: VALIDATED
+#
+# This routine handles woodcutting and firemaking:
+# 1. Talk to Survival Expert (again, for woodcutting intro)
+# 2. Chop down tree
+# 3. Light fire with tinderbox
+# 4. Continue to cooking section
+
+name: "Tutorial Island - Woodcutting & Firemaking"
+type: tutorial
+phase: 4
+
+# Key NPCs
+npcs:
+  survival_expert:
+    id: 8503
+    location: {x: 3104, y: 3096, plane: 0}
+
+# Key Objects
+objects:
+  tree:
+    name: "Tree"
+    action: "Chop down"  # NOTE: Space, not underscore or hyphen!
+
+# Key Widgets
+widgets:
+  continue_button: 12648448
+
+steps:
+  - id: 1
+    description: "Talk to Survival Expert for woodcutting intro"
+    action: INTERACT_NPC
+    args: "Survival_Expert Talk-to"
+    await_condition: "dialogue"
+
+  - id: 2
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+
+  - id: 3
+    description: "Chop down a tree"
+    action: INTERACT_OBJECT
+    args: "Tree Chop down"
+    await_condition: "has_item:Logs"
+    notes: |
+      CRITICAL: Action is "Chop down" with SPACE, not underscore!
+      - "Chop_down" fails
+      - "Chop-down" fails
+      - "Chop down" works
+
+  - id: 4
+    description: "Light fire with tinderbox"
+    action: USE_ITEM_ON_ITEM
+    args: "Tinderbox Logs"
+    await_condition: "no_item:Logs"
+    notes: "Player will automatically light the fire"
+
+  - id: 5
+    description: "Click continue after lighting fire"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+
+# PITFALLS DISCOVERED:
+# 1. Tree action is "Chop down" (space) not "Chop_down" or "Chop-down"
+#    - Discovered by trial and error in command history
+# 2. USE_ITEM_ON_ITEM Tinderbox Logs works correctly
+
+# COMMANDS USED (from /tmp/ command log):
+# - INTERACT_NPC Survival_Expert Talk-to
+# - INTERACT_OBJECT Tree Chop down
+# - USE_ITEM_ON_ITEM Tinderbox Logs
+# - CLICK_CONTINUE

@@ -1,0 +1,175 @@
+================================================================================
+OSRS RUNELITE INTERFACE - VISUAL LAYOUT WITH WIDGET POSITIONS
+================================================================================
+
+SCREEN DIMENSIONS & COORDINATE SYSTEM
+================================================================================
+
+Physical Size: 1592 x 1006 pixels
+Logical Size:  796 x 503 pixels (at UI scale 2.0)
+All widget coordinates below are in LOGICAL pixels
+
+
+LAYOUT DIAGRAM
+================================================================================
+
+                    RUNELITE MAIN WINDOW (1592x1006 physical)
+         ┌─────────────────────────────────────────────────────────────┐
+         │                                                             │
+         │  ┌──────────────────────────────────────────────────────┐   │
+         │  │  GAME VIEWPORT (3D world view)                      │   │
+         │  │                                                      │   │
+         │  │  (Full width left side)                             │   │
+         │  │                                                      │   │
+         │  │                                                      │   │
+         │  └──────────────────────────────────────────────────────┘   │
+         │                                                             │
+         │  ┌──────────────────────────────────────────────────────┐   │
+         │  │  CHATBOX / VIEWPORT                                 │   │
+         │  │                                                      │   │
+         │  └──────────────────────────────────────────────────────┘   │
+         │                                    ┌─────────────────────┐   │
+         │    Chat Tabs (y=480):              │  RIGHT SIDEBAR      │   │
+         │    [All] [Game] [Public]...[Trade] │                     │   │
+         │    10616836                        │  GAME TABS (y=168): │   │
+         │                                    │  ┌────────────────┐ │   │
+         │                                    │  │[Skills]        │ │   │
+         │                                    │  │  x=560         │ │   │
+         │                                    │  │  35913793      │ │   │
+         │                                    │  ├────────────────┤ │   │
+         │                                    │  │[Quests]        │ │   │
+         │                                    │  │  x=593         │ │   │
+         │                                    │  │  35913794      │ │   │
+         │                                    │  ├────────────────┤ │   │
+         │                                    │  │[Inventory]     │ │   │
+         │                                    │  │  x=626         │ │   │
+         │                                    │  │  35913795      │ │   │
+         │                                    │  └────────────────┘ │   │
+         │                                    │                     │   │
+         │                                    │ (Content panels     │   │
+         │                                    │  below tabs)        │   │
+         │                                    └─────────────────────┘   │
+         │                                                             │
+         └─────────────────────────────────────────────────────────────┘
+
+
+GAME INTERFACE TABS - TOP RIGHT SECTION
+================================================================================
+
+Location: Right sidebar, y=168 (approx 170 pixels from top in physical coords)
+Group: 548
+Child: 63
+
+┌─ x=560 ────────────────────────────────────────────────┐
+│                                                        │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
+│  │ SKILLS   │  │ QUESTS   │  │INVENTORY │              │
+│  │          │  │          │  │          │              │
+│  │ 35913793 │  │ 35913794 │  │ 35913795 │              │
+│  │          │  │          │  │          │              │
+│  │ x=560    │  │ x=593    │  │ x=626    │              │
+│  │ y=168    │  │ y=168    │  │ y=168    │              │
+│  │ 33x36    │  │ 38x36    │  │ 33x36    │              │
+│  └──────────┘  └──────────┘  └──────────┘              │
+│   "Skills"     "Quest List"   "Inventory"              │
+│   Action       Action         Action                   │
+│                                                        │
+└────────────────────────────────────────────────────────┘
+
+Format Guide:
+  548:63:3001 = Group 548, Child 63, Nested 3001 (Skills)
+  548:63:3002 = Group 548, Child 63, Nested 3002 (Quests)
+  548:63:3003 = Group 548, Child 63, Nested 3003 (Inventory)
+
+
+CHAT TABS - BOTTOM SECTION
+================================================================================
+
+Location: Bottom-left, y=480
+Group: 162
+Child: 1
+
+┌─ x=0 ───────────────────────────────────────────────────────────┐
+│                                                                 │
+│ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐ ┌────┐              │
+│ │All │ │Game│ │Pub │ │Prv │ │Ch  │ │Cln │ │Trd │              │
+│ │    │ │    │ │    │ │    │ │    │ │    │ │    │              │
+│ │5   │ │67  │ │129 │ │191 │ │253 │ │315 │ │377 │              │
+│ │    │ │    │ │    │ │    │ │    │ │    │ │    │              │
+│ │10  │ │10  │ │10  │ │10  │ │10  │ │10  │ │10  │              │
+│ │61  │ │61  │ │61  │ │61  │ │61  │ │61  │ │61  │              │
+│ │68  │ │69  │ │70  │ │71  │ │72  │ │73  │ │74  │              │
+│ │36  │ │39  │ │43  │ │47  │ │51  │ │55  │ │59  │              │
+│ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘ └────┘              │
+│   x=5   x=67  x=129  x=191  x=253  x=315  x=377               │
+│   y=480 (all tabs)                                             │
+│                                                                │
+└────────────────────────────────────────────────────────────────┘
+
+Chat Tab IDs:
+  All:     10616836 (162:1:3001)
+  Game:    10616839 (162:1:3002)
+  Public:  10616843 (162:1:3003)
+  Private: 10616847 (162:1:3004)
+  Channel: 10616851 (162:1:3005)
+  Clan:    10616855 (162:1:3006)
+  Trade:   10616859 (162:1:3007)
+
+
+CLICKING WORKFLOW
+================================================================================
+
+Step 1: Determine which tab you want to click
+        ↓
+Step 2: Get the Widget ID from the table above
+        ↓
+Step 3: Send CLICK_WIDGET command with widget ID and action
+        ↓
+Step 4: Wait for tab to open (use await_state_change)
+        ↓
+Step 5: Verify state change (get_game_state)
+
+
+EXAMPLE CODE
+================================================================================
+
+# Open Skills tab
+send_command('CLICK_WIDGET 35913793 "Skills"')
+await_state_change(condition="idle", timeout_ms=2000)
+state = get_game_state(fields=["skills"])
+
+# Open Inventory tab with wait
+send_and_await(
+    command='CLICK_WIDGET 35913795 "Inventory"',
+    await_condition="inventory_count:<=28",
+    timeout_ms=5000
+)
+
+# Switch to Game chat
+send_command('CLICK_WIDGET 10616839 "Switch tab"')
+
+
+DEBUGGING TIPS
+================================================================================
+
+1. To see current widget positions, take a screenshot:
+   get_screenshot()
+
+2. To verify tab widgets still exist:
+   find_widget(text="Skills")
+   find_widget(text="Inventory")
+
+3. To scan all visible widgets:
+   scan_widgets(timeout_ms=10000)
+
+4. To check if commands are executing:
+   get_logs(grep="CLICK_WIDGET", level="ALL", since_seconds=30)
+
+5. To verify game state after tab click:
+   get_game_state()
+
+
+================================================================================
+For complete reference, see: TOOLBAR_WIDGETS_REFERENCE.md
+Updated: 2026-01-18
+================================================================================

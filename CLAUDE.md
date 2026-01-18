@@ -75,41 +75,55 @@ send_command("MOUSE_CLICK left")    # Click lands elsewhere
 
 **Why this matters:** Separate MOUSE_MOVE + MOUSE_CLICK commands race and cancel each other. Coordinate-based clicking is unreliable on Wayland with UI scaling. The `CLICK_WIDGET` command handles everything atomically.
 
-## High-Token MCP Tools (MANDATORY) ⚡
+## Widget Discovery (PRIORITIZE find_widget) ⚡
 
-**CRITICAL:** These tools return massive responses (10k-35k tokens). You MUST delegate them to a Haiku subagent:
+**ALWAYS start with lightweight tools before resorting to scan_widgets.**
 
-| Tool | Typical Response | Action |
-|------|------------------|--------|
-| `scan_widgets` | ~35k tokens | **ALWAYS use Haiku subagent** |
-| `query_nearby` | ~10k tokens | Use Haiku subagent for exploration |
-| `get_logs` (long) | Variable | Use Haiku if expecting large output |
-
-**MANDATORY PATTERN for scan_widgets:**
+### Step 1: Try find_widget FIRST (multiple searches)
 
 ```python
-# ❌ NEVER call scan_widgets directly - floods context with 35k tokens
-scan_widgets(filter_text="Cook")
+# ✅ CORRECT - Try multiple lightweight searches first
+find_widget(text="Inventory")     # Search by text
+find_widget(text="Quest")         # Try different terms
+find_widget(text="Skills")        # Try variations
+click_text("Continue")            # Find and click in one call
 
-# ✅ ALWAYS delegate to Haiku subagent
+# The above are fast (~100ms) and return compact results
+```
+
+### Step 2: Only use scan_widgets if find_widget fails
+
+```python
+# If find_widget returns nothing, delegate scan to Haiku subagent
 Task(
-    prompt="Use scan_widgets to find any widget with 'All' in the text. Return only the widget_id.",
+    prompt="Use scan_widgets to find widgets related to the inventory tab. Return only widget_id and actions.",
     subagent_type="general-purpose",
     model="haiku"
 )
 ```
 
-**Why this matters:** Direct `scan_widgets` calls consume your entire context budget in one call. A Haiku subagent processes the same data for 1/20th the cost and returns just what you need.
+### Step 3: NEVER use deep scan
 
-**Preferred alternatives (no subagent needed):**
-- `find_widget(text="All")` - Returns compact results for simple text searches
-- `click_text("All")` - Find and click in one call
-- `get_dialogue()` - For dialogue options specifically
+```python
+# ❌ NEVER use --deep flag - extremely slow and returns massive data
+scan_widgets(deep=True)           # Takes 15+ seconds, times out often
+send_command("SCAN_WIDGETS --deep")  # Same problem
 
-**When to use each:**
-1. First try `click_text()` or `find_widget()` - they're lightweight
-2. If those fail (widget not found), delegate to Haiku with `scan_widgets`
-3. Never call `scan_widgets` directly from your main context
+# ✅ Standard scan is sufficient for 99% of use cases
+scan_widgets()                    # Scans common widget groups (0-100 children each)
+```
+
+### Why This Matters
+
+| Tool | Response Size | Speed | Use Case |
+|------|---------------|-------|----------|
+| `find_widget` | ~500 bytes | ~100ms | **First choice** - specific searches |
+| `click_text` | ~200 bytes | ~100ms | **First choice** - find and click |
+| `get_dialogue` | ~1KB | ~100ms | Dialogue options specifically |
+| `scan_widgets` | ~35k tokens | ~3s | Last resort via Haiku subagent |
+| `scan_widgets --deep` | ~100k+ tokens | ~15s+ | **NEVER USE** - times out |
+
+**Pattern:** `find_widget` (3-5 searches) → `click_text` → Haiku subagent with `scan_widgets` → never deep scan
 
 ## Working with Manny Plugin Code
 
@@ -192,7 +206,7 @@ Fix bugs and issues in the manny plugin codebase.
 - **get_logs**: Get filtered logs (by level, time, grep, plugin_only)
 - **runelite_status**: Check if RuneLite is running
 - **send_command**: Write command to `/tmp/manny_command.txt`
-- **get_game_state**: Read game state from `/tmp/manny_state.json`
+- **get_game_state**: Read game state from `/tmp/manny_state.json` (supports `fields` parameter)
 - **get_screenshot**: Capture RuneLite window screenshot
 - **analyze_screenshot**: Use Gemini AI to analyze game screenshot
 - **check_health**: Verify process, state file, and window health
@@ -216,6 +230,25 @@ if stale_seconds > 30:
 - < 5 seconds: Normal
 - 5-30 seconds: Possible lag or loading screen
 - > 30 seconds: Plugin frozen, restart needed
+
+**Filtered Game State (Token Optimization):**
+
+Use the `fields` parameter to request only specific data and reduce token usage by 80-90%:
+
+```python
+# Just check position (~3 lines instead of ~400)
+get_game_state(fields=["location"])
+# Returns: {"state": {"location": {"x": 3250, "y": 3194, "plane": 0}}}
+
+# Quest automation common case (~30 lines)
+get_game_state(fields=["location", "inventory", "dialogue"])
+
+# Compact inventory (names only, not full item details)
+get_game_state(fields=["inventory"])
+# Returns: {"state": {"inventory": {"used": 12, "items": ["Law rune x288", "Air rune x91", ...]}}}
+```
+
+**Available fields:** `location`, `inventory` (compact), `inventory_full`, `equipment`, `skills`, `dialogue`, `nearby`, `combat`, `health`, `scenario`
 
 ### State-Aware Waiting Tools ⚡
 These tools replace manual `sleep` + `get_game_state` polling:
@@ -302,11 +335,13 @@ Discover game state, find interactable elements, and verify actions:
 - **get_command_examples**: Learn from existing routines
 - **validate_routine_deep**: Pre-flight error checking with typo suggestions
 - **scan_widgets**: Scan all visible widgets (IDs, text, bounds)
-- **get_dialogue**: Check if dialogue is open, get available options
+- **get_dialogue**: Check if dialogue is open, get options (optimized: ~15 lines, not ~800)
 - **click_text**: Find a widget by text and click it
 - **click_continue**: Click "Click here to continue" in dialogues
 - **query_nearby**: Get nearby NPCs, objects, and ground items with available actions
+- **get_transitions**: Find all navigable transitions (doors, stairs, ladders, etc.) with open/closed state
 - **get_command_response**: Read last response from plugin
+- **equip_item**: Equip an item from inventory (auto-detects Wear/Wield action)
 
 ### Ground Item Interaction
 To pick up items on the ground (including items on tables/shelves which are TileItems):
@@ -372,6 +407,167 @@ get_command_response()
 3. Scan before acting - Use `query_nearby` and `find_widget()` first
 4. Handle failures - If `click_text` fails, use `find_widget()` or delegate `scan_widgets` to Haiku subagent (see "High-Token MCP Tools" section)
 
+## Session Recording (Create Routines from Manual Play) ⚡
+
+**Commands are ALWAYS logged** to `/tmp/manny_sessions/commands_YYYY-MM-DD.yaml` - you can always look back at what was sent, even without explicit recording.
+
+**Use explicit session recording** when you want full state tracking (inventory changes, location, dialogue) for converting to routines.
+
+### Two Recording Modes
+
+| Mode | What's Logged | When Active |
+|------|---------------|-------------|
+| **Always-on** | Commands + timestamps | Always (daily files) |
+| **Explicit session** | Commands + state deltas + markers | When you call `start_session_recording()` |
+
+### Workflow
+
+```python
+# 1. START recording before manual task
+start_session_recording(goal="Complete The Restless Ghost quest")
+
+# 2. DO the task manually (commands are auto-recorded)
+send_command("GOTO 3243 3208 0")
+send_command("INTERACT_NPC Father_Aereck Talk-to")
+# ... more commands ...
+
+# 3. ADD markers for phases (optional but helpful)
+add_session_marker(label="Phase 2: Get amulet from Father Urhney")
+
+# 4. STOP and get the session file
+stop_session_recording()
+# Returns: /tmp/manny_sessions/session_20250115_234500.yaml
+
+# 5. CONVERT to routine
+session_to_routine(session_path="/tmp/manny_sessions/session_20250115_234500.yaml")
+```
+
+### What Gets Recorded
+
+- **Commands** - Every `send_command` with timestamp
+- **State deltas** - Location changes, inventory add/remove, equipment changes, dialogue opens
+- **Markers** - Your manual checkpoints and notes
+- **Errors** - Failed commands with context
+
+### Session File Format
+
+```yaml
+session:
+  id: "20250115_234500"
+  goal: "Complete The Restless Ghost quest"
+
+events:
+  - timestamp: "2025-01-15T23:45:01"
+    type: command
+    id: 1
+    command: "GOTO 3243 3208 0"
+
+  - timestamp: "2025-01-15T23:45:05"
+    type: state_delta
+    changes:
+      location: {x: 3243, y: 3208, plane: 0}
+
+  - timestamp: "2025-01-15T23:45:10"
+    type: marker
+    label: "Phase 2: Get amulet"
+```
+
+### Available Tools
+
+| Tool | Purpose |
+|------|---------|
+| `get_command_history(last_n, date)` | **Always available** - Get recent commands from daily log |
+| `start_session_recording(goal)` | Begin full session recording (with state tracking) |
+| `stop_session_recording()` | Stop and save session to YAML file |
+| `add_session_marker(label, note)` | Add checkpoint/note during session |
+| `get_session_events(last_n)` | Peek at recent session events |
+| `is_session_recording()` | Check if session recording is active |
+| `session_to_routine(session_path)` | Convert session to routine YAML |
+
+### When to Use
+
+- **First time doing a quest** - Record it, then have a routine for alts
+- **Debugging a failed run** - Review the session file to see what went wrong
+- **Creating new routines** - Faster than writing YAML from scratch
+- **Learning command sequences** - See exact commands for complex tasks
+
+## Quest Automation (YAML Hybrid Approach) ⚡
+
+**When automating quests, always use a YAML hybrid approach:**
+
+1. **Research first** - Look up the quest on OSRS wiki
+2. **Create rough YAML** - Write `routines/quests/<quest_name>.yaml` with steps from wiki
+3. **Execute + Revise** - Run steps manually, fixing the YAML as you discover issues
+4. **Document pitfalls** - Add comments about what went wrong and how to fix it
+
+### Workflow
+
+```python
+# 1. RESEARCH: Get quest info from wiki
+WebSearch("OSRS <quest_name> quick guide")
+WebFetch("https://oldschool.runescape.wiki/w/<Quest>/Quick_guide", "Extract steps, items, locations")
+
+# 2. CREATE: Write initial YAML routine
+# routines/quests/quest_name.yaml with:
+# - items_needed, locations, steps
+
+# 3. EXECUTE: Run steps, checking game state (not screenshots!)
+get_game_state()  # Check dialogue.hint, inventory, location
+click_continue()  # Or click_text() based on hint
+
+# 4. REVISE: Update YAML with validated coordinates and pitfalls
+```
+
+### YAML Quest Template
+
+```yaml
+# Quest Name Routine
+# STATUS: IN PROGRESS / VALIDATED
+# Source: https://oldschool.runescape.wiki/w/Quest/Quick_guide
+
+name: "Quest Name"
+type: quest
+quest_points: 1
+
+items_needed:
+  - item_name: quantity
+
+locations:
+  location_name:
+    x: 1234
+    y: 5678
+    plane: 0
+    validated: false  # Set true after testing
+
+steps:
+  - id: 1
+    phase: "phase_name"
+    action: GOTO
+    args: "x y plane"
+    description: "What this step does"
+    await_condition: "location:x,y"
+
+# PITFALLS DISCOVERED:
+# Document issues found during execution
+```
+
+### Key Quest Automation Tips
+
+1. **Use `dialogue.hint`** from game state instead of screenshots:
+   - `CLICK_CONTINUE` → use `click_continue()`
+   - `SELECT_OPTION` → use `click_text("option")`
+
+2. **Validate coordinates** - Mark `validated: true` after confirming location works
+
+3. **Document pitfalls** - Add comments for:
+   - Multi-word object names (use underscores!)
+   - Multiple staircases (which one goes up vs down?)
+   - Dialogue options (exact text needed)
+
+4. **Existing routines:** See `routines/quests/` for validated examples:
+   - `sheep_shearer.yaml` - Simple item gathering quest
+   - `imp_catcher.yaml` - Turn-in quest with navigation pitfalls
+
 ## Indoor Navigation Protocol
 
 **CRITICAL:** Indoor navigation requires spatial awareness. NEVER naively click toward a destination inside buildings.
@@ -388,7 +584,19 @@ Inside buildings (castles, houses, dungeons):
 **BEFORE any indoor navigation:**
 
 ```python
-# 1. SCAN: Understand surroundings
+# 1. SCAN: Find all transitions (preferred - more efficient)
+transitions = get_transitions(radius=15)
+# Returns: categorized doors/stairs/ladders with open/closed state and direction
+# Example response:
+# {
+#   "summary": "Found 2 doors, 1 stair nearby. 1 door closed.",
+#   "transitions": {
+#     "doors": [{"name": "Large_door", "direction": "north", "state": "closed", ...}],
+#     "stairs": [{"name": "Staircase", "direction": "east", "actions": ["Climb-up"], ...}]
+#   }
+# }
+
+# Alternative: Use scan_environment for full context (NPCs, objects of interest)
 env = scan_environment(radius=15)
 # Returns: player position, doors with directions, objects of interest
 
@@ -408,12 +616,25 @@ get_game_state()  # Verify door opened
 send_and_await("GOTO 3212 3216 0", "location:3212,3216")  # Walk to destination
 ```
 
-### Object Naming Rules
+### Object Naming Rules (CRITICAL FOR INTERACT_OBJECT) ⚡
+
+**ALWAYS use underscores for multi-word object names in INTERACT_OBJECT commands!**
 
 | Type | Convention | Example |
 |------|------------|---------|
-| Objects | Underscores for multi-word | `Large_door`, `Cooking_range` |
+| Objects | Underscores for multi-word | `Large_door`, `Cooking_range`, `Spinning_wheel` |
 | Items | Spaces | `Raw shrimps`, `Pot of flour` |
+
+**Before sending INTERACT_OBJECT, ALWAYS review the object name for spaces:**
+```python
+# ❌ WRONG - spaces cause parsing errors
+send_command("INTERACT_OBJECT Spinning wheel Spin")  # Parses as object="Spinning", action="wheel Spin"
+
+# ✅ CORRECT - underscores for multi-word objects
+send_command("INTERACT_OBJECT Spinning_wheel Spin")  # Parses correctly
+send_command("INTERACT_OBJECT Large_door Open")
+send_command("INTERACT_OBJECT Cooking_range Cook")
+```
 
 **ALWAYS scan first** to get exact names:
 ```python
@@ -438,8 +659,8 @@ send_command("INTERACT_OBJECT Range Cook")  # Wrong - it's "Cooking_range"
 
 ```python
 # ✅ GOOD: Scan → Plan → Execute → Verify
-env = scan_environment()
-# See: Large_door (north), Cooking_range (south, blocked by wall)
+transitions = get_transitions()  # Preferred for finding doors/stairs
+# Response: {"summary": "Found 1 door, 1 stair. Door is closed (north).", ...}
 
 # Plan: Exit north, walk around, enter kitchen
 send_command("INTERACT_OBJECT Large_door Open")
@@ -459,6 +680,31 @@ get_location_info(area="lumbridge_castle", room="kitchen")
 ```
 
 See `data/locations/lumbridge.yaml` for defined locations.
+
+## Teleportation (USE IT!) ⚡
+
+**Always prefer teleports over walking when you have the magic level and runes!**
+
+Check inventory for runes and use teleports to save significant time:
+
+| Teleport | Level | Runes | Destination |
+|----------|-------|-------|-------------|
+| Home Teleport | 0 | Free (30min cooldown) | Lumbridge spawn |
+| Varrock | 25 | 1 law, 3 air, 1 fire | Varrock center |
+| Lumbridge | 31 | 1 law, 3 air, 1 earth | Lumbridge castle |
+| Falador | 37 | 1 law, 3 air, 1 water | Falador center |
+| Camelot | 45 | 1 law, 5 air | Camelot/Seers |
+
+**Staff of fire** provides unlimited fire runes. Check equipped weapon!
+
+```python
+# ✅ GOOD - Check runes and teleport
+# Have law runes + air runes + earth runes? Use Lumbridge Teleport!
+send_command("CAST_SPELL Lumbridge_Teleport")
+
+# ❌ BAD - Walking 2 minutes when you could teleport in 2 seconds
+send_command("GOTO 3222 3218 0")  # Don't walk if you can teleport!
+```
 
 ## Port Sarim / Karamja Travel
 
@@ -662,25 +908,70 @@ Edit `config.yaml` to customize paths. Key settings:
 - `command_file`: Where to write commands (`/tmp/manny_command.txt`)
 - `state_file`: Where plugin writes state (`/tmp/manny_state.json`)
 
+## Multi-Account Management
+
+The MCP supports multiple OSRS accounts with automatic credential management, display allocation, and playtime tracking.
+
+### Configured Accounts
+
+| Alias | Display Name | Role |
+|-------|--------------|------|
+| `aux` | LOSTimposter | Secondary account |
+| `main` | ArmAndALegs | Primary account (default) |
+
+### Credentials
+
+Credentials are stored in `~/.manny/credentials.yaml`. Only identity fields are needed (NOT tokens):
+- `jx_character_id` - Account identifier
+- `jx_session_id` - Session identifier
+- `display_name` - In-game name
+
+**To add a new account:**
+1. Log into the account via Bolt launcher
+2. Run: `import_credentials(alias="name", display_name="InGameName", set_default=True)`
+
+### Multi-Display Support
+
+Each client runs on a separate X display to avoid mouse conflicts:
+- Display pool: `:2`, `:3`, `:4`, `:5` (4 concurrent max)
+- Auto-allocated when starting: `start_runelite(account_id="aux")`
+- Or specify manually: `start_runelite(account_id="aux", display=":3")`
+
+### Playtime Tracking
+
+**12-hour limit per 24-hour window** per account to prevent excessive play.
+
+- Tracked automatically in `~/.manny/sessions.yaml`
+- Check with: `get_playtime(account_id="aux")`
+- View all: `get_available_accounts()`
+
+If an account exceeds the limit, `start_runelite` will refuse to start until playtime resets.
+
 ## Prerequisites
 
 Run `./start_screen.sh` first to start a virtual display on `:2`. RuneLite runs on this display to avoid blocking the laptop's main screen.
 
-**CRITICAL: Verify RuneLite is managed before sending commands!**
-
-If RuneLite was started manually (not via MCP), commands won't execute. The plugin reads commands on GameTick events, but the MCP server won't know about an unmanaged process.
+**CRITICAL: ALWAYS use MCP `start_runelite` to launch RuneLite!**
 
 ```python
-# Always check at session start
-status = runelite_status()
-if not status.get("process", {}).get("managed"):
-    start_runelite()  # Kills existing, starts managed process
+# ✅ CORRECT - Use MCP tool to start RuneLite
+start_runelite()  # Manages process, enables commands, tracks state
+
+# ❌ WRONG - Never start RuneLite manually or via Bash
+# Bash("cd /path/to/runelite && mvn exec:java...")  # Won't be managed!
 ```
+
+**Why this matters:**
+- MCP-managed RuneLite enables command execution via `/tmp/manny_command.txt`
+- Screenshots via `get_screenshot()` only work with MCP-managed processes
+- State tracking and health checks require MCP management
+- Manual starts result in commands being ignored
 
 **Signs commands aren't executing:**
 - `send_command()` returns success but nothing happens in-game
 - State file exists but isn't updating
 - No log activity after commands
+- Screenshots fail with "Can't open X display"
 
 ## Dashboard
 

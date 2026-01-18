@@ -9,6 +9,7 @@ import base64
 from pathlib import Path
 from mcp.types import ImageContent, TextContent
 from ..registry import registry
+from ..session_manager import session_manager
 
 
 # Dependencies (MultiRuneLiteManager injected at startup)
@@ -47,9 +48,13 @@ def _take_screenshot(output_path: str = None, mode: str = "fullscreen", account_
     Returns:
         dict with success, path, base64, display, mode, account_id
     """
-    # Get account-specific display
-    account_config = config.get_account_config(account_id)
-    display = account_config.display
+    # Get display from active session, fall back to config default
+    session_display = session_manager.get_display_for_account(account_id or config.default_account)
+    if session_display:
+        display = session_display
+    else:
+        account_config = config.get_account_config(account_id)
+        display = account_config.display
 
     if output_path is None:
         # Include account_id in filename for multi-client

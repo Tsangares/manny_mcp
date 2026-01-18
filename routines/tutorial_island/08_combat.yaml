@@ -1,0 +1,152 @@
+# Tutorial Island - Part 8: Combat
+# STATUS: DRAFT - Needs validation
+#
+# This routine handles the Combat section:
+# 1. Talk to Combat Instructor
+# 2. Open equipment tab
+# 3. Equip bronze dagger
+# 4. Open combat tab
+# 5. Attack giant rat (melee)
+# 6. Receive bow and arrows
+# 7. Attack giant rat (ranged)
+# 8. Continue to banking section
+
+name: "Tutorial Island - Combat"
+type: tutorial
+phase: 8
+
+# Key NPCs
+npcs:
+  combat_instructor:
+    name: "Combat Instructor"
+    id: 3307
+    location: {x: 3104, y: 9508, plane: 0}  # Approximate
+  giant_rat:
+    name: "Giant rat"
+    id: 3313
+    action: "Attack"
+    combat_level: 3
+
+# Key Widgets (need validation)
+widgets:
+  continue_button: 12648448
+  equipment_tab: "TBD"  # Tutorial Island specific
+  combat_tab: "TBD"     # Tutorial Island specific
+
+steps:
+  - id: 1
+    description: "Enter combat area through gate"
+    action: INTERACT_OBJECT
+    args: "Gate Open"
+    status: "TODO"
+
+  - id: 2
+    description: "Talk to Combat Instructor"
+    action: INTERACT_NPC
+    args: "Combat_Instructor Talk-to"
+    await_condition: "dialogue"
+    status: "TODO"
+
+  - id: 3
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    status: "TODO"
+
+  - id: 4
+    description: "Open equipment tab"
+    action: CLICK_WIDGET
+    args: "TBD"
+    notes: "Need to find Tutorial Island equipment tab widget ID"
+    status: "TODO"
+
+  - id: 5
+    description: "View worn equipment"
+    action: CLICK_WIDGET
+    args: "TBD"
+    notes: "Click 'View equipment stats' button"
+    status: "TODO"
+
+  - id: 6
+    description: "Close equipment view"
+    action: "TBD"
+    status: "TODO"
+
+  - id: 7
+    description: "Equip bronze dagger"
+    action: "equip_item"
+    args: "Bronze dagger"
+    notes: "Use equip_item MCP tool or find_and_click_widget"
+    status: "TODO"
+
+  - id: 8
+    description: "Talk to Combat Instructor again"
+    action: INTERACT_NPC
+    args: "Combat_Instructor Talk-to"
+    await_condition: "dialogue"
+    status: "TODO"
+
+  - id: 9
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    status: "TODO"
+
+  - id: 10
+    description: "Open combat tab"
+    action: CLICK_WIDGET
+    args: "TBD"
+    notes: "Need to find Tutorial Island combat tab widget ID"
+    status: "TODO"
+
+  - id: 11
+    description: "Attack giant rat (melee)"
+    action: INTERACT_NPC
+    args: "Giant_rat Attack"
+    notes: "Wait for combat to complete"
+    status: "TODO"
+
+  - id: 12
+    description: "Talk to Combat Instructor for ranged"
+    action: INTERACT_NPC
+    args: "Combat_Instructor Talk-to"
+    await_condition: "dialogue"
+    notes: "Receive shortbow and bronze arrows"
+    status: "TODO"
+
+  - id: 13
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    status: "TODO"
+
+  - id: 14
+    description: "Equip shortbow"
+    action: "equip_item"
+    args: "Shortbow"
+    status: "TODO"
+
+  - id: 15
+    description: "Equip bronze arrows"
+    action: "equip_item"
+    args: "Bronze arrow"
+    status: "TODO"
+
+  - id: 16
+    description: "Attack giant rat (ranged)"
+    action: INTERACT_NPC
+    args: "Giant_rat Attack"
+    notes: "Use ranged combat"
+    status: "TODO"
+
+  - id: 17
+    description: "Climb up ladder to surface"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    notes: "Exit mining caves to continue tutorial"
+    status: "TODO"
+
+# NOTES:
+# - Equipment and combat tabs may use Tutorial Island-specific widget IDs
+# - Use find_widget() to discover correct IDs during validation
+# - Giant rats respawn, so any rat can be attacked

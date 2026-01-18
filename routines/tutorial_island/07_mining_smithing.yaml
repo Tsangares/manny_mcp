@@ -1,0 +1,138 @@
+# Tutorial Island - Part 7: Mining & Smithing
+# STATUS: PARTIAL - Account playtime limit reached during validation
+#
+# This routine handles the Mining & Smithing section:
+# 1. Talk to Mining Instructor
+# 2. Prospect tin and copper rocks
+# 3. Mine tin ore
+# 4. Mine copper ore
+# 5. Smelt bronze bar at furnace
+# 6. Smith bronze dagger at anvil
+# 7. Continue to combat section
+
+name: "Tutorial Island - Mining & Smithing"
+type: tutorial
+phase: 7
+
+# Key NPCs
+npcs:
+  mining_instructor:
+    name: "Mining Instructor"
+    id: 3311
+    location: {x: 3080, y: 9502, plane: 0}
+    action: "Talk-to"
+
+# Key Objects (estimated - need validation)
+objects:
+  tin_rocks:
+    name: "Rocks"  # Contains tin
+    location: {x: 3076, y: 9504, plane: 0}  # Approximate
+  copper_rocks:
+    name: "Rocks"  # Contains copper
+    location: {x: 3085, y: 9502, plane: 0}  # Approximate
+  furnace:
+    name: "Furnace"
+    location: {x: 3079, y: 9496, plane: 0}  # Approximate
+  anvil:
+    name: "Anvil"
+    location: {x: 3083, y: 9499, plane: 0}  # Approximate
+
+# Key Widgets
+widgets:
+  continue_button: 12648448  # or use find_and_click_widget(text="Continue")
+
+steps:
+  - id: 1
+    description: "Walk to Mining Instructor"
+    action: GOTO
+    args: "3080 9504 0"
+    validated: true
+    notes: "From ladder at (3088, 9520), walk south to mining area"
+
+  - id: 2
+    description: "Talk to Mining Instructor"
+    action: INTERACT_NPC
+    args: "Mining_Instructor Talk-to"
+    await_condition: "dialogue"
+    validated: true
+
+  - id: 3
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    notes: "Instructor introduces mining. Gives you a bronze pickaxe."
+    validated: true
+
+  # Steps below need validation when account playtime resets
+
+  - id: 4
+    description: "Prospect tin rocks"
+    action: INTERACT_OBJECT
+    args: "Rocks Prospect"
+    notes: "Click on bluish rocks to prospect for tin"
+    status: "TODO"
+
+  - id: 5
+    description: "Mine tin ore"
+    action: INTERACT_OBJECT
+    args: "Rocks Mine"
+    await_condition: "has_item:Tin ore"
+    status: "TODO"
+
+  - id: 6
+    description: "Mine copper ore"
+    action: INTERACT_OBJECT
+    args: "Rocks Mine"
+    await_condition: "has_item:Copper ore"
+    notes: "Brown/orange rocks contain copper"
+    status: "TODO"
+
+  - id: 7
+    description: "Smelt bronze bar at furnace"
+    action: USE_ITEM_ON_OBJECT
+    args: "tin Furnace"
+    await_condition: "has_item:Bronze bar"
+    notes: "Use partial item name 'tin' like in cooking section"
+    status: "TODO"
+
+  - id: 8
+    description: "Talk to Mining Instructor"
+    action: INTERACT_NPC
+    args: "Mining_Instructor Talk-to"
+    await_condition: "dialogue"
+    status: "TODO"
+
+  - id: 9
+    description: "Click through dialogue about smithing"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    status: "TODO"
+
+  - id: 10
+    description: "Smith bronze dagger at anvil"
+    action: USE_ITEM_ON_OBJECT
+    args: "bronze Anvil"
+    notes: "May need to select dagger from smithing interface"
+    status: "TODO"
+
+  - id: 11
+    description: "Continue to combat section"
+    action: INTERACT_OBJECT
+    args: "Gate Open"
+    notes: "Gate leads east to combat training area"
+    status: "TODO"
+
+# VALIDATED SO FAR:
+# - GOTO 3080 9504 0  # Navigate to Mining Instructor
+# - INTERACT_NPC Mining_Instructor Talk-to
+# - find_and_click_widget(text="Continue") works for dialogue
+
+# PITFALLS TO WATCH FOR:
+# 1. Multiple rock types - need to identify tin vs copper by appearance
+# 2. May need to prospect rocks before mining (Tutorial requirement)
+# 3. Smithing interface may require widget interaction to select dagger
+# 4. USE_ITEM_ON_OBJECT should work with partial names (like cooking)
+
+# SESSION BLOCKED:
+# Account 'aux' exceeded 12hr playtime limit at this point.
+# Resume validation when playtime resets.

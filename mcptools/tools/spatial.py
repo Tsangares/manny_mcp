@@ -345,6 +345,120 @@ async def handle_scan_environment(arguments: dict) -> dict:
 
 
 @registry.register({
+    "name": "get_transitions",
+    "description": """[Spatial] Find all navigable transitions (doors, stairs, ladders, etc.) nearby.
+
+Returns transitions SORTED BY DISTANCE (nearest first) with state info and direction.
+This is the preferred tool for indoor navigation.
+
+Output structure:
+- nearest: Quick reference list - one per category, sorted by distance. USE THIS FIRST!
+- transitions: Full details by category (doors, stairs, ladders, etc.), each sorted by distance
+- summary: Actionable text like "Nearest: Large_door (closed) 2 tiles north, Staircase 5 tiles east"
+
+The "nearest" array is designed for quick decision-making:
+```json
+{"nearest": [
+  {"type": "door", "name": "Large_door", "distance": 2, "direction": "north", "state": "closed", "actions": ["Open"]},
+  {"type": "stair", "name": "Staircase", "distance": 5, "direction": "east", "actions": ["Climb-up"]}
+]}
+```
+
+Each transition includes:
+- name, distance (tiles), direction ("north", "southwest", etc.)
+- state ("open", "closed", or null for non-doors)
+- actions (e.g., ["Open"], ["Climb-up", "Climb-down"])
+
+Use this BEFORE indoor navigation to find the nearest transition to interact with.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "radius": {
+                "type": "integer",
+                "description": "Search radius in tiles (default: 15)",
+                "default": 15
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 5000)",
+                "default": 5000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
+            }
+        }
+    }
+})
+async def handle_get_transitions(arguments: dict) -> dict:
+    """
+    Find all navigable transitions nearby using the plugin's QUERY_TRANSITIONS command.
+    """
+    radius = arguments.get("radius", 15)
+    timeout_ms = arguments.get("timeout_ms", 5000)
+    account_id = arguments.get("account_id")
+
+    # Call plugin command
+    response = await send_command_with_response(
+        f"QUERY_TRANSITIONS {radius}",
+        timeout_ms,
+        account_id
+    )
+
+    if response.get("status") != "success":
+        return {
+            "success": False,
+            "error": response.get("error", "Failed to query transitions")
+        }
+
+    result = response.get("result", {})
+    transitions = result.get("transitions", {})
+
+    # Sort each category by distance (nearest first)
+    sorted_transitions = {}
+    for category, items in transitions.items():
+        if isinstance(items, list):
+            sorted_transitions[category] = sorted(items, key=lambda x: x.get("distance", 999))
+
+    # Build "nearest" quick reference - one from each category, sorted by distance
+    nearest = []
+    for category, items in sorted_transitions.items():
+        if items:
+            item = items[0]
+            nearest.append({
+                "type": category.rstrip("s"),  # "doors" -> "door"
+                "name": item.get("name", "Unknown"),
+                "distance": item.get("distance", 0),
+                "direction": item.get("direction", ""),
+                "state": item.get("state"),
+                "actions": item.get("actions", [])
+            })
+    nearest.sort(key=lambda x: x.get("distance", 999))
+
+    # Build actionable summary
+    summary_parts = []
+    for item in nearest[:3]:  # Top 3 nearest
+        state_str = f" ({item['state']})" if item.get("state") else ""
+        summary_parts.append(f"{item['name']}{state_str} {item['distance']} tiles {item['direction']}")
+
+    actionable_summary = "Nearest: " + ", ".join(summary_parts) if summary_parts else "No transitions found"
+
+    output = {
+        "success": True,
+        "player_location": result.get("player_location"),
+        "nearest": nearest,  # Quick reference sorted by distance
+        "transitions": sorted_transitions,  # Full details, each category sorted by distance
+        "summary": actionable_summary,
+        "total_count": result.get("total_count", 0)
+    }
+
+    if account_id:
+        output["account_id"] = account_id
+
+    return output
+
+
+@registry.register({
     "name": "get_location_info",
     "description": """[Spatial] Look up a known location from the location knowledge base.
 

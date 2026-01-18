@@ -9,11 +9,24 @@ import subprocess
 import time
 from pathlib import Path
 from ..registry import registry
+from ..session_manager import session_manager
 
 
 # Dependencies injected at startup (MultiRuneLiteManager)
 runelite_manager = None
 config = None
+
+# Session recorder (lazy import to avoid circular deps)
+_session_recorder = None
+
+
+def _get_recorder():
+    """Lazy import session recorder."""
+    global _session_recorder
+    if _session_recorder is None:
+        from .session import recorder
+        _session_recorder = recorder
+    return _session_recorder
 
 
 def set_dependencies(manager, server_config):
@@ -90,27 +103,122 @@ async def handle_get_logs(arguments: dict) -> dict:
 
 @registry.register({
     "name": "get_game_state",
-    "description": "[Monitoring] Read the current game state from /tmp/manny_state.json",
+    "description": """[Monitoring] Read the current game state from /tmp/manny_state.json
+
+Use the 'fields' parameter to request only specific data subsets and reduce token usage.
+
+Valid fields:
+- "location" - Just x, y, plane coordinates
+- "inventory" - Compact inventory (item names and quantities only)
+- "inventory_full" - Full inventory details (slots, IDs, actions)
+- "equipment" - Equipped items
+- "skills" - All skill levels and XP
+- "dialogue" - Current dialogue state and hint
+- "nearby" - Nearby NPCs and objects
+- "combat" - Combat state and threat level
+- "health" - Current/max health
+- "scenario" - Current task and progress
+
+If no fields specified, returns full state (backwards compatible).""",
     "inputSchema": {
         "type": "object",
         "properties": {
-            "account_id": ACCOUNT_ID_SCHEMA
+            "account_id": ACCOUNT_ID_SCHEMA,
+            "fields": {
+                "type": "array",
+                "items": {
+                    "type": "string",
+                    "enum": ["location", "inventory", "inventory_full", "equipment",
+                             "skills", "dialogue", "nearby", "combat", "health", "scenario"]
+                },
+                "description": "Optional list of fields to include. If not specified, returns all data."
+            }
         }
     }
 })
 async def handle_get_game_state(arguments: dict) -> dict:
-    """Read game state from state file for specified account."""
+    """Read game state from state file for specified account.
+
+    Supports field filtering to reduce token usage:
+    - fields=["location"] returns ~3 lines instead of ~400
+    - fields=["location", "inventory", "dialogue"] returns ~50 lines
+    """
     account_id = arguments.get("account_id")
+    fields = arguments.get("fields")
     state_file = config.get_state_file(account_id)
 
     try:
         with open(state_file) as f:
-            state = json.load(f)
+            full_state = json.load(f)
+
+        # Record state delta if session is active
+        recorder = _get_recorder()
+        if recorder.is_active():
+            recorder.record_state_delta(full_state)
+
+        # If no fields specified, return full state (backwards compatible)
+        if not fields:
+            return {
+                "success": True,
+                "account_id": account_id or config.default_account,
+                "state": full_state
+            }
+
+        # Build filtered state based on requested fields
+        filtered = {}
+        player = full_state.get("player", {})
+
+        for field in fields:
+            if field == "location":
+                filtered["location"] = player.get("location", {})
+
+            elif field == "inventory":
+                # Compact inventory: just names and quantities
+                inv = player.get("inventory", {})
+                items = []
+                for item in inv.get("items", []):
+                    name = item.get("name", "")
+                    qty = item.get("quantity", 1)
+                    if qty > 1:
+                        items.append(f"{name} x{qty}")
+                    else:
+                        items.append(name)
+                filtered["inventory"] = {
+                    "used": inv.get("used", 0),
+                    "capacity": inv.get("capacity", 28),
+                    "items": items
+                }
+
+            elif field == "inventory_full":
+                filtered["inventory"] = player.get("inventory", {})
+
+            elif field == "equipment":
+                filtered["equipment"] = player.get("equipment", {})
+
+            elif field == "skills":
+                filtered["skills"] = player.get("skills", {})
+
+            elif field == "dialogue":
+                filtered["dialogue"] = full_state.get("dialogue", {})
+
+            elif field == "nearby":
+                filtered["nearby"] = player.get("nearby", {})
+
+            elif field == "combat":
+                filtered["combat"] = full_state.get("combat", {})
+
+            elif field == "health":
+                filtered["health"] = player.get("health", {})
+
+            elif field == "scenario":
+                filtered["scenario"] = full_state.get("scenario", {})
+
         return {
             "success": True,
             "account_id": account_id or config.default_account,
-            "state": state
+            "state": filtered
         }
+
     except FileNotFoundError:
         return {
             "success": False,
@@ -257,8 +365,9 @@ async def handle_check_health(arguments: dict) -> dict:
     except Exception as e:
         health["issues"].append(f"Error checking state file: {e}")
 
-    # Check if window exists on account's display
-    display = account_config.display
+    # Check if window exists on account's display (look up from active session)
+    session_display = session_manager.get_display_for_account(account_id or config.default_account)
+    display = session_display if session_display else account_config.display
     health["window"]["display"] = display
     try:
         env = os.environ.copy()
@@ -693,6 +802,9 @@ def _xdotool_click(x: int, y: int, display: str = ":2") -> bool:
 Detects disconnection via state file staleness, clicks the OK button on the
 disconnect dialog, and waits for the game to reconnect.
 
+SMART DETECTION: If state file is very stale (>60s), assumes plugin is frozen
+(not just disconnected) and skips click attempts, going straight to restart.
+
 Use this when you detect a disconnect or as a recovery step.""",
     "inputSchema": {
         "type": "object",
@@ -707,6 +819,11 @@ Use this when you detect a disconnect or as a recovery step.""",
                 "type": "boolean",
                 "description": "If true, restart RuneLite client if reconnection times out (default: true)",
                 "default": True
+            },
+            "freeze_threshold_seconds": {
+                "type": "integer",
+                "description": "If state file is older than this, assume plugin freeze and skip clicks (default: 60)",
+                "default": 60
             }
         }
     }
@@ -718,7 +835,10 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
     account_id = arguments.get("account_id")
     max_wait = arguments.get("max_wait_seconds", 60)
     restart_on_timeout = arguments.get("restart_on_timeout", True)
-    display = config.display  # Usually ":2"
+    freeze_threshold = arguments.get("freeze_threshold_seconds", 60)
+    # Get display from active session, fall back to config default
+    session_display = session_manager.get_display_for_account(account_id or config.default_account)
+    display = session_display if session_display else config.display
 
     # Step 1: Check if actually disconnected
     is_disconnected, reason, state_age = _is_disconnected(account_id)
@@ -731,6 +851,71 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
             "state_age_seconds": state_age
         }
 
+    # Step 1.5: Detect FREEZE vs DISCONNECT
+    # If state file is very stale (>freeze_threshold seconds), the plugin itself is frozen.
+    # Clicking dialogs won't help - we need to restart immediately.
+    plugin_frozen = state_age is not None and state_age > freeze_threshold
+
+    if plugin_frozen:
+        if not restart_on_timeout:
+            return {
+                "success": False,
+                "action": "none",
+                "error": f"Plugin appears frozen (state {state_age:.0f}s stale) but restart_on_timeout=False",
+                "state_age_seconds": state_age,
+                "diagnosis": "PLUGIN_FREEZE"
+            }
+
+        # Skip click attempts entirely - go straight to restart
+        try:
+            # Stop existing instance
+            runelite_manager.stop(account_id)
+            await asyncio.sleep(2)
+
+            # Start fresh instance
+            result = runelite_manager.start(account_id)
+            if result.get("success"):
+                # Wait for new instance to connect
+                restart_start = time.time()
+                while (time.time() - restart_start) < 90:  # 90 second startup timeout
+                    await asyncio.sleep(3)
+                    is_disc, _, new_age = _is_disconnected(account_id)
+                    if not is_disc:
+                        elapsed = time.time() - restart_start
+                        return {
+                            "success": True,
+                            "action": "restarted_frozen",
+                            "message": f"Plugin was frozen ({state_age:.0f}s stale), restarted successfully after {elapsed:.1f}s",
+                            "elapsed_seconds": elapsed,
+                            "diagnosis": "PLUGIN_FREEZE",
+                            "original_state_age": state_age
+                        }
+
+                return {
+                    "success": False,
+                    "action": "restart_timeout",
+                    "error": "Restart initiated but client failed to connect within 90s",
+                    "diagnosis": "PLUGIN_FREEZE",
+                    "original_state_age": state_age
+                }
+            else:
+                return {
+                    "success": False,
+                    "action": "restart_failed",
+                    "error": f"Failed to restart frozen client: {result.get('error', 'unknown')}",
+                    "diagnosis": "PLUGIN_FREEZE",
+                    "original_state_age": state_age
+                }
+        except Exception as e:
+            return {
+                "success": False,
+                "action": "restart_error",
+                "error": f"Error restarting frozen client: {e}",
+                "diagnosis": "PLUGIN_FREEZE",
+                "original_state_age": state_age
+            }
+
+    # Normal disconnect flow (not frozen) - try clicking dialogs first
     clicks_made = []
 
     try:
@@ -841,3 +1026,120 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
         "disconnect_reason": reason,
         "clicks_made": clicks_made
     }
+
+
+@registry.register({
+    "name": "restart_if_frozen",
+    "description": """[Monitoring] Check if plugin is frozen and restart if needed.
+
+Checks state file staleness. If stale beyond threshold, restarts RuneLite.
+Use this for proactive health management before starting long tasks.
+
+Returns without action if plugin is healthy. Restarts and waits for
+reconnection if frozen.
+
+Lighter-weight than auto_reconnect for cases where you just want to ensure
+the plugin is responsive before starting a routine.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "account_id": ACCOUNT_ID_SCHEMA,
+            "stale_threshold_seconds": {
+                "type": "integer",
+                "description": "Consider frozen if state file older than this (default: 30)",
+                "default": 30
+            },
+            "startup_timeout_seconds": {
+                "type": "integer",
+                "description": "Max seconds to wait for restart to complete (default: 90)",
+                "default": 90
+            }
+        }
+    }
+})
+async def handle_restart_if_frozen(arguments: dict) -> dict:
+    """Check if plugin is frozen and restart if needed."""
+    import asyncio
+
+    account_id = arguments.get("account_id")
+    stale_threshold = arguments.get("stale_threshold_seconds", 30)
+    startup_timeout = arguments.get("startup_timeout_seconds", 90)
+
+    state_file = config.get_state_file(account_id)
+
+    # Check staleness
+    state_age = None
+    try:
+        if os.path.exists(state_file):
+            state_age = time.time() - os.path.getmtime(state_file)
+        else:
+            state_age = float('inf')  # No state file = definitely stale
+    except Exception as e:
+        return {
+            "success": False,
+            "action": "check_failed",
+            "error": f"Failed to check state file: {e}"
+        }
+
+    # If not stale, plugin is healthy
+    if state_age < stale_threshold:
+        return {
+            "success": True,
+            "action": "none",
+            "message": f"Plugin is healthy (state {state_age:.1f}s old, threshold {stale_threshold}s)",
+            "state_age_seconds": round(state_age, 1),
+            "frozen": False
+        }
+
+    # Plugin is frozen - restart
+    try:
+        runelite_manager.stop(account_id)
+        await asyncio.sleep(2)
+
+        result = runelite_manager.start(account_id)
+        if not result.get("success"):
+            return {
+                "success": False,
+                "action": "restart_failed",
+                "error": f"Failed to start client: {result.get('error', 'unknown')}",
+                "original_state_age": round(state_age, 1),
+                "frozen": True
+            }
+
+        # Wait for new instance to become responsive
+        start_time = time.time()
+        while (time.time() - start_time) < startup_timeout:
+            await asyncio.sleep(3)
+
+            try:
+                if os.path.exists(state_file):
+                    new_age = time.time() - os.path.getmtime(state_file)
+                    if new_age < 10:  # Fresh state file
+                        elapsed = time.time() - start_time
+                        return {
+                            "success": True,
+                            "action": "restarted",
+                            "message": f"Plugin was frozen ({state_age:.0f}s stale), restarted in {elapsed:.1f}s",
+                            "elapsed_seconds": round(elapsed, 1),
+                            "original_state_age": round(state_age, 1),
+                            "frozen": True
+                        }
+            except:
+                pass
+
+        return {
+            "success": False,
+            "action": "startup_timeout",
+            "error": f"Restart initiated but plugin not responsive after {startup_timeout}s",
+            "original_state_age": round(state_age, 1),
+            "frozen": True
+        }
+
+    except Exception as e:
+        return {
+            "success": False,
+            "action": "restart_error",
+            "error": f"Error during restart: {e}",
+            "original_state_age": round(state_age, 1),
+            "frozen": True
+        }

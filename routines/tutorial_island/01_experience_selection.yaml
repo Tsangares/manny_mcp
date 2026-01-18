@@ -1,0 +1,39 @@
+# Tutorial Island - Part 1: Experience Selection
+# STATUS: VALIDATED
+#
+# This routine handles the initial experience selection screen that appears
+# when starting a new character on Tutorial Island.
+#
+# Widget Discovery Notes:
+# - Experience selection uses widget group 122
+# - Parent widget ID: 7995392 (group 122, child 0)
+# - The three options are STATIC children (not dynamic):
+#   - Index 0: "I'm brand new! This is my first time here."
+#   - Index 1: "I've played in the past, but not recently."
+#   - Index 2: "I'm an experienced player."
+
+name: "Tutorial Island - Experience Selection"
+type: tutorial
+phase: 1
+
+# Widget IDs discovered via deep scan
+widgets:
+  experience_selection_parent: 7995392  # Group 122, child 0
+  # Static children indices:
+  # 0 = brand new
+  # 1 = played before
+  # 2 = experienced
+
+steps:
+  - id: 1
+    description: "Select 'I'm an experienced player' option"
+    action: CLICK_CHILD_WIDGET
+    args: "7995392 2 static"
+    notes: |
+      Widget 7995392 = (122 << 16) | 0
+      Child type must be 'static' (not dynamic)
+      Index 2 = third option = experienced player
+
+# Next step after this routine:
+# The game shows "Getting started" message and a yellow arrow
+# pointing to the Gielinor Guide NPC. Use 02_gielinor_guide.yaml

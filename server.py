@@ -21,7 +21,7 @@ from mcptools.registry import registry
 from mcptools.runelite_manager import MultiRuneLiteManager
 
 # Import tool modules (they register themselves on import)
-from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial
+from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial, session, quests, sessions
 
 # Import code change tools (not yet refactored)
 from request_code_change import (
@@ -62,6 +62,7 @@ from manny_tools import (
     get_command_examples,
     validate_routine_deep,
     generate_command_reference,
+    get_teleport_info,
     GET_MANNY_GUIDELINES_TOOL,
     GET_PLUGIN_CONTEXT_TOOL,
     GET_SECTION_TOOL,
@@ -78,7 +79,8 @@ from manny_tools import (
     LIST_AVAILABLE_COMMANDS_TOOL,
     GET_COMMAND_EXAMPLES_TOOL,
     VALIDATE_ROUTINE_DEEP_TOOL,
-    GENERATE_COMMAND_REFERENCE_TOOL
+    GENERATE_COMMAND_REFERENCE_TOOL,
+    GET_TELEPORT_INFO_TOOL
 )
 
 # Load environment variables (for GEMINI_API_KEY, session credentials)
@@ -264,6 +266,7 @@ screenshot.set_dependencies(runelite_manager, config, genai if GEMINI_AVAILABLE 
 routine.set_dependencies(send_command_with_response, config)
 commands.set_dependencies(send_command_with_response, config)
 spatial.set_dependencies(send_command_with_response, config)
+quests.set_dependencies(runelite_manager, config)
 
 
 # ============================================================================
@@ -405,6 +408,11 @@ async def list_tools():
             name=GENERATE_COMMAND_REFERENCE_TOOL["name"],
             description=GENERATE_COMMAND_REFERENCE_TOOL["description"],
             inputSchema=GENERATE_COMMAND_REFERENCE_TOOL["inputSchema"]
+        ),
+        Tool(
+            name=GET_TELEPORT_INFO_TOOL["name"],
+            description=GET_TELEPORT_INFO_TOOL["description"],
+            inputSchema=GET_TELEPORT_INFO_TOOL["inputSchema"]
         )
     ]
 
@@ -626,6 +634,13 @@ async def call_tool(name: str, arguments: dict):
             plugin_dir=str(config.plugin_directory),
             format=arguments.get("format", "markdown"),
             category_filter=arguments.get("category_filter")
+        )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+
+    elif name == "get_teleport_info":
+        result = get_teleport_info(
+            destination=arguments.get("destination"),
+            include_all=arguments.get("include_all", False)
         )
         return [TextContent(type="text", text=json.dumps(result, indent=2))]
 

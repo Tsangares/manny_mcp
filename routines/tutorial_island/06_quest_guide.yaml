@@ -1,0 +1,128 @@
+# Tutorial Island - Part 6: Quest Guide
+# STATUS: VALIDATED
+#
+# This routine handles the Quest Guide section:
+# 1. Navigate from Cooking area to Quest Guide building
+# 2. Talk to Quest Guide
+# 3. Open Quest Journal tab
+# 4. Talk to Quest Guide again
+# 5. Continue to mining section (ladder down)
+
+name: "Tutorial Island - Quest Guide"
+type: tutorial
+phase: 6
+
+# Key NPCs
+npcs:
+  quest_guide:
+    name: "Quest Guide"
+    id: 3312
+    location: {x: 3086, y: 3120, plane: 0}
+
+# Key Locations
+locations:
+  building_entrance:
+    door: {x: 3086, y: 3126, plane: 0}
+    notes: "Door to enter Quest Guide building"
+  ladder:
+    location: {x: 3088, y: 3119, plane: 0}
+    action: "Climb-down"
+    notes: "Ladder in Quest Guide building - leads to mining section"
+
+# Key Widgets - VALIDATED
+widgets:
+  continue_button: 12648448      # Action: "Continue"
+  quest_tab: 35913794            # Action: "Quest List"
+
+steps:
+  # NAVIGATION FROM COOKING - VALIDATED PATH
+  # From the CORRECT cooking exit door at (3072, 3090), navigation works!
+
+  - id: 1
+    description: "Walk to Quest Guide building area"
+    action: GOTO
+    args: "3086 3110 0"
+    validated: true
+    notes: "From cooking exit (3072, 3090), walk toward Quest Guide"
+
+  - id: 2
+    description: "Walk to Quest Guide building door"
+    action: GOTO
+    args: "3086 3126 0"
+    validated: true
+
+  - id: 3
+    description: "Open Quest Guide building door"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    location: {x: 3086, y: 3126}
+    validated: true
+
+  - id: 4
+    description: "Talk to Quest Guide"
+    action: INTERACT_NPC
+    args: "Quest_Guide Talk-to"
+    await_condition: "dialogue"
+    validated: true
+
+  - id: 5
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    notes: "Quest Guide tells you to open quest list"
+
+  - id: 6
+    description: "Open Quest Journal tab"
+    action: CLICK_WIDGET
+    args: '35913794 "Quest List"'
+    validated: true
+    notes: |
+      CRITICAL DISCOVERY: Tutorial Island quest tab widget!
+      - Widget ID: 35913794 = (548 << 16) | 66
+      - Action: "Quest List"
+      - Use find_widget(text="Quest") to verify widget is available
+
+  - id: 7
+    description: "Talk to Quest Guide again"
+    action: INTERACT_NPC
+    args: "Quest_Guide Talk-to"
+    await_condition: "dialogue"
+    validated: true
+
+  - id: 8
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    notes: "Quest Guide explains how quest journal works"
+
+  - id: 9
+    description: "Climb down ladder to mining section"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    location: {x: 3088, y: 3119}
+    validated: true
+    notes: |
+      Leads to underground mining tutorial area.
+      After climbing down, player is at y~9520 (underground coordinates).
+
+# PITFALLS DISCOVERED:
+# 1. Navigation works IF you exit cooking via CORRECT door at (3072, 3090)
+#    - The wrong door at (3079, 3084) leads to a maze area
+#    - See 05_cooking.yaml for details
+#
+# 2. Quest tab widget on Tutorial Island:
+#    - TAB_OPEN quest command FAILS (widget 548,0x52 not visible)
+#    - SOLUTION: Use CLICK_WIDGET 35913794 "Quest List"
+#    - This widget is specific to Tutorial Island interface
+#
+# 3. find_widget(text="Quest") works after opening quest panel
+#    - Returns widget IDs for quest list items
+#    - Useful for verifying interface state
+
+# VALIDATED COMMANDS:
+# - GOTO 3086 3110 0              # Navigate toward Quest Guide
+# - GOTO 3086 3126 0              # Navigate to door
+# - INTERACT_OBJECT Door Open     # Open building door
+# - INTERACT_NPC Quest_Guide Talk-to
+# - CLICK_WIDGET 35913794 "Quest List"  # Open quest tab (Tutorial Island specific!)
+# - CLICK_CONTINUE                # Progress through dialogue

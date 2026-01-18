@@ -1,0 +1,31 @@
+# Tutorial Island: Character Creation
+# STATUS: IN PROGRESS
+#
+# Steps:
+# 1. Randomize character appearance (clicks Confirm when done)
+# 2. Select experience level ("I'm brand new!")
+
+name: "Tutorial Island - Character Creation"
+type: tutorial
+section: 1
+
+steps:
+  - id: 1
+    phase: "character_appearance"
+    action: RANDOMIZE_CHARACTER
+    description: "Randomize character appearance and click Confirm"
+    # Note: startWithConfirm() runs for 30-90 seconds, then clicks Confirm
+    # Bug: Currently also clicks Confirm when duration arg is passed - to fix later
+
+  - id: 2
+    phase: "experience_selection"
+    action: SEND_INPUT
+    args: "click 306 267"
+    description: "Click 'I'm brand new!' button"
+    # Widget scanning doesn't work on this interface
+    # Coordinates from analyze_screenshot
+
+# PITFALLS DISCOVERED:
+# - Widget scanning (find_widget, scan_widgets) returns 0 widgets for
+#   the "Past Experience" dialogue. Must use coordinate-based clicking.
+# - RANDOMIZE_CHARACTER with duration arg still clicks Confirm (bug)

@@ -1,0 +1,95 @@
+================================================================================
+OSRS RUNELITE TOOLBAR/TABS - QUICK REFERENCE
+================================================================================
+
+GAME INTERFACE TABS (Top-Right, y=168)
+================================================================================
+
+Widget ID    | Tab Name      | Format         | Position       | Action
+35913793     | SKILLS        | 548:63:3001    | x=560, y=168   | "Skills"
+35913794     | QUEST LIST    | 548:63:3002    | x=593, y=168   | "Quest List"
+35913795     | INVENTORY     | 548:63:3003    | x=626, y=168   | "Inventory"
+
+Usage: send_command('CLICK_WIDGET 35913793 "Skills"')
+
+
+CHAT TABS (Bottom, y=480)
+================================================================================
+
+Widget ID    | Tab Name      | Format         | X Position     | Action
+10616836     | ALL           | 162:1:3001     | x=5            | "Switch tab"
+10616839     | GAME          | 162:1:3002     | x=67           | "Switch tab"
+10616843     | PUBLIC        | 162:1:3003     | x=129          | "Switch tab"
+10616847     | PRIVATE       | 162:1:3004     | x=191          | "Switch tab"
+10616851     | CHANNEL       | 162:1:3005     | x=253          | "Switch tab"
+10616855     | CLAN          | 162:1:3006     | x=315          | "Switch tab"
+10616859     | TRADE         | 162:1:3007     | x=377          | "Switch tab"
+
+Usage: send_command('CLICK_WIDGET 10616839 "Switch tab"')
+
+
+COMMAND EXAMPLES
+================================================================================
+
+# Open game interface tabs
+send_command('CLICK_WIDGET 35913793 "Skills"')     # Open Skills
+send_command('CLICK_WIDGET 35913794 "Quest List"') # Open Quests
+send_command('CLICK_WIDGET 35913795 "Inventory"')  # Open Inventory
+
+# Switch chat tabs
+send_command('CLICK_WIDGET 10616839 "Switch tab"') # Game chat
+send_command('CLICK_WIDGET 10616843 "Switch tab"') # Public chat
+send_command('CLICK_WIDGET 10616855 "Switch tab"') # Clan chat
+
+# With state verification
+send_and_await(
+    command='CLICK_WIDGET 35913795 "Inventory"',
+    await_condition="inventory_count:<=28",
+    timeout_ms=5000
+)
+
+
+KEY FACTS
+================================================================================
+
+- Widget Group 548 = Main game interface (contains game tabs)
+- Widget Group 162 = Chat interface (contains chat tabs)
+- Format: group:child:nested
+- Position coordinates are in logical pixels (divide physical by 2)
+- All tabs can be clicked using CLICK_WIDGET command
+- The CLICK_WIDGET command handles coordinate finding automatically
+
+
+SCANNING FOR WIDGETS
+================================================================================
+
+Find widgets by text:
+  find_widget(text="Skills")
+  find_widget(text="Inventory")
+
+Click widgets by text (atomic operation):
+  click_text("Skills")
+
+Full widget scan (for discovery):
+  scan_widgets(filter_text="Skills", timeout_ms=5000)
+
+
+RELATED WIDGET GROUPS
+================================================================================
+
+Group 548 - Main game interface container
+  - Child 63: Tab buttons area
+  - Child 10-47: Various content panels
+  - Contains inventory, skills, quest log, etc.
+
+Group 162 - Chat interface container
+  - Child 1-3: Chat tabs and content areas
+  - Contains chat input and message history
+
+Group 160-170 - Other UI interface widgets
+
+
+================================================================================
+Document: /home/wil/manny-mcp/TOOLBAR_WIDGETS_REFERENCE.md (full reference)
+Updated: 2026-01-18
+================================================================================

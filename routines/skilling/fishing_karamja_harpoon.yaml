@@ -1,0 +1,204 @@
+# Karamja Harpoon Fishing Routine (Tuna/Swordfish)
+# Fish tuna and swordfish at Musa Point with Port Sarim deposit box banking
+# Requirements: Harpoon in inventory, Coins for ferry (60gp round trip)
+#
+# XP Rates: ~25-42k/hour combined (tuna 80xp, swordfish 100xp)
+# Level Required: 35 (tuna), 50 (swordfish) - you'll catch both
+
+name: "Karamja Harpoon Fishing"
+description: "Fish tuna/swordfish at Musa Point, bank at Port Sarim deposit box"
+type: "skilling"
+skill: "fishing"
+level_required: 35
+
+requirements:
+  items:
+    - name: "Harpoon"
+      quantity: 1
+      note: "Required for harpoon fishing tuna/swordfish"
+    - name: "Coins"
+      quantity: 5000
+      note: "For ferry fare (30gp each way, plenty for multiple trips)"
+
+locations:
+  port_sarim_deposit_box:
+    x: 3029
+    y: 3210
+    plane: 0
+    description: "Port Sarim deposit box on the dock"
+  captain_tobias:
+    x: 3029
+    y: 3217
+    plane: 0
+    description: "Captain Tobias - Karamja ferry captain"
+  karamja_dock:
+    x: 2954
+    y: 3146
+    plane: 0
+    description: "Karamja arrival point at Musa Point dock"
+  karamja_fishing_spot:
+    x: 2920
+    y: 3178
+    plane: 0
+    description: "Tuna/swordfish harpoon fishing spot at Musa Point (west side to avoid fence)"
+  customs_officer:
+    x: 2955
+    y: 3147
+    plane: 0
+    description: "Customs officer for return ferry"
+
+# Enable looping for continuous fishing
+loop:
+  enabled: true
+  max_iterations: 50
+  start_step: 1
+
+steps:
+  # ========== PHASE 1: TRAVEL TO KARAMJA ==========
+  - id: 1
+    phase: "travel_to_karamja"
+    action: GOTO
+    args: "3029 3217 0"
+    description: "Walk to Captain Tobias at Port Sarim dock"
+    await_condition: "location:3029,3217"
+    timeout_ms: 15000
+
+  - id: 2
+    phase: "travel_to_karamja"
+    action: INTERACT_NPC
+    args: "Captain_Tobias Travel"
+    description: "Take ferry to Karamja (30gp fare)"
+    delay_after_ms: 5000
+    notes: "Ferry travel takes a few seconds"
+
+  - id: 3
+    phase: "travel_to_karamja"
+    action: GOTO
+    args: "2915 3153 0"
+    description: "Walk WEST from dock (waypoint to avoid bay)"
+    await_condition: "location:2915,3153"
+    timeout_ms: 45000
+    notes: "Must go west first to avoid the bay blocking path"
+
+  - id: 4
+    phase: "travel_to_karamja"
+    action: GOTO
+    args: "2924 3174 0"
+    description: "Walk to harpoon fishing spot (west side)"
+    await_condition: "location:2924,3174"
+    timeout_ms: 30000
+    notes: "West side of fishing area to avoid fence navigation issues"
+
+  # ========== PHASE 2: FISH TUNA/SWORDFISH ==========
+  - id: 5
+    phase: "fishing"
+    action: CAMERA_STABILIZE
+    args: ""
+    description: "Reset camera to stable zoom and pitch"
+    delay_after_ms: 1000
+    notes: "Prevents camera viewport issues blocking NPC clicks"
+
+  - id: 6
+    phase: "fishing"
+    action: FISH
+    args: "Swordfish"
+    description: "Harpoon fish until inventory full (catches both tuna and swordfish)"
+    await_condition: "inventory_count:>=28"
+    timeout_ms: 900000
+    notes: "Harpooning is slower than net fishing. Swordfish command catches both tuna and swordfish since they share the same spot and action."
+
+  # ========== PHASE 3: RETURN TO PORT SARIM ==========
+  - id: 7
+    phase: "return_to_port_sarim"
+    action: GOTO
+    args: "2955 3147 0"
+    description: "Walk to Customs officer at dock"
+    await_condition: "location:2955,3147"
+    timeout_ms: 30000
+
+  - id: 8
+    phase: "return_to_port_sarim"
+    action: CAMERA_STABILIZE
+    args: ""
+    description: "Reset camera before NPC interaction"
+    delay_after_ms: 1000
+    notes: "Ensures Customs officer is in view for reliable clicking"
+
+  - id: 9
+    phase: "return_to_port_sarim"
+    action: INTERACT_NPC
+    args: "Customs_officer Travel"
+    description: "Take ferry back to Port Sarim (30gp fare)"
+    delay_after_ms: 5000
+    notes: "Right-click Travel option skips all dialogue"
+
+  # ========== PHASE 4: DEPOSIT FISH ==========
+  - id: 10
+    phase: "deposit"
+    action: GOTO
+    args: "3028 3211 0"
+    description: "Walk to deposit box"
+    await_condition: "location:3028,3211"
+    timeout_ms: 15000
+
+  - id: 11
+    phase: "deposit"
+    action: CAMERA_STABILIZE
+    args: ""
+    description: "Reset camera before deposit"
+    delay_after_ms: 1000
+
+  - id: 12
+    phase: "deposit"
+    action: INTERACT_OBJECT
+    args: "Bank_deposit_box Deposit"
+    description: "Open deposit box interface"
+    delay_after_ms: 2500
+
+  - id: 13
+    phase: "deposit"
+    action: BANK_DEPOSIT_ITEM
+    args: "Raw_swordfish"
+    description: "Deposit all raw swordfish"
+    await_condition: "no_item:Raw swordfish"
+    timeout_ms: 10000
+
+  - id: 14
+    phase: "deposit"
+    action: BANK_DEPOSIT_ITEM
+    args: "Raw_tuna"
+    description: "Deposit all raw tuna"
+    await_condition: "no_item:Raw tuna"
+    timeout_ms: 10000
+
+  - id: 15
+    phase: "deposit"
+    action: KEY_PRESS
+    args: "Escape"
+    description: "Close deposit box"
+    delay_after_ms: 1000
+    notes: "Ready for next loop iteration"
+
+# Execution notes
+notes: |
+  This routine requires starting at Port Sarim dock near the deposit box.
+
+  KNOWN ISSUES:
+  - Deposit box clicks can miss by a few pixels and hit cancel menu
+  - If deposit fails, hitting Escape first may help on retry
+  - The fishing spot coordinate was moved west (2920 vs 2924) to avoid fence pathfinding issues
+
+  Key differences from lobster fishing:
+  - Uses Harpoon instead of Lobster pot
+  - Catches both tuna (35+) and swordfish (50+) from same spot
+  - "Harpoon" action instead of "Cage" action
+  - Need to deposit both fish types
+  - Slower than lobster fishing but better XP at higher levels
+
+  Expected yields:
+  - ~26 fish per trip (mix of tuna and swordfish)
+  - Tuna: 80 XP each, Swordfish: 100 XP each
+  - ~2000-2500 XP per trip depending on swordfish ratio
+  - ~8-15 minutes per trip (harpooning is slower)
+
+  CRITICAL: Do NOT cross the gangplank at Port Sarim - it leads to a different ship!

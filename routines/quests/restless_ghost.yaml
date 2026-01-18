@@ -1,0 +1,283 @@
+# The Restless Ghost Quest Routine
+# Quest Requirements: None (F2P)
+# Items Needed: None
+# Starting Location: Lumbridge Church
+# Quest Points: 1
+#
+# STATUS: VALIDATED - Completed 2025-01-16
+#
+# Source: https://oldschool.runescape.wiki/w/The_Restless_Ghost/Quick_guide
+#
+# OVERVIEW:
+# 1. Talk to Father Aereck (Lumbridge Church)
+# 2. Talk to Father Urhney (Lumbridge Swamp) - get Ghostspeak amulet
+# 3. Talk to Ghost (Lumbridge Graveyard)
+# 4. Get skull from Wizard's Tower basement altar
+# 5. Return skull to coffin in graveyard
+#
+# CRITICAL LESSONS LEARNED:
+# 1. CASE SENSITIVITY: Object names in INTERACT_OBJECT are case-sensitive!
+#    - "coffin" (lowercase) FAILS silently
+#    - "Coffin" (capitalized) WORKS
+#    - ALWAYS scan first to get exact object name
+#
+# 2. WIZARD TOWER NAVIGATION:
+#    - Use LADDER at (3104, 3162) to go DOWN to basement (not staircase!)
+#    - Staircase at (3103, 3159) only goes UP
+#    - Basement Y coordinates are ~9500+ (underground instance)
+#    - Basement has doors that may need opening - use get_transitions()
+#
+# 3. GRAVEYARD IS FENCED:
+#    - Door at (3247, 3193) blocks access to coffin area
+#    - Use get_transitions() to find and open door first
+#    - Validate door opened before proceeding
+#
+# 4. GHOST DIALOGUE IS LONG:
+#    - Multiple dialogue options, not just continues
+#    - Select "Yep, now tell me what the problem is."
+#    - About 10+ continues total
+#
+# 5. EQUIP_ITEM COMMAND DOESN'T EXIST:
+#    - Use equip_item() MCP tool instead
+#    - Or use inventory widget clicking
+#
+# 6. USE_ITEM_ON_OBJECT - IMPOSTOR FIX:
+#    - Transformed objects (open coffins) require impostor handling
+#    - Fixed in PlayerHelpers.java:14454-14527
+
+name: "The Restless Ghost"
+type: quest
+difficulty: novice
+quest_points: 1
+
+items_needed: []  # None required
+
+locations:
+  lumbridge_church:
+    x: 3243
+    y: 3208
+    plane: 0
+    description: "Lumbridge Church - Father Aereck"
+
+  father_urhney_hut:
+    x: 3147
+    y: 3175
+    plane: 0
+    description: "Father Urhney's hut in Lumbridge Swamp"
+
+  lumbridge_graveyard:
+    x: 3250
+    y: 3193
+    plane: 0
+    description: "Graveyard south of church - ghost's coffin"
+
+  graveyard_gate:
+    x: 3247
+    y: 3193
+    plane: 0
+    description: "Gate to coffin area (must open first)"
+    validated: true
+
+  wizard_tower_entrance:
+    x: 3109
+    y: 3168
+    plane: 0
+    description: "Wizard's Tower entrance"
+    validated: true
+
+  wizard_tower_ladder:
+    x: 3104
+    y: 3162
+    plane: 0
+    description: "Ladder down to basement (NOT the staircase!)"
+    validated: true
+
+  wizard_tower_basement:
+    x: 3120
+    y: 9566
+    plane: 0
+    description: "Wizard's Tower basement - altar with skull"
+
+steps:
+  # ========== PHASE 1: START QUEST ==========
+  - id: 1
+    phase: "start_quest"
+    action: GOTO
+    args: "3243 3208 0"
+    description: "Go to Lumbridge Church"
+
+  - id: 2
+    phase: "start_quest"
+    action: INTERACT_NPC
+    args: "Father_Aereck Talk-to"
+    description: "Talk to Father Aereck"
+
+  - id: 3
+    phase: "start_quest"
+    action: DIALOGUE_SELECT
+    args: "restless ghost"
+    description: "Ask about the ghost"
+
+  - id: 4
+    phase: "start_quest"
+    action: DIALOGUE_CONTINUE
+    repeat: 5
+    description: "Continue through dialogue"
+
+  # ========== PHASE 2: GET GHOSTSPEAK AMULET ==========
+  - id: 5
+    phase: "get_amulet"
+    action: GOTO
+    args: "3147 3175 0"
+    description: "Walk to Father Urhney's hut in swamp"
+
+  - id: 6
+    phase: "get_amulet"
+    action: INTERACT_NPC
+    args: "Father_Urhney Talk-to"
+    description: "Talk to Father Urhney"
+
+  - id: 7
+    phase: "get_amulet"
+    action: DIALOGUE_SELECT
+    args: "Father Aereck sent me"
+    description: "Mention Father Aereck"
+
+  - id: 8
+    phase: "get_amulet"
+    action: DIALOGUE_CONTINUE
+    repeat: 5
+    description: "Receive Ghostspeak amulet"
+    await_condition: "has_item:Ghostspeak amulet"
+
+  # ========== PHASE 3: TALK TO GHOST ==========
+  - id: 9
+    phase: "talk_ghost"
+    action: MCP_TOOL
+    tool: "equip_item"
+    args: "Ghostspeak amulet"
+    description: "Equip the Ghostspeak amulet"
+    notes: "EQUIP_ITEM command doesn't exist - use MCP equip_item() tool"
+
+  - id: 10
+    phase: "talk_ghost"
+    action: GOTO
+    args: "3247 3193 0"
+    description: "Go to graveyard gate"
+    notes: "Graveyard is fenced - must open door first"
+
+  - id: 11
+    phase: "talk_ghost"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    description: "Open the graveyard gate"
+    notes: "Use get_transitions() to verify door exists and state"
+
+  - id: 12
+    phase: "talk_ghost"
+    action: INTERACT_OBJECT
+    args: "Coffin Open"
+    description: "Open the coffin"
+    notes: "CASE SENSITIVE! Must use 'Coffin' not 'coffin'"
+
+  - id: 13
+    phase: "talk_ghost"
+    action: INTERACT_NPC
+    args: "Restless_ghost Talk-to"
+    description: "Talk to the ghost"
+
+  - id: 14
+    phase: "talk_ghost"
+    action: DIALOGUE_SELECT
+    args: "Yep, now tell me what the problem is"
+    description: "Ask the ghost about its problem"
+
+  - id: 15
+    phase: "talk_ghost"
+    action: DIALOGUE_CONTINUE
+    repeat: 10
+    description: "Listen to ghost's story about stolen skull"
+
+  # ========== PHASE 4: GET SKULL ==========
+  - id: 16
+    phase: "get_skull"
+    action: GOTO
+    args: "3104 3162 0"
+    description: "Go to Wizard's Tower ladder"
+    notes: "Go to LADDER (3104,3162), NOT staircase (3103,3159)"
+
+  - id: 17
+    phase: "get_skull"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down ladder to basement"
+    notes: "Staircase only goes UP - must use Ladder to go DOWN"
+
+  - id: 18
+    phase: "get_skull"
+    action: GOTO
+    args: "3120 9566 0"
+    description: "Walk to altar in basement"
+    notes: "May need to open doors - use get_transitions() to check"
+
+  - id: 19
+    phase: "get_skull"
+    action: INTERACT_OBJECT
+    args: "Altar Search"
+    description: "Search altar for skull"
+    await_condition: "has_item:Ghost's skull"
+    notes: "Skeleton spawns but can be ignored"
+
+  # ========== PHASE 5: RETURN SKULL ==========
+  - id: 20
+    phase: "return_skull"
+    action: GOTO
+    args: "3103 9576 0"
+    description: "Walk to ladder in basement"
+    notes: "Ladder up is at (3103, 9576)"
+
+  - id: 21
+    phase: "return_skull"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Leave basement"
+
+  - id: 22
+    phase: "return_skull"
+    action: GOTO
+    args: "3247 3193 0"
+    description: "Return to graveyard gate"
+
+  - id: 23
+    phase: "return_skull"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    description: "Open graveyard gate if closed"
+    notes: "Check get_transitions() first - may already be open"
+
+  - id: 24
+    phase: "return_skull"
+    action: USE_ITEM_ON_OBJECT
+    args: "Ghost's skull Coffin"
+    description: "Use skull on coffin"
+    notes: "Requires impostor handling fix in plugin"
+
+  - id: 25
+    phase: "return_skull"
+    action: DIALOGUE_CONTINUE
+    repeat: 3
+    description: "Quest complete!"
+    expected_result: "Quest complete! 1125 Prayer XP"
+
+rewards:
+  - quest_points: 1
+  - prayer_xp: 1125
+  - ghostspeak_amulet: 1
+
+# PITFALLS DISCOVERED:
+# 1. CASE SENSITIVITY: Object names must match exactly (Coffin not coffin)
+# 2. WIZARD TOWER LADDERS: Use Ladder (3104,3162) not Staircase (3103,3159) to go DOWN
+# 3. GRAVEYARD FENCE: Must open Door at (3247,3193) to reach coffin
+# 4. BASEMENT DOORS: Wizard Tower basement has doors - check get_transitions()
+# 5. IMPOSTOR OBJECTS: Open coffins need impostor handling for USE_ITEM_ON_OBJECT
+# 6. EQUIP_ITEM: Command doesn't exist - use MCP equip_item() tool

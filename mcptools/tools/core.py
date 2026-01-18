@@ -78,7 +78,7 @@ async def handle_build_plugin(arguments: dict) -> dict:
 
 @registry.register({
     "name": "start_runelite",
-    "description": "[RuneLite] Start or restart the RuneLite client with the manny plugin loaded. Runs on display :2.",
+    "description": "[RuneLite] Start the RuneLite client with manny plugin. Auto-allocates display from pool (:2-:5). Checks 12hr/24hr playtime limit before starting.",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -89,7 +89,11 @@ async def handle_build_plugin(arguments: dict) -> dict:
             },
             "account_id": {
                 "type": "string",
-                "description": "Account alias from credentials (e.g., 'main', 'alt1'). Uses default if omitted. Kills ALL existing RuneLite instances before starting."
+                "description": "Account alias from credentials (e.g., 'main', 'aux'). Uses default if omitted."
+            },
+            "display": {
+                "type": "string",
+                "description": "Optional: Specific display to use (e.g., ':2'). If omitted, auto-allocates from pool."
             }
         }
     }
@@ -99,13 +103,17 @@ async def handle_start_runelite(arguments: dict) -> dict:
     Start RuneLite process for specified account.
 
     This will:
-    1. Kill ALL running RuneLite instances
-    2. Write credentials.properties for the selected account
-    3. Start a fresh RuneLite instance
+    1. Check playtime limit (12hr/24hr)
+    2. Allocate display from pool (or use specified)
+    3. Kill ALL running RuneLite instances (TODO: support concurrent)
+    4. Write credentials.properties for the selected account
+    5. Start a fresh RuneLite instance
+    6. Record session for playtime tracking
     """
     developer_mode = arguments.get("developer_mode", True)
     account_id = arguments.get("account_id")
-    return runelite_manager.start_instance(account_id=account_id, developer_mode=developer_mode)
+    display = arguments.get("display")
+    return runelite_manager.start_instance(account_id=account_id, developer_mode=developer_mode, display=display)
 
 
 @registry.register({
@@ -221,6 +229,11 @@ async def handle_list_accounts(arguments: dict) -> dict:
                 "description": "Optional: JX_CHARACTER_ID",
                 "default": ""
             },
+            "jx_session_id": {
+                "type": "string",
+                "description": "Optional: JX_SESSION_ID (from Bolt's ~/.local/share/bolt-launcher/creds file)",
+                "default": ""
+            },
             "set_default": {
                 "type": "boolean",
                 "description": "Make this the default account",
@@ -237,7 +250,8 @@ async def handle_add_account(arguments: dict) -> dict:
         display_name=arguments["display_name"],
         refresh_token=arguments["jx_refresh_token"],
         access_token=arguments["jx_access_token"],
-        character_id=arguments.get("jx_character_id", "")
+        character_id=arguments.get("jx_character_id", ""),
+        session_id=arguments.get("jx_session_id", "")
     )
 
     if arguments.get("set_default") and result.get("success"):

@@ -1,0 +1,139 @@
+# Imp Catcher Quest Routine
+# Quest Requirements: None (F2P)
+# Items Needed: 1 of each bead (red, yellow, black, white)
+# Starting Location: Wizard's Tower (south of Draynor Village)
+# Quest Points: 1
+#
+# STATUS: VALIDATED - Completed 2025-01-15
+#
+# Source: https://oldschool.runescape.wiki/w/Imp_Catcher/Quick_guide
+#
+# CRITICAL LESSONS:
+# 1. Wizard's Tower has TWO staircases - one at (3103,3159) goes DOWN only
+#    The one at (3110,3163) goes UP to plane 2
+# 2. Dialogue flow: "Give me a quest please" -> continues -> "Yes" to start
+# 3. Beads are automatically given when you have all 4 and select Yes
+
+name: "Imp Catcher"
+type: quest
+difficulty: novice
+quest_points: 1
+
+items_needed:
+  - red_bead: 1
+  - yellow_bead: 1
+  - black_bead: 1
+  - white_bead: 1
+
+locations:
+  wizard_tower_entrance:
+    x: 3109
+    y: 3168
+    plane: 0
+    description: "Wizard's Tower entrance (south end of bridge)"
+    validated: true
+
+  wizard_tower_floor1:
+    x: 3104
+    y: 3161
+    plane: 1
+    description: "First floor near up staircase"
+    validated: true
+
+  wizard_mizgog:
+    x: 3103
+    y: 3163
+    plane: 2
+    description: "Wizard Mizgog on top floor (plane 2)"
+    validated: true
+
+  up_staircase:
+    x: 3110
+    y: 3163
+    plane: 1
+    description: "Staircase that goes UP (ID 12539)"
+    validated: true
+
+steps:
+  # ========== PHASE 1: NAVIGATE TO WIZARD'S TOWER ==========
+  - id: 1
+    phase: "travel"
+    action: GOTO
+    args: "3109 3168 0"
+    description: "Walk to Wizard's Tower entrance"
+
+  - id: 2
+    phase: "travel"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb to 1st floor"
+    await_condition: "plane:1"
+
+  - id: 3
+    phase: "travel"
+    action: GOTO
+    args: "3110 3163 1"
+    description: "Walk to the UP staircase (not the down one!)"
+    notes: "CRITICAL: The staircase at (3103,3159) only goes DOWN"
+
+  - id: 4
+    phase: "travel"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb to 2nd floor (top)"
+    await_condition: "plane:2"
+
+  # ========== PHASE 2: COMPLETE QUEST ==========
+  - id: 5
+    phase: "complete_quest"
+    action: INTERACT_NPC
+    args: "Wizard_Mizgog Talk-to"
+    description: "Talk to Wizard Mizgog"
+
+  - id: 6
+    phase: "complete_quest"
+    action: DIALOGUE_CONTINUE
+    description: "Click through initial dialogue"
+
+  - id: 7
+    phase: "complete_quest"
+    action: DIALOGUE_SELECT
+    args: "Give me a quest please"
+    description: "Select quest dialogue option"
+
+  - id: 8
+    phase: "complete_quest"
+    action: DIALOGUE_CONTINUE
+    repeat: 5
+    description: "Click through Mizgog explaining about imps and beads"
+
+  - id: 9
+    phase: "complete_quest"
+    action: DIALOGUE_SELECT
+    args: "Yes"
+    description: "Confirm starting quest - beads auto-given if you have all 4"
+
+  - id: 10
+    phase: "complete_quest"
+    action: DIALOGUE_CONTINUE
+    repeat: 2
+    description: "Click through completion dialogue"
+    expected_result: "Quest complete! Received Amulet of accuracy"
+
+rewards:
+  - quest_points: 1
+  - magic_xp: 875
+  - amulet_of_accuracy: 1
+
+# PITFALLS DISCOVERED:
+# 1. TWO STAIRCASES: Tower has staircases at different locations
+#    - (3103, 3159) = goes DOWN to basement (has lesser demons)
+#    - (3110, 3163) = goes UP to top floor where Mizgog is
+#    Must walk to the correct staircase on floor 1!
+#
+# 2. DIALOGUE FLOW:
+#    - Player says "Give me a quest!"
+#    - Options: "Give me a quest please" / "or else" / "stop messing around"
+#    - Mizgog explains about imps stealing beads
+#    - "Start the Imp Catcher quest? Yes/No"
+#    - If you have all 4 beads, they're automatically taken

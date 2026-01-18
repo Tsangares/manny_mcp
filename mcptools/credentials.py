@@ -126,7 +126,8 @@ class CredentialManager:
         display_name: str,
         refresh_token: str,
         access_token: str,
-        character_id: str = ""
+        character_id: str = "",
+        session_id: str = ""
     ) -> Dict[str, Any]:
         """
         Add or update an account's credentials.
@@ -137,6 +138,7 @@ class CredentialManager:
             refresh_token: JX_REFRESH_TOKEN from credentials.properties
             access_token: JX_ACCESS_TOKEN from credentials.properties
             character_id: Optional JX_CHARACTER_ID
+            session_id: Optional JX_SESSION_ID (from Bolt's creds file)
 
         Returns:
             Result dict with success status.
@@ -151,6 +153,9 @@ class CredentialManager:
 
         if character_id:
             self.accounts[alias]["jx_character_id"] = character_id
+
+        if session_id:
+            self.accounts[alias]["jx_session_id"] = session_id
 
         self._save()
 

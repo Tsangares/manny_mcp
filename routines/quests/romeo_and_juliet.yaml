@@ -1,0 +1,268 @@
+# Romeo and Juliet Quest Routine
+# Quest Requirements: None (F2P)
+# Items Needed: None (Cadava berries obtained during quest)
+# Starting Location: Varrock Square (Romeo)
+# Quest Points: 5
+
+name: "Romeo and Juliet"
+type: quest
+difficulty: novice
+quest_points: 5
+
+# Locations used
+locations:
+  varrock_square:
+    x: 3211
+    y: 3422
+    plane: 0
+    description: "Varrock Square - Romeo location"
+
+  juliet_house_ground:
+    x: 3159
+    y: 3426
+    plane: 0
+    description: "Juliet's house (west Varrock) - ground floor"
+
+  juliet_house_upstairs:
+    x: 3158
+    y: 3425
+    plane: 1
+    description: "Juliet's house - upstairs bedroom"
+
+  varrock_church:
+    x: 3254
+    y: 3477
+    plane: 0
+    description: "Varrock Church - Father Lawrence"
+
+  apothecary:
+    x: 3196
+    y: 3404
+    plane: 0
+    description: "Apothecary shop in southwest Varrock"
+
+  cadava_bush:
+    x: 3273
+    y: 3369
+    plane: 0
+    description: "Cadava bushes southeast of Varrock (near mine)"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: START QUEST ==========
+  - id: 1
+    phase: "start_quest"
+    action: GOTO
+    args: "3211 3422 0"
+    description: "Walk to Varrock Square"
+    location: varrock_square
+
+  - id: 2
+    phase: "start_quest"
+    action: INTERACT_NPC
+    args: "Romeo Talk-to"
+    description: "Talk to Romeo to start quest"
+
+  - id: 3
+    phase: "start_quest"
+    action: DIALOGUE_CONTINUE
+    description: "Continue through Romeo's dialogue (space spam)"
+    notes: "Romeo asks you to deliver a message to Juliet"
+
+  # ========== PHASE 2: TALK TO JULIET ==========
+  - id: 4
+    phase: "juliet"
+    action: GOTO
+    args: "3159 3426 0"
+    description: "Walk to Juliet's house in west Varrock"
+    location: juliet_house_ground
+
+  - id: 5
+    phase: "juliet"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb stairs to Juliet's room"
+    await_condition: "plane:1"
+
+  - id: 6
+    phase: "juliet"
+    action: GOTO
+    args: "3158 3425 1"
+    description: "Walk to Juliet"
+    location: juliet_house_upstairs
+
+  - id: 7
+    phase: "juliet"
+    action: INTERACT_NPC
+    args: "Juliet Talk-to"
+    description: "Talk to Juliet"
+
+  - id: 8
+    phase: "juliet"
+    action: DIALOGUE_CONTINUE
+    description: "Continue through Juliet's dialogue (space spam)"
+    notes: "Juliet tells you about Father Lawrence"
+
+  - id: 9
+    phase: "juliet"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Go back downstairs"
+    await_condition: "plane:0"
+
+  # ========== PHASE 3: TALK TO FATHER LAWRENCE ==========
+  - id: 10
+    phase: "father_lawrence"
+    action: GOTO
+    args: "3254 3477 0"
+    description: "Walk to Varrock Church"
+    location: varrock_church
+
+  - id: 11
+    phase: "father_lawrence"
+    action: INTERACT_NPC
+    args: "Father_Lawrence Talk-to"
+    description: "Talk to Father Lawrence"
+    notes: "NPC name uses underscore"
+
+  - id: 12
+    phase: "father_lawrence"
+    action: DIALOGUE_CONTINUE
+    description: "Continue through Father Lawrence's dialogue"
+    notes: "He tells you about the Apothecary and cadava berries"
+
+  # ========== PHASE 4: GET CADAVA BERRIES ==========
+  - id: 13
+    phase: "cadava_berries"
+    action: GOTO
+    args: "3273 3369 0"
+    description: "Walk to cadava bushes (SE of Varrock, near mine)"
+    location: cadava_bush
+
+  - id: 14
+    phase: "cadava_berries"
+    action: INTERACT_OBJECT
+    args: "Cadava bush Pick-from"
+    description: "Pick cadava berries from bush"
+    await_condition: "has_item:Cadava berries"
+    notes: "Click multiple bushes - one berry per bush, need at least 1 for quest"
+    repeat_until: "has_item:Cadava berries"
+
+  # ========== PHASE 5: GET POTION FROM APOTHECARY ==========
+  - id: 15
+    phase: "apothecary"
+    action: GOTO
+    args: "3196 3404 0"
+    description: "Walk to Apothecary in southwest Varrock"
+    location: apothecary
+
+  - id: 16
+    phase: "apothecary"
+    action: INTERACT_NPC
+    args: "Apothecary Talk-to"
+    description: "Talk to Apothecary"
+
+  - id: 17
+    phase: "apothecary"
+    action: CLICK_DIALOGUE
+    args: "Talk about something else"
+    description: "Select dialogue option"
+    notes: "First dialogue option"
+
+  - id: 18
+    phase: "apothecary"
+    action: CLICK_DIALOGUE
+    args: "Talk about Romeo & Juliet"
+    description: "Ask about the quest potion"
+
+  - id: 19
+    phase: "apothecary"
+    action: DIALOGUE_CONTINUE
+    description: "Continue dialogue to receive potion"
+    await_condition: "has_item:Cadava potion"
+    notes: "Apothecary makes potion from your cadava berries"
+
+  # ========== PHASE 6: GIVE POTION TO JULIET ==========
+  - id: 20
+    phase: "juliet_potion"
+    action: GOTO
+    args: "3159 3426 0"
+    description: "Return to Juliet's house"
+    location: juliet_house_ground
+
+  - id: 21
+    phase: "juliet_potion"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb stairs to Juliet's room"
+    await_condition: "plane:1"
+
+  - id: 22
+    phase: "juliet_potion"
+    action: GOTO
+    args: "3158 3425 1"
+    description: "Walk to Juliet"
+    location: juliet_house_upstairs
+
+  - id: 23
+    phase: "juliet_potion"
+    action: INTERACT_NPC
+    args: "Juliet Talk-to"
+    description: "Talk to Juliet with potion"
+
+  - id: 24
+    phase: "juliet_potion"
+    action: DIALOGUE_CONTINUE
+    description: "Continue through cutscene (spam space)"
+    notes: "Long cutscene - Juliet drinks potion, family mourns"
+    await_condition: "no_item:Cadava potion"
+    timeout_ms: 60000
+
+  # ========== PHASE 7: COMPLETE QUEST WITH ROMEO ==========
+  - id: 25
+    phase: "complete_quest"
+    action: TELEPORT_HOME
+    description: "Teleport to Lumbridge (cutscene may trap you)"
+    notes: "Indoor navigation can fail, teleport is reliable"
+
+  - id: 26
+    phase: "complete_quest"
+    action: GOTO
+    args: "3200 3350 0"
+    description: "Walk north (waypoint to avoid pathing issues)"
+
+  - id: 27
+    phase: "complete_quest"
+    action: GOTO
+    args: "3211 3422 0"
+    description: "Walk to Varrock Square"
+    location: varrock_square
+
+  - id: 28
+    phase: "complete_quest"
+    action: INTERACT_NPC
+    args: "Romeo Talk-to"
+    description: "Talk to Romeo"
+
+  - id: 29
+    phase: "complete_quest"
+    action: DIALOGUE_CONTINUE
+    description: "Continue through final cutscene (spam space)"
+    notes: "Crypt scene - Romeo meets Phillipa instead!"
+    timeout_ms: 60000
+
+# Rewards
+rewards:
+  - quest_points: 5
+
+# Notes for automation
+automation_notes:
+  - "NPC names use underscores: Father_Lawrence"
+  - "Object names use underscores for multi-word: Cadava_bush -> use 'Cadava bush'"
+  - "Dialogue navigation: Use space key to continue, click_text for options"
+  - "Indoor navigation: Scan environment first, open doors manually"
+  - "Cutscenes teleport player - use TELEPORT_HOME to recover if stuck"
+  - "Quest has two cutscenes: Juliet drinking potion, Romeo in crypt"
+
+# Execution log (filled during runtime)
+execution_log: []

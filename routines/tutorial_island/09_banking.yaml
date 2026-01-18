@@ -1,0 +1,91 @@
+# Tutorial Island - Part 9: Banking
+# STATUS: DRAFT - Needs validation
+#
+# This routine handles the Banking section:
+# 1. Talk to Financial Advisor
+# 2. Open bank
+# 3. Close bank
+# 4. Open account management
+# 5. Continue to chapel/prayer section
+
+name: "Tutorial Island - Banking"
+type: tutorial
+phase: 9
+
+# Key NPCs
+npcs:
+  financial_advisor:
+    name: "Financial Advisor"
+    id: 3310
+    location: {x: 3127, y: 3124, plane: 0}  # Approximate - on surface
+
+# Key Objects
+objects:
+  bank_booth:
+    name: "Bank booth"
+    action: "Use"
+  poll_booth:
+    name: "Poll booth"
+    action: "Use"
+
+# Key Widgets (need validation)
+widgets:
+  continue_button: 12648448
+
+steps:
+  - id: 1
+    description: "Walk to Financial Advisor area"
+    action: GOTO
+    args: "TBD"
+    notes: "After climbing ladder from combat area"
+    status: "TODO"
+
+  - id: 2
+    description: "Talk to Financial Advisor"
+    action: INTERACT_NPC
+    args: "Financial_Advisor Talk-to"
+    await_condition: "dialogue"
+    status: "TODO"
+
+  - id: 3
+    description: "Click through dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    status: "TODO"
+
+  - id: 4
+    description: "Open bank"
+    action: INTERACT_OBJECT
+    args: "Bank_booth Use"
+    notes: "Opens bank interface"
+    status: "TODO"
+
+  - id: 5
+    description: "Close bank"
+    action: "KEY_PRESS Escape"
+    notes: "Or click close button"
+    status: "TODO"
+
+  - id: 6
+    description: "Use poll booth"
+    action: INTERACT_OBJECT
+    args: "Poll_booth Use"
+    notes: "Opens polling interface"
+    status: "TODO"
+
+  - id: 7
+    description: "Close poll booth"
+    action: "KEY_PRESS Escape"
+    status: "TODO"
+
+  - id: 8
+    description: "Open door to chapel area"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    notes: "Leads to prayer/chapel section"
+    status: "TODO"
+
+# NOTES:
+# - Banking section is relatively simple
+# - Just need to open and close interfaces
+# - Poll booth may have changed over time

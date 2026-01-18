@@ -1,0 +1,63 @@
+# Tutorial Island - Part 2: Gielinor Guide
+# STATUS: VALIDATED
+#
+# This routine handles the Gielinor Guide interaction after experience selection.
+# Includes talking to the guide, opening settings, and exiting through the door.
+
+name: "Tutorial Island - Gielinor Guide"
+type: tutorial
+phase: 2
+
+# Key NPCs and Objects
+npcs:
+  gielinor_guide:
+    id: 3308
+    location: {x: 3093, y: 3107, plane: 0}
+
+objects:
+  exit_door:
+    id: 9398
+    location: {x: 3098, y: 3107, plane: 0}
+
+widgets:
+  settings_tab: 35913780  # Spanner icon with actions: Settings, Controls, Audio
+
+steps:
+  - id: 1
+    description: "Talk to Gielinor Guide"
+    action: INTERACT_NPC
+    args: "Gielinor_Guide Talk-to"
+    await_condition: "dialogue"
+
+  - id: 2
+    description: "Click through dialogue (multiple continues)"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    notes: "Gielinor Guide gives intro speech about the world"
+
+  - id: 3
+    description: "Open Settings tab when prompted"
+    action: CLICK_WIDGET
+    args: "35913780"
+    notes: "Widget 35913780 has actions: Settings, Controls, Audio"
+
+  - id: 4
+    description: "Talk to Gielinor Guide again"
+    action: INTERACT_NPC
+    args: "Gielinor_Guide Talk-to"
+    await_condition: "dialogue"
+
+  - id: 5
+    description: "Click through final dialogue"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+
+  - id: 6
+    description: "Open the door to exit"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    notes: "Door at 3098,3107 - 4 tiles east of Gielinor Guide"
+
+# After this routine:
+# Player should be outside the building, ready for Survival Expert (03_survival_expert.yaml)
+# The hint box says "Follow the path to find the Survival Instructor"
