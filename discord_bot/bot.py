@@ -1,4 +1,4 @@
-How """
+"""
 Discord bot for OSRS automation control.
 Receives commands via DM, uses LLM to interpret, calls MCP tools directly.
 """
