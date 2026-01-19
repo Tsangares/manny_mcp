@@ -1,0 +1,76 @@
+# Hill Giants Resupply Routine
+# Restocks inventory at GE bank for Hill Giants trip
+# VALIDATED: 2026-01-18 - All commands tested and working
+
+name: "Hill Giants Resupply"
+description: "Bank at GE and restock for Hill Giants"
+type: resupply
+
+start_location:
+  area: grand_exchange
+  note: "Must be at GE with bank access"
+
+# Final inventory (27/28 slots, 1 empty for bones):
+# - 10 Law runes
+# - 10 Air runes
+# - 10 Fire runes
+# - 1 Brass key
+# - 23 Swordfish
+
+steps:
+  - id: 1
+    action: BANK_OPEN
+    description: "Open GE bank"
+    delay_after: 3000
+
+  - id: 2
+    action: BANK_WITHDRAW
+    args: "Law_rune 10"
+    description: "Withdraw 10 law runes"
+    delay_after: 4000
+
+  - id: 3
+    action: BANK_WITHDRAW
+    args: "Fire_rune 10"
+    description: "Withdraw 10 fire runes"
+    delay_after: 4000
+
+  - id: 4
+    action: BANK_WITHDRAW
+    args: "Air_rune 10"
+    description: "Withdraw 10 air runes"
+    delay_after: 4000
+
+  - id: 5
+    action: BANK_WITHDRAW
+    args: "Brass_key 1"
+    description: "Withdraw brass key"
+    delay_after: 4000
+
+  - id: 6
+    action: BANK_WITHDRAW
+    args: "Swordfish 10"
+    description: "Withdraw swordfish batch 1"
+    delay_after: 4000
+
+  - id: 7
+    action: BANK_WITHDRAW
+    args: "Swordfish 10"
+    description: "Withdraw swordfish batch 2"
+    delay_after: 4000
+
+  - id: 8
+    action: BANK_WITHDRAW
+    args: "Swordfish 3"
+    description: "Withdraw final 3 swordfish (uses Withdraw-X)"
+    delay_after: 4000
+
+  - id: 9
+    action: CLOSE_INTERFACE
+    description: "Close bank"
+
+# NOTES:
+# - Use quantities 1, 5, 10 for direct menu buttons
+# - Use any other quantity (2, 3, 7, etc.) for Withdraw-X dialog
+# - Each withdraw needs ~4 second delay for reliability
+# - Brass key: only need 1, deposit extras if accidentally withdrew more

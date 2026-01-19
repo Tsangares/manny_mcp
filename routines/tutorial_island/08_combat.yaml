@@ -1,15 +1,15 @@
 # Tutorial Island - Part 8: Combat
-# STATUS: DRAFT - Needs validation
+# STATUS: VALIDATED (2026-01-18)
 #
 # This routine handles the Combat section:
 # 1. Talk to Combat Instructor
-# 2. Open equipment tab
-# 3. Equip bronze dagger
+# 2. Open equipment tab and equip bronze dagger
+# 3. Get bronze sword and wooden shield
 # 4. Open combat tab
-# 5. Attack giant rat (melee)
+# 5. Enter rat cage and attack giant rat (melee)
 # 6. Receive bow and arrows
 # 7. Attack giant rat (ranged)
-# 8. Continue to banking section
+# 8. Exit to banking section
 
 name: "Tutorial Island - Combat"
 type: tutorial
@@ -20,133 +20,178 @@ npcs:
   combat_instructor:
     name: "Combat Instructor"
     id: 3307
-    location: {x: 3104, y: 9508, plane: 0}  # Approximate
+    location: {x: 3104, y: 9508, plane: 0}
   giant_rat:
     name: "Giant rat"
     id: 3313
     action: "Attack"
     combat_level: 3
 
-# Key Widgets (need validation)
+# Key Locations (VALIDATED)
+locations:
+  combat_area_entrance: {x: 3104, y: 9509, plane: 0}
+  rat_cage_gate: {x: 3111, y: 9519, plane: 0}
+  exit_ladder: {x: 3111, y: 9526, plane: 0}
+
+# Key Widgets (VALIDATED)
 widgets:
   continue_button: 12648448
-  equipment_tab: "TBD"  # Tutorial Island specific
-  combat_tab: "TBD"     # Tutorial Island specific
+  equipment_tab: 35913771  # Use find_and_click_widget(text="Worn Equipment")
+  combat_options_tab: 35913792  # Has action "Combat Options"
+  view_equipment_stats: "find via text 'View equipment stats'"
+  inventory_container: 9764864  # Group 149 << 16
+
+# PITFALLS DISCOVERED:
+# 1. Equipment stats panel uses DYNAMIC WIDGETS - bounds return -1,-1
+#    FIX: Press ESC to close panel, use regular inventory
+# 2. find_widget for inventory items returned WRONG BOUNDS (slot 0 for all)
+#    FIX: ScanWidgetsCommand.java now calculates grid position from slot index
+# 3. equip_item() clicked first "Wield"-able item instead of specific item
+#    FIX: equip_item now uses xdotool with bounds from find_widget
+# 4. Dialogue advancement: Use KEY_PRESS space (most reliable)
 
 steps:
+  # Phase 1: Initial dialogue and equipment tab
   - id: 1
-    description: "Enter combat area through gate"
-    action: INTERACT_OBJECT
-    args: "Gate Open"
-    status: "TODO"
-
-  - id: 2
     description: "Talk to Combat Instructor"
     action: INTERACT_NPC
     args: "Combat_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "TODO"
+    status: "VALIDATED"
+    notes: "Player receives bronze dagger automatically"
+
+  - id: 2
+    description: "Advance dialogue (receive bronze dagger)"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+    status: "VALIDATED"
+    notes: "Press space multiple times until dialogue closes"
 
   - id: 3
-    description: "Click through dialogue"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
-    status: "TODO"
+    description: "Open equipment tab"
+    mcp_tool: "find_and_click_widget"
+    args:
+      text: "Worn Equipment"
+    status: "VALIDATED"
+    notes: "Widget 35913771, found via action text"
 
   - id: 4
-    description: "Open equipment tab"
-    action: CLICK_WIDGET
-    args: "TBD"
-    notes: "Need to find Tutorial Island equipment tab widget ID"
-    status: "TODO"
-
-  - id: 5
-    description: "View worn equipment"
-    action: CLICK_WIDGET
-    args: "TBD"
-    notes: "Click 'View equipment stats' button"
-    status: "TODO"
-
-  - id: 6
-    description: "Close equipment view"
-    action: "TBD"
-    status: "TODO"
-
-  - id: 7
     description: "Equip bronze dagger"
-    action: "equip_item"
-    args: "Bronze dagger"
-    notes: "Use equip_item MCP tool or find_and_click_widget"
-    status: "TODO"
+    mcp_tool: "equip_item"
+    args:
+      item_name: "Bronze dagger"
+    status: "VALIDATED"
+    notes: "equip_item now works correctly after fix"
 
-  - id: 8
-    description: "Talk to Combat Instructor again"
+  # Phase 2: Get sword and shield
+  - id: 5
+    description: "Talk to Combat Instructor (get sword/shield)"
     action: INTERACT_NPC
     args: "Combat_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "TODO"
+    status: "VALIDATED"
 
-  - id: 9
-    description: "Click through dialogue"
-    action: CLICK_CONTINUE
+  - id: 6
+    description: "Advance dialogue (receive sword and shield)"
+    action: KEY_PRESS
+    args: "space"
     repeat_until: "no_dialogue"
-    status: "TODO"
+    status: "VALIDATED"
+    notes: "Receive bronze sword and wooden shield"
+
+  - id: 7
+    description: "Equip bronze sword"
+    mcp_tool: "equip_item"
+    args:
+      item_name: "Bronze sword"
+    status: "VALIDATED"
+
+  - id: 8
+    description: "Equip wooden shield"
+    mcp_tool: "equip_item"
+    args:
+      item_name: "Wooden shield"
+    status: "VALIDATED"
+
+  # Phase 3: Combat tab and melee
+  - id: 9
+    description: "Open combat options tab"
+    action: CLICK_WIDGET
+    args: "35913792"
+    status: "VALIDATED"
+    notes: "Found via find_widget with action 'Combat Options'"
 
   - id: 10
-    description: "Open combat tab"
-    action: CLICK_WIDGET
-    args: "TBD"
-    notes: "Need to find Tutorial Island combat tab widget ID"
-    status: "TODO"
+    description: "Enter rat cage through gate"
+    action: INTERACT_OBJECT
+    args: "Gate Open"
+    status: "VALIDATED"
 
   - id: 11
     description: "Attack giant rat (melee)"
     action: INTERACT_NPC
     args: "Giant_rat Attack"
-    notes: "Wait for combat to complete"
-    status: "TODO"
+    status: "VALIDATED"
+    notes: "Wait for combat to complete, rat will die"
 
+  # Phase 4: Ranged combat
   - id: 12
-    description: "Talk to Combat Instructor for ranged"
+    description: "Talk to Combat Instructor (get bow)"
     action: INTERACT_NPC
     args: "Combat_Instructor Talk-to"
     await_condition: "dialogue"
-    notes: "Receive shortbow and bronze arrows"
-    status: "TODO"
+    status: "VALIDATED"
+    notes: "Exit rat cage first if still inside"
 
   - id: 13
-    description: "Click through dialogue"
-    action: CLICK_CONTINUE
+    description: "Advance dialogue (receive bow and arrows)"
+    action: KEY_PRESS
+    args: "space"
     repeat_until: "no_dialogue"
-    status: "TODO"
+    status: "VALIDATED"
+    notes: "Receive shortbow and 50 bronze arrows"
 
   - id: 14
     description: "Equip shortbow"
-    action: "equip_item"
-    args: "Shortbow"
-    status: "TODO"
+    mcp_tool: "equip_item"
+    args:
+      item_name: "Shortbow"
+    status: "VALIDATED"
 
   - id: 15
     description: "Equip bronze arrows"
-    action: "equip_item"
-    args: "Bronze arrow"
-    status: "TODO"
+    mcp_tool: "equip_item"
+    args:
+      item_name: "Bronze arrow"
+    status: "VALIDATED"
 
   - id: 16
     description: "Attack giant rat (ranged)"
     action: INTERACT_NPC
     args: "Giant_rat Attack"
-    notes: "Use ranged combat"
-    status: "TODO"
+    status: "VALIDATED"
+    notes: "Stay outside cage, attack through fence"
 
+  # Phase 5: Exit to banking
   - id: 17
-    description: "Climb up ladder to surface"
+    description: "Walk to exit ladder"
+    action: GOTO
+    args: "3111 9525 0"
+    status: "VALIDATED"
+
+  - id: 18
+    description: "Climb up ladder"
     action: INTERACT_OBJECT
     args: "Ladder Climb-up"
-    notes: "Exit mining caves to continue tutorial"
-    status: "TODO"
+    await_condition: "plane:0"
+    status: "VALIDATED"
+    notes: "Exits to surface, continue to banking section"
 
-# NOTES:
-# - Equipment and combat tabs may use Tutorial Island-specific widget IDs
-# - Use find_widget() to discover correct IDs during validation
-# - Giant rats respawn, so any rat can be attacked
+# WORKING PATTERNS SUMMARY:
+# - Dialogue: KEY_PRESS space (most reliable)
+# - Equipment tab: find_and_click_widget(text="Worn Equipment")
+# - Combat tab: CLICK_WIDGET 35913792
+# - Equipping: equip_item(item_name="X") - works after fix
+# - Attacking: INTERACT_NPC Giant_rat Attack
+# - Object interaction: INTERACT_OBJECT Gate Open

@@ -1,0 +1,15 @@
+name: "Cow Killer - No Bones"
+type: combat
+npc: "Cow"
+kills: 1000
+
+loot:
+  items: []
+  bones: []
+  ignore:
+    - "Bones"
+    - "Cowhide"
+
+eating:
+  threshold_percent: 80
+  food: "Tuna"

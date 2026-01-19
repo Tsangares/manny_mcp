@@ -45,6 +45,7 @@ class SessionManager:
     def __init__(self):
         self.displays: Dict[str, Optional[Dict]] = {}  # ":2" -> {account, pid, started}
         self.playtime: Dict[str, List[Dict]] = {}  # account -> [{start, end}, ...]
+        self.account_displays: Dict[str, str] = {}  # Persistent account -> display mapping (e.g., "aux" -> ":2")
         self._load()
 
     def _ensure_dir(self) -> None:
@@ -63,6 +64,7 @@ class SessionManager:
 
             self.displays = data.get("displays", {})
             self.playtime = data.get("playtime", {})
+            self.account_displays = data.get("account_displays", {})
 
             # Ensure all displays in pool exist
             self._init_displays()
@@ -84,7 +86,8 @@ class SessionManager:
 
         data = {
             "displays": self.displays,
-            "playtime": self.playtime
+            "playtime": self.playtime,
+            "account_displays": self.account_displays
         }
 
         with open(self.SESSIONS_FILE, 'w') as f:
@@ -92,8 +95,14 @@ class SessionManager:
 
     def _is_display_running(self, display: str) -> bool:
         """Check if a display server is running."""
+        # Check for X11 socket first (faster than xdpyinfo)
+        display_num = display.lstrip(":")
+        socket_path = f"/tmp/.X11-unix/X{display_num}"
+        if not os.path.exists(socket_path):
+            return False
+
+        # Verify with xdpyinfo that it's actually responsive
         try:
-            # Check if X server is listening on this display
             result = subprocess.run(
                 ["xdpyinfo", "-display", display],
                 capture_output=True,
@@ -103,24 +112,60 @@ class SessionManager:
         except Exception:
             return False
 
+    def _get_running_displays(self) -> List[str]:
+        """Find all running X displays from socket files."""
+        running = []
+        socket_dir = "/tmp/.X11-unix"
+
+        if not os.path.exists(socket_dir):
+            return running
+
+        try:
+            for entry in os.listdir(socket_dir):
+                if entry.startswith("X"):
+                    display_num = entry[1:]  # Remove 'X' prefix
+                    if display_num.isdigit():
+                        num = int(display_num)
+                        # Only consider displays in our pool range (2-5)
+                        if self.MIN_DISPLAY <= num < self.MIN_DISPLAY + self.MAX_DISPLAYS:
+                            display = f":{display_num}"
+                            # Verify it's actually responsive
+                            if self._is_display_running(display):
+                                running.append(display)
+        except Exception:
+            pass
+
+        return sorted(running)
+
     def _start_display(self, display: str) -> Dict[str, Any]:
-        """Start a new display server using start_screen.sh."""
+        """
+        Start a new display server using start_screen.sh.
+
+        Note: Gamescope picks its own display number, so we track displays
+        before and after to find which one was actually created.
+        """
         display_num = display.lstrip(":")
 
         # Check if already running
         if self._is_display_running(display):
-            return {"success": True, "display": display, "status": "already_running"}
+            return {
+                "success": True,
+                "display": display,
+                "actual_display": display,
+                "status": "already_running"
+            }
+
+        # Record displays before starting
+        displays_before = set(self._get_running_displays())
 
         try:
-            # Use start_screen.sh to start the display
-            # Primary display (:2) uses gamescope, additional displays use Xwayland
             script_path = Path(__file__).parent.parent / "start_screen.sh"
 
             if display_num == "2":
                 # Primary display - run without argument (uses gamescope)
                 cmd = [str(script_path)]
             else:
-                # Additional display - pass display number (uses Xwayland)
+                # Additional display - pass display number (uses gamescope)
                 cmd = [str(script_path), display_num]
 
             result = subprocess.run(
@@ -130,10 +175,27 @@ class SessionManager:
                 timeout=30
             )
 
-            if result.returncode == 0 and self._is_display_running(display):
+            # Find what display was actually created
+            displays_after = set(self._get_running_displays())
+            new_displays = displays_after - displays_before
+
+            if new_displays:
+                # Use the first new display (should only be one)
+                actual_display = sorted(new_displays)[0]
                 return {
                     "success": True,
                     "display": display,
+                    "actual_display": actual_display,
+                    "status": "started",
+                    "output": result.stdout.strip()
+                }
+
+            # Check if requested display is now running (might have been created)
+            if self._is_display_running(display):
+                return {
+                    "success": True,
+                    "display": display,
+                    "actual_display": display,
                     "status": "started",
                     "output": result.stdout.strip()
                 }
@@ -176,45 +238,73 @@ class SessionManager:
         """
         Allocate a display for an account.
 
-        Returns existing display if account is already running,
-        or allocates a new one from the pool.
+        Simple approach:
+        1. Check if account has a persistent display assignment
+        2. If yes, use that display (start display server if needed)
+        3. If no, assign the next available display number permanently
 
-        IMPORTANT: Always reloads from disk first to prevent conflicts
-        between multiple MCP server instances.
+        Each account gets one display, forever. No reassignment.
         """
-        # CRITICAL: Reload from disk to see what other sessions have claimed
-        # This prevents conflicts when multiple Claude sessions are running
+        # Reload to prevent conflicts
         self._load()
 
-        # Check if account already has a display
-        existing = self.get_display_for_account(account_id)
-        if existing:
+        # Check if account already has a permanent display assignment
+        if account_id in self.account_displays:
+            display = self.account_displays[account_id]
+
+            # Ensure display server is running
+            if not self._is_display_running(display):
+                start_result = self._start_display(display)
+                if not start_result.get("success"):
+                    return {
+                        "success": False,
+                        "display": display,
+                        "error": f"Failed to start assigned display {display}",
+                        "start_result": start_result
+                    }
+                # Use actual display if gamescope picked a different one
+                display = start_result.get("actual_display", display)
+                self.account_displays[account_id] = display
+                self._save()
+
             return {
                 "success": True,
-                "display": existing,
-                "status": "existing",
-                "session": self.displays[existing]
+                "display": display,
+                "status": "assigned",
+                "note": f"Account {account_id} permanently assigned to {display}"
             }
 
-        # Find an available display
-        display = self.get_available_display()
-        if not display:
-            return {
-                "success": False,
-                "error": f"No available displays. All {self.MAX_DISPLAYS} slots in use.",
-                "active_sessions": self.get_active_sessions()
-            }
+        # Account has no display yet - assign the next available one
+        assigned_displays = set(self.account_displays.values())
 
-        # Ensure display server is running
-        display_result = self._start_display(display)
-        if not display_result.get("success"):
-            # Try using start_screen.sh as fallback
-            pass  # For now, assume display management is external
+        for i in range(self.MIN_DISPLAY, self.MIN_DISPLAY + self.MAX_DISPLAYS):
+            display = f":{i}"
+            if display not in assigned_displays:
+                # Assign this display to the account permanently
+                self.account_displays[account_id] = display
+                self._save()
+
+                # Start display server if not running
+                if not self._is_display_running(display):
+                    start_result = self._start_display(display)
+                    if start_result.get("success"):
+                        actual_display = start_result.get("actual_display", display)
+                        if actual_display != display:
+                            self.account_displays[account_id] = actual_display
+                            self._save()
+                        display = actual_display
+
+                return {
+                    "success": True,
+                    "display": display,
+                    "status": "newly_assigned",
+                    "note": f"Account {account_id} permanently assigned to {display}"
+                }
 
         return {
-            "success": True,
-            "display": display,
-            "status": "allocated"
+            "success": False,
+            "error": f"No available displays. All {self.MAX_DISPLAYS} slots assigned.",
+            "account_displays": self.account_displays
         }
 
     def start_session(self, account_id: str, display: str, pid: int) -> Dict[str, Any]:

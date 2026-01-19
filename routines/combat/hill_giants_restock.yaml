@@ -1,0 +1,181 @@
+# Hill Giants Restock Routine
+# Teleport to Varrock, bank, get supplies, return via brass key shortcut
+#
+# Inventory setup:
+# - 10 Law runes (for teleports)
+# - 10 Fire runes (for Varrock tele)
+# - 10 Water runes (for future teleports)
+# - 25 Air runes (for teleports)
+# - 1 Brass key (for shortcut)
+# - 21 Swordfish (leave 1 slot for bones)
+
+name: "Hill Giants Restock"
+description: "Bank loot, restock food and runes, return to Hill Giants"
+type: "banking"
+
+# Varrock West Bank location
+locations:
+  varrock_bank:
+    x: 3185
+    y: 3436
+    plane: 0
+  brass_key_door:
+    x: 3115
+    y: 3452
+    plane: 0
+  hill_giants:
+    x: 3117
+    y: 9843
+    plane: 0
+
+# Items to withdraw
+withdraw:
+  - item: "Law rune"
+    quantity: 10
+  - item: "Fire rune"
+    quantity: 10
+  - item: "Water rune"
+    quantity: 10
+  - item: "Air rune"
+    quantity: 25
+  - item: "Brass key"
+    quantity: 1
+  - item: "Swordfish"
+    quantity: 21  # Leave 1 slot for bones
+
+steps:
+  # Step 1: Teleport to Varrock
+  - id: 1
+    phase: "travel"
+    action: CAST_SPELL
+    args: "Varrock_Teleport"
+    description: "Teleport to Varrock"
+    await_condition: "location:3212,3424"
+    timeout_ms: 10000
+
+  # Step 2: Walk to Varrock West Bank
+  - id: 2
+    phase: "travel"
+    action: GOTO
+    args: "3185 3436 0"
+    description: "Walk to Varrock West Bank"
+    await_condition: "location:3185,3436"
+    timeout_ms: 15000
+
+  # Step 3: Open bank
+  - id: 3
+    phase: "banking"
+    action: BANK_OPEN
+    args: ""
+    description: "Open bank booth"
+    delay_after_ms: 1000
+
+  # Step 4: Deposit all
+  - id: 4
+    phase: "banking"
+    action: BANK_DEPOSIT_ALL
+    args: ""
+    description: "Deposit all items"
+    delay_after_ms: 500
+
+  # Step 5-10: Withdraw items
+  - id: 5
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Law_rune 10"
+    description: "Withdraw 10 law runes"
+    delay_after_ms: 300
+
+  - id: 6
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Fire_rune 10"
+    description: "Withdraw 10 fire runes"
+    delay_after_ms: 300
+
+  - id: 7
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Water_rune 10"
+    description: "Withdraw 10 water runes"
+    delay_after_ms: 300
+
+  - id: 8
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Air_rune 25"
+    description: "Withdraw 25 air runes"
+    delay_after_ms: 300
+
+  - id: 9
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Brass_key 1"
+    description: "Withdraw brass key"
+    delay_after_ms: 300
+
+  - id: 10
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Swordfish 21"
+    description: "Withdraw 21 swordfish (leave 1 slot for bones)"
+    delay_after_ms: 300
+
+  # Step 11: Close bank
+  - id: 11
+    phase: "banking"
+    action: KEY_PRESS
+    args: "Escape"
+    description: "Close bank interface"
+    delay_after_ms: 500
+
+  # Step 12: Walk to brass key door
+  - id: 12
+    phase: "travel"
+    action: GOTO
+    args: "3115 3452 0"
+    description: "Walk to brass key door (Edgeville Dungeon entrance)"
+    await_condition: "location:3115,3452"
+    timeout_ms: 30000
+
+  # Step 13: Enter dungeon via brass key door
+  - id: 13
+    phase: "travel"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    description: "Open brass key door"
+    delay_after_ms: 1000
+
+  # Step 14: Climb down ladder
+  - id: 14
+    phase: "travel"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down into Edgeville Dungeon"
+    await_condition: "plane:0"
+    delay_after_ms: 2000
+    notes: "Underground plane is still 0"
+
+  # Step 15: Walk to Hill Giants area
+  - id: 15
+    phase: "travel"
+    action: GOTO
+    args: "3117 9843 0"
+    description: "Walk to Hill Giants area"
+    await_condition: "location:3117,9843"
+    timeout_ms: 30000
+
+notes: |
+  REQUIREMENTS:
+  - Magic level 25 (Varrock Teleport)
+  - Brass key in bank
+  - Swordfish in bank
+  - Law, Fire, Air runes for teleport
+
+  BRASS KEY DOOR:
+  - Location: (3115, 3452, 0) west of Edgeville
+  - Requires brass key to open
+  - Leads directly to Edgeville Dungeon near Hill Giants
+
+  AFTER ROUTINE:
+  - Start KILL_LOOP Hill_Giant Swordfish 500

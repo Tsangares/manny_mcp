@@ -5,6 +5,7 @@ import os
 import json
 import time
 import asyncio
+import subprocess
 from ..registry import registry
 
 
@@ -603,34 +604,58 @@ async def handle_teleport_home(arguments: dict) -> dict:
 
 @registry.register({
     "name": "stabilize_camera",
-    "description": """[Commands] Reset camera to a stable medium zoom and top-down pitch.
+    "description": """[Commands] Reset camera to a stable zoom and configurable pitch.
 
 Counteracts NPC zoom-in behavior by resetting to a comfortable viewing distance.
 - Zooms out to maximum (normalizes baseline)
-- Zooms back in to medium distance (8 scrolls)
-- Sets pitch to 400 (top-down view for better spatial awareness)
+- Zooms back in to desired level
+- Sets pitch to specified value
 
-Use after NPC interactions that may have zoomed in too close.""",
+Pitch values:
+- 128 = level (looking straight ahead)
+- 256 = slight top-down
+- 400 = default top-down (good for most areas)
+- 512 = maximum top-down (best for dungeons/caves)
+
+Examples:
+- stabilize_camera() - Default: pitch=400, zoom=8
+- stabilize_camera(pitch=512) - Max top-down for Hill Giants cave
+- stabilize_camera(pitch=300, zoom_in_scrolls=10) - Custom setup""",
     "inputSchema": {
         "type": "object",
         "properties": {
             "account_id": {
                 "type": "string",
                 "description": "Account ID for multi-client (optional)"
+            },
+            "pitch": {
+                "type": "integer",
+                "description": "Camera pitch: 128=level, 256=slight down, 400=top-down (default), 512=max top-down",
+                "default": 400
+            },
+            "zoom_in_scrolls": {
+                "type": "integer",
+                "description": "How many times to zoom in after maxing out (0-15, default: 8)",
+                "default": 8
             }
         },
         "required": []
     }
 })
 async def handle_stabilize_camera(arguments: dict) -> dict:
-    """Reset camera to stable medium zoom and pitch."""
+    """Reset camera to stable zoom and configurable pitch."""
     account_id = arguments.get("account_id")
+    pitch = arguments.get("pitch", 400)
+    zoom_in_scrolls = arguments.get("zoom_in_scrolls", 8)
     command_file = config.get_command_file(account_id)
+
+    # Build command with optional parameters
+    cmd = f"CAMERA_STABILIZE {pitch} {zoom_in_scrolls}"
 
     try:
         with open(command_file, "w") as f:
-            f.write("CAMERA_STABILIZE\n")
-        result = {"success": True, "command": "CAMERA_STABILIZE"}
+            f.write(cmd + "\n")
+        result = {"success": True, "command": cmd, "pitch": pitch, "zoom_in_scrolls": zoom_in_scrolls}
         if account_id:
             result["account_id"] = account_id
         return result
@@ -735,16 +760,35 @@ async def handle_equip_item(arguments: dict) -> dict:
             "item_name": item_name
         }
 
-    # Step 2: Click the widget with the equip action
-    click_command = f'CLICK_WIDGET {widget_id} "{equip_action}"'
+    # Step 2: Click at the item's bounds using xdotool
+    # (CLICK_WIDGET with action re-searches and finds wrong item)
+    bounds = inventory_widget.get("bounds", {})
+    if not bounds or bounds.get("x", -1) < 0:
+        return {
+            "success": False,
+            "error": f"Item '{item_name}' found but has invalid bounds",
+            "item_name": item_name,
+            "bounds": bounds
+        }
 
+    click_x = bounds["x"] + bounds["width"] // 2
+    click_y = bounds["y"] + bounds["height"] // 2
+
+    # Use xdotool - Java Mouse.click() doesn't register properly
+    # Get display from account config
+    account_config = config.get_account_config(account_id)
+    display = account_config.display or config.display or ":2"
     try:
-        with open(command_file, "w") as f:
-            f.write(click_command + "\n")
+        subprocess.run(
+            ["xdotool", "mousemove", str(click_x), str(click_y), "click", "1"],
+            env={**os.environ, "DISPLAY": display},
+            timeout=5,
+            check=True
+        )
     except Exception as e:
         return {
             "success": False,
-            "error": f"Failed to send click command: {e}",
+            "error": f"Click failed: {e}",
             "item_name": item_name
         }
 
@@ -756,5 +800,137 @@ async def handle_equip_item(arguments: dict) -> dict:
         "item_name": item_name,
         "widget_id": widget_id,
         "action": equip_action,
-        "command_sent": click_command
+        "clicked_at": {"x": click_x, "y": click_y}
+    }
+
+
+@registry.register({
+    "name": "execute_combat_routine",
+    "description": """[Combat] Execute a combat routine from a YAML config file.
+
+Reads combat configuration from YAML and runs the combat loop with specified settings.
+The config file specifies NPC, kill count, loot items, eating thresholds, etc.
+
+Example YAML:
+```yaml
+name: "Hill Giants"
+npc: "Hill Giant"
+kills: 500
+loot:
+  items: ["Law rune", "Fire rune"]
+  bones: ["Big bones"]
+eating:
+  threshold_percent: 50
+  escape_food_count: 3
+```
+
+The routine writes config to /tmp/manny_combat_config.json and sends KILL_LOOP_CONFIG command.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "routine_path": {
+                "type": "string",
+                "description": "Path to the combat routine YAML file"
+            },
+            "kills": {
+                "type": "integer",
+                "description": "Override kill count from YAML (optional)"
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional)"
+            }
+        },
+        "required": ["routine_path"]
+    }
+})
+async def handle_execute_combat_routine(arguments: dict) -> dict:
+    """Execute a combat routine from YAML config."""
+    import yaml
+    from pathlib import Path
+
+    routine_path = arguments.get("routine_path", "")
+    kills_override = arguments.get("kills")
+    account_id = arguments.get("account_id")
+
+    # Resolve path
+    path = Path(routine_path)
+    if not path.is_absolute():
+        # Try relative to manny-mcp directory
+        mcp_root = Path(__file__).parent.parent.parent
+        path = mcp_root / routine_path
+
+    if not path.exists():
+        return {
+            "success": False,
+            "error": f"Routine file not found: {path}"
+        }
+
+    # Load YAML config
+    try:
+        with open(path) as f:
+            routine = yaml.safe_load(f)
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to parse YAML: {e}"
+        }
+
+    # Extract config
+    npc = routine.get("npc", "")
+    kills = kills_override or routine.get("kills", 10000)
+    loot_config = routine.get("loot", {})
+    eating_config = routine.get("eating", {})
+
+    # Build loot list
+    loot_items = loot_config.get("items", [])
+    bones = loot_config.get("bones", [])
+
+    # Write config to JSON for Java to read
+    combat_config = {
+        "npc": npc,
+        "kills": kills,
+        "loot_items": loot_items,
+        "bones": bones,
+        "ignore_items": loot_config.get("ignore", []),
+        "eat_threshold_percent": eating_config.get("threshold_percent", 50),
+        "escape_food_count": eating_config.get("escape_food_count", 3)
+    }
+
+    config_file = "/tmp/manny_combat_config.json"
+    try:
+        with open(config_file, "w") as f:
+            json.dump(combat_config, f, indent=2)
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to write config: {e}"
+        }
+
+    # Send command to Java
+    command_file = config.get_command_file(account_id)
+    command = f"KILL_LOOP_CONFIG {config_file}"
+
+    try:
+        with open(command_file, "w") as f:
+            f.write(command + "\n")
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to send command: {e}"
+        }
+
+    # Log the command
+    _get_command_log().log_command(command)
+
+    return {
+        "success": True,
+        "dispatched": True,
+        "routine": routine.get("name", path.stem),
+        "npc": npc,
+        "kills": kills,
+        "loot_items": loot_items,
+        "bones": bones,
+        "config_file": config_file,
+        "note": "Combat routine started. Use get_logs() to monitor progress."
     }

@@ -1,0 +1,100 @@
+# Hill Giants Combat Routine with Looting
+# Fights Hill Giants, picks up valuable drops, buries bones
+# Location: Edgeville Dungeon
+#
+# Requirements: Combat gear, food, brass key for re-entry
+
+name: "Hill Giants with Looting"
+description: "Kill Hill Giants, loot law runes and big bones, bury bones for Prayer XP"
+type: "combat"
+skill: "strength"
+
+# Loot priorities
+loot_items:
+  - "Law rune"
+  - "Big bones"
+  - "Limpwurt root"
+  - "Nature rune"
+
+loop:
+  enabled: true
+  max_iterations: 100
+  start_step: 1
+
+steps:
+  # Step 1: Attack a Hill Giant
+  - id: 1
+    phase: "combat"
+    action: ATTACK_NPC
+    args: "Hill_Giant"
+    description: "Attack nearest Hill Giant"
+    delay_after_ms: 1000
+    notes: "Will find and attack available giant"
+
+  # Step 2: Pick up Big bones
+  - id: 3
+    phase: "loot"
+    action: PICK_UP_ITEM
+    args: "Big_bones"
+    description: "Pick up big bones"
+    delay_after_ms: 600
+    notes: "May fail if no bones dropped or full inventory"
+
+  # Step 4: Pick up Law rune (valuable!)
+  - id: 4
+    phase: "loot"
+    action: PICK_UP_ITEM
+    args: "Law_rune"
+    description: "Pick up law rune if dropped"
+    delay_after_ms: 600
+    notes: "Not always dropped, continue if not found"
+
+  # Step 5: Pick up Limpwurt root
+  - id: 5
+    phase: "loot"
+    action: PICK_UP_ITEM
+    args: "Limpwurt_root"
+    description: "Pick up limpwurt root if dropped"
+    delay_after_ms: 600
+    notes: "Valuable herb secondary"
+
+  # Step 6: Bury bones for Prayer XP
+  - id: 6
+    phase: "prayer"
+    action: BURY_ALL
+    args: ""
+    description: "Bury all bones in inventory"
+    delay_after_ms: 1000
+    notes: "Big bones = 15 Prayer XP each"
+
+  # Step 7: Check health and eat if needed
+  - id: 7
+    phase: "sustain"
+    action: EAT_FOOD
+    args: "25"
+    description: "Eat food if HP below 25"
+    delay_after_ms: 500
+    notes: "Threshold eat to stay safe"
+
+# Notes for manual execution
+notes: |
+  This routine is designed for Edgeville Dungeon Hill Giants.
+
+  BEFORE STARTING:
+  - Ensure you have food (swordfish recommended)
+  - Have at least 1 empty inventory slot for bones
+  - Open gates in dungeon path manually first time
+
+  DROPS TO COLLECT:
+  - Big bones (always) - 15 Prayer XP
+  - Law runes (rare) - valuable!
+  - Limpwurt roots (uncommon) - sell or use for potions
+  - Nature runes (rare) - valuable
+
+  WHEN TO LEAVE:
+  - Out of food
+  - Inventory full of loot
+
+  BANKING:
+  - Teleport to Varrock, use west bank
+  - Or climb out and use Edgeville bank

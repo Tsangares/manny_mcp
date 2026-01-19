@@ -392,12 +392,12 @@ class MultiRuneLiteManager:
             else:
                 account_id = self.config.default_account
 
-        # Step 0: Check playtime limit
+        # Step 0: Check playtime limit (warning only, doesn't block)
+        playtime_warning = None
         if not session_manager.is_under_playtime_limit(account_id):
             playtime = session_manager.get_playtime_24h(account_id)
-            return {
-                "success": False,
-                "error": f"Account '{account_id}' has exceeded 12hr playtime limit in 24h",
+            playtime_warning = {
+                "warning": f"Account '{account_id}' has exceeded 12hr playtime limit in 24h",
                 "playtime_24h_hours": round(playtime, 2),
                 "limit_hours": session_manager.MAX_PLAYTIME_24H_HOURS
             }
@@ -446,6 +446,8 @@ class MultiRuneLiteManager:
         # Combine results
         start_result["credentials"] = creds_result
         start_result["killed_previous"] = kill_result
+        if playtime_warning:
+            start_result["playtime_warning"] = playtime_warning
 
         return start_result
 

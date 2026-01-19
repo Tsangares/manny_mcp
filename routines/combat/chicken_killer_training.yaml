@@ -1,0 +1,73 @@
+# Chicken Killer Combat Training
+# Best for fresh accounts - chickens are level 1 and drop feathers + raw chicken
+
+name: "Chicken Killer Combat Training"
+type: combat
+skill: combat
+target_level: 15
+recommended_for: "Fresh accounts levels 1-15"
+
+# Equipment needed
+equipment_needed:
+  - weapon: "Bronze sword (starter gear)"
+  - armor: "None required - chickens deal minimal damage"
+
+# Locations
+locations:
+  lumbridge_chicken_coop:
+    x: 3232
+    y: 3295
+    plane: 0
+    description: "Chicken coop north of Lumbridge Castle"
+
+  lumbridge_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+    description: "Lumbridge Castle bank"
+
+# Training routine
+steps:
+  # ========== PHASE 1: GO TO CHICKENS ==========
+  - id: 1
+    phase: "travel"
+    action: GOTO
+    args: "3232 3295 0"
+    description: "Walk to chicken coop north of Lumbridge"
+    location: lumbridge_chicken_coop
+
+  # ========== PHASE 2: COMBAT TRAINING ==========
+  - id: 2
+    phase: "combat"
+    action: KILL_LOOP
+    args: "Chicken 200"
+    description: "Kill 200 chickens for combat XP"
+    notes: |
+      Chickens are level 1 - safe for any account.
+      Drops: Feathers (5-15, ~3gp each), Raw chicken, Bones
+      200 kills = ~2400 combat XP spread across attack/strength/defence
+
+# Combat settings
+combat_settings:
+  combat_style: "Aggressive"  # For strength XP, or use "Accurate" for attack
+  food: "Not needed"
+  prayer: "Not needed"
+
+# Notes
+notes: |
+  Why chickens for fresh accounts:
+  1. Level 1 NPCs - completely safe even at level 3
+  2. Drop feathers (~45gp/kill average) for early money
+  3. Drop raw chicken - cook for food or sell
+  4. Located right next to Lumbridge spawn
+
+  After reaching combat level 10-15, graduate to cows:
+  - routines/combat/cow_killer_training.yaml
+
+  Expected results from 200 chickens:
+  - Combat level ~10-12 (depending on starting)
+  - ~3,000 feathers (~9,000gp)
+  - ~200 raw chicken
+
+loop:
+  enabled: false  # Single run, then check progress

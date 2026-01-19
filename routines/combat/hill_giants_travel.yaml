@@ -1,0 +1,70 @@
+# Hill Giants Travel Routine
+# Navigate from GE to Hill Giants dungeon
+# VALIDATED: 2026-01-18
+
+name: "Hill Giants Travel"
+description: "Travel from GE to Hill Giants via brass key shortcut"
+type: navigation
+
+# NOTE: osrspathfinder.com API was returning 500 errors on 2026-01-18
+# Manual navigation may be required if pathfinder is down
+
+locations:
+  ge_bank:
+    x: 3164
+    y: 3487
+    plane: 0
+
+  brass_key_hut_outside:
+    x: 3115
+    y: 3449
+    plane: 0
+    note: "Stand here before opening door"
+
+  brass_key_door:
+    x: 3115
+    y: 3450
+    plane: 0
+    object_id: 1804
+    type: WallObject
+
+  ladder_down:
+    x: 3116
+    y: 3452
+    plane: 0
+    object_id: 17384
+
+  hill_giants_dungeon:
+    x: 3116
+    y: 9851
+    plane: 0
+
+steps:
+  - id: 1
+    action: GOTO
+    args: "3115 3449 0"
+    description: "Walk to brass key hut (may need manual help if pathfinder down)"
+    await_condition: "location:3115,3449"
+    timeout_ms: 60000
+
+  - id: 2
+    action: INTERACT_OBJECT
+    args: "door Open"
+    description: "Open brass key door"
+    delay_after: 2000
+
+  - id: 3
+    action: INTERACT_OBJECT
+    args: "ladder Climb-down"
+    description: "Climb down to dungeon"
+    delay_after: 3000
+
+  - id: 4
+    action: KILL_LOOP
+    args: "Hill_Giant 500"
+    description: "Start killing Hill Giants"
+
+# ISSUES DISCOVERED:
+# - Pathfinder API (osrspathfinder.com) can return 500 errors
+# - Local A* fallback has poor map coverage for GE area
+# - May need manual intervention for GOTO from GE

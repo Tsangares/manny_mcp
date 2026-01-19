@@ -1,91 +1,117 @@
 # Tutorial Island - Part 9: Banking
-# STATUS: DRAFT - Needs validation
+# STATUS: VALIDATED (2026-01-18)
 #
 # This routine handles the Banking section:
-# 1. Talk to Financial Advisor
-# 2. Open bank
-# 3. Close bank
-# 4. Open account management
-# 5. Continue to chapel/prayer section
+# 1. Climb ladder to banking area
+# 2. Climb down to bank floor
+# 3. Use bank booth
+# 4. Close bank
+# 5. Use poll booth
+# 6. Close poll booth
+# 7. Exit through door to chapel
 
 name: "Tutorial Island - Banking"
 type: tutorial
 phase: 9
 
-# Key NPCs
-npcs:
-  financial_advisor:
-    name: "Financial Advisor"
-    id: 3310
-    location: {x: 3127, y: 3124, plane: 0}  # Approximate - on surface
+# Key Locations (VALIDATED)
+locations:
+  from_combat_ladder: {x: 3123, y: 3128, plane: 0}  # Ladder from combat area
+  bank_roof: {x: 3123, y: 3127, plane: 1}  # After climbing up
+  bank_floor: {x: 3123, y: 3127, plane: 0}  # After climbing down
+  bank_booth: {x: 3120, y: 3123, plane: 0}  # Bank booth area
+  poll_booth: {x: 3119, y: 3121, plane: 0}  # Poll booth location
 
-# Key Objects
+# Key Objects (VALIDATED)
 objects:
   bank_booth:
     name: "Bank booth"
+    id: unknown
     action: "Use"
   poll_booth:
-    name: "Poll booth"
+    name: "poll"  # NOTE: Search uses "poll", menu shows "Poll booth"
+    id: 26815
     action: "Use"
 
-# Key Widgets (need validation)
-widgets:
-  continue_button: 12648448
-
 steps:
+  # Phase 1: Navigate to banking area
   - id: 1
-    description: "Walk to Financial Advisor area"
-    action: GOTO
-    args: "TBD"
-    notes: "After climbing ladder from combat area"
-    status: "TODO"
+    description: "Open door to ladder area"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    status: "VALIDATED"
+    notes: "Door at (3124, 3126) blocks access to ladder"
 
   - id: 2
-    description: "Talk to Financial Advisor"
-    action: INTERACT_NPC
-    args: "Financial_Advisor Talk-to"
-    await_condition: "dialogue"
-    status: "TODO"
+    description: "Climb ladder up to roof"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    await_condition: "plane:1"
+    status: "VALIDATED"
+    notes: "Ladder at (3123, 3128)"
 
   - id: 3
-    description: "Click through dialogue"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
-    status: "TODO"
+    description: "Climb ladder down to bank floor"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    await_condition: "plane:0"
+    status: "VALIDATED"
+    notes: "Climb down immediately after climbing up"
 
+  # Phase 2: Use bank
   - id: 4
-    description: "Open bank"
+    description: "Use bank booth"
     action: INTERACT_OBJECT
     args: "Bank_booth Use"
-    notes: "Opens bank interface"
-    status: "TODO"
+    status: "VALIDATED"
+    notes: "Opens bank interface, tutorial dialogue appears"
 
   - id: 5
-    description: "Close bank"
-    action: "KEY_PRESS Escape"
-    notes: "Or click close button"
-    status: "TODO"
+    description: "Close bank interface"
+    action: KEY_PRESS
+    args: "Escape"
+    status: "VALIDATED"
 
+  # Phase 3: Use poll booth
   - id: 6
     description: "Use poll booth"
     action: INTERACT_OBJECT
-    args: "Poll_booth Use"
-    notes: "Opens polling interface"
-    status: "TODO"
+    args: "poll Use"
+    status: "VALIDATED"
+    notes: "Object name is 'poll', not 'Poll booth' or 'Poll_booth'"
 
   - id: 7
-    description: "Close poll booth"
-    action: "KEY_PRESS Escape"
-    status: "TODO"
+    description: "Advance poll dialogue"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "poll_interface_open"
+    status: "VALIDATED"
+    notes: "Press space multiple times until poll interface opens"
 
   - id: 8
-    description: "Open door to chapel area"
+    description: "Close poll interface"
+    action: KEY_PRESS
+    args: "Escape"
+    status: "VALIDATED"
+
+  # Phase 4: Exit to chapel
+  - id: 9
+    description: "Exit through door to chapel area"
     action: INTERACT_OBJECT
     args: "Door Open"
-    notes: "Leads to prayer/chapel section"
     status: "TODO"
+    notes: "Door leads to prayer/chapel section"
 
-# NOTES:
-# - Banking section is relatively simple
-# - Just need to open and close interfaces
-# - Poll booth may have changed over time
+# PITFALLS DISCOVERED:
+# 1. Bank booth is on plane 0, but you arrive on plane 1 after climbing up
+#    FIX: Must climb down ladder immediately after climbing up
+# 2. Poll booth object name is "poll" (lowercase, no "booth")
+#    The menu shows "Poll booth" but scan_tile_objects finds "poll"
+# 3. Dialogue appears but has no "Click here to continue" button
+#    These are informational panels, just interact with the objects
+
+# WORKING PATTERNS:
+# - Bank booth: INTERACT_OBJECT Bank_booth Use
+# - Poll booth: INTERACT_OBJECT poll Use
+# - Close interfaces: KEY_PRESS Escape
+# - Advance dialogue: KEY_PRESS space

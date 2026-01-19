@@ -1,0 +1,26 @@
+# Hill Giants Combat Routine
+# Location: Edgeville Dungeon
+
+name: "Hill Giants"
+type: combat
+npc: "Hill Giant"
+kills: 10000
+
+loot:
+  items:
+    - "Law rune"
+    - "Nature rune"
+    - "Fire rune"
+    - "Water rune"
+  bones:
+    - "Big bones"
+  # Items to ignore (won't pick up)
+  ignore:
+    - "Limpwurt root"
+    - "Beer"
+
+eating:
+  threshold_percent: 50
+  escape_food_count: 3  # Leave if food drops to this
+
+# Future: banking, prayer, escape routes

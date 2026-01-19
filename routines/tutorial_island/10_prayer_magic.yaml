@@ -1,0 +1,284 @@
+# Tutorial Island - Part 10: Prayer & Magic
+# STATUS: VALIDATED (2026-01-18)
+#
+# This routine handles the Prayer and Magic sections:
+# 1. Account Guide section (account management explanation)
+# 2. Brother Brace section (prayer explanation)
+# 3. Magic Instructor section (magic tutorial)
+# 4. Leave Tutorial Island
+
+name: "Tutorial Island - Prayer & Magic"
+type: tutorial
+phase: 10
+
+# Key NPCs (VALIDATED)
+npcs:
+  account_guide:
+    name: "Account Guide"
+    id: 3310
+    location: {x: 3126, y: 3124, plane: 0}
+  brother_brace:
+    name: "Brother Brace"
+    id: 3319
+    location: {x: 3126, y: 3107, plane: 0}
+  magic_instructor:
+    name: "Magic Instructor"
+    id: 3309
+    location: {x: 3141, y: 3088, plane: 0}
+
+# Key Locations (VALIDATED)
+locations:
+  account_guide_room: {x: 3125, y: 3124, plane: 0}
+  chapel: {x: 3125, y: 3107, plane: 0}
+  magic_area: {x: 3141, y: 3088, plane: 0}
+  lumbridge_spawn: {x: 3232, y: 3232, plane: 0}  # Where you arrive after tutorial
+
+# Key Widgets (VALIDATED)
+widgets:
+  account_management_tab: 35913777  # Action: "Account Management"
+  prayer_tab: 35913797  # Action: "Prayer"
+  magic_tab: 35913798  # Action: "Magic" - opened during tutorial
+
+steps:
+  # Phase 1: Account Guide (from Banking exit)
+  - id: 1
+    description: "Walk to door in front of Account Guide room"
+    action: GOTO
+    args: "3124 3124 0"
+    status: "VALIDATED"
+    notes: "Must walk to door position before clicking"
+
+  - id: 2
+    description: "Open door to Account Guide room"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    status: "VALIDATED"
+    notes: "Door at (3125, 3124)"
+
+  - id: 3
+    description: "Talk to Account Guide"
+    action: INTERACT_NPC
+    args: "Account_Guide Talk-to"
+    await_condition: "dialogue"
+    status: "VALIDATED"
+
+  - id: 4
+    description: "Advance Account Guide dialogue"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+    status: "VALIDATED"
+    notes: "Multiple space presses through intro"
+
+  - id: 5
+    description: "Open Account Management tab"
+    mcp_tool: "click_widget"
+    args:
+      widget_id: 35913777
+    status: "VALIDATED"
+    notes: "Found via find_widget(text='Account Management')"
+
+  - id: 6
+    description: "Talk to Account Guide again"
+    action: INTERACT_NPC
+    args: "Account_Guide Talk-to"
+    await_condition: "dialogue"
+    status: "VALIDATED"
+
+  - id: 7
+    description: "Complete Account Guide dialogue"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+    status: "VALIDATED"
+    notes: "Many space presses through explanation"
+
+  # Phase 2: Exit to Chapel
+  - id: 8
+    description: "Walk to east door"
+    action: GOTO
+    args: "3129 3124 0"
+    status: "VALIDATED"
+
+  - id: 9
+    description: "Open door to outside"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    status: "VALIDATED"
+
+  - id: 10
+    description: "Walk to chapel"
+    action: GOTO
+    args: "3130 3107 0"
+    status: "VALIDATED"
+
+  # Phase 3: Brother Brace (Prayer)
+  - id: 11
+    description: "Talk to Brother Brace"
+    action: INTERACT_NPC
+    args: "Brother_Brace Talk-to"
+    await_condition: "dialogue"
+    status: "VALIDATED"
+
+  - id: 12
+    description: "Advance Brother Brace intro dialogue"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+    status: "VALIDATED"
+
+  - id: 13
+    description: "Open Prayer tab"
+    mcp_tool: "click_widget"
+    args:
+      widget_id: 35913797
+    status: "VALIDATED"
+    notes: "Found via find_widget(text='Prayer')"
+
+  - id: 14
+    description: "Talk to Brother Brace again"
+    action: INTERACT_NPC
+    args: "Brother_Brace Talk-to"
+    await_condition: "dialogue"
+    status: "VALIDATED"
+
+  - id: 15
+    description: "Complete Brother Brace dialogue"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+    status: "VALIDATED"
+
+  # Phase 4: Exit to Magic Area
+  - id: 16
+    description: "Exit chapel through door"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    status: "VALIDATED"
+
+  - id: 17
+    description: "Walk to Magic Instructor area"
+    action: GOTO
+    args: "3141 3088 0"
+    status: "VALIDATED"
+
+  # Phase 5: Magic Instructor
+  - id: 18
+    description: "Talk to Magic Instructor"
+    action: INTERACT_NPC
+    args: "Magic_Instructor Talk-to"
+    await_condition: "dialogue"
+    status: "VALIDATED"
+
+  - id: 19
+    description: "Advance Magic Instructor intro dialogue"
+    mcp_tool: "click_text"
+    args:
+      text: "continue"
+    repeat_until: "no_dialogue"
+    status: "VALIDATED"
+    notes: "Receive Air runes and Mind runes"
+
+  - id: 20
+    description: "Open Magic tab"
+    mcp_tool: "click_widget"
+    args:
+      widget_id: 35913798
+    status: "VALIDATED"
+    notes: "Tutorial prompts to open magic tab"
+
+  - id: 21
+    description: "Talk to Magic Instructor again"
+    action: INTERACT_NPC
+    args: "Magic_Instructor Talk-to"
+    await_condition: "dialogue"
+    status: "VALIDATED"
+
+  - id: 22
+    description: "Advance dialogue"
+    mcp_tool: "click_text"
+    args:
+      text: "continue"
+    repeat_until: "no_dialogue"
+    status: "VALIDATED"
+    notes: "Instructor explains Wind Strike"
+
+  - id: 23
+    description: "Cast Wind Strike on chicken"
+    action: CAST_SPELL_NPC
+    args: "Wind_Strike Chicken"
+    status: "BROKEN"
+    notes: "CAST_SPELL_NPC command causes client issues. MANUAL INTERVENTION REQUIRED."
+    manual_workaround: "Click Wind Strike spell, then click on a chicken"
+
+  # Phase 6: Final Dialogue and Teleport
+  - id: 24
+    description: "Talk to Magic Instructor (after spell cast)"
+    action: INTERACT_NPC
+    args: "Magic_Instructor Talk-to"
+    await_condition: "dialogue"
+    status: "VALIDATED"
+
+  - id: 25
+    description: "Advance final dialogue"
+    mcp_tool: "click_text"
+    args:
+      text: "continue"
+    status: "VALIDATED"
+    notes: "Multiple continues through final explanation"
+
+  - id: 26
+    description: "Answer Ironman question - Yes to continue"
+    mcp_tool: "click_text"
+    args:
+      text: "Yes"
+    status: "VALIDATED"
+    notes: "Says 'Yes' to continue, not to enable Ironman"
+
+  - id: 27
+    description: "Decline Ironman mode"
+    mcp_tool: "click_text"
+    args:
+      text: "No"
+    status: "VALIDATED"
+    notes: "Click 'No' to decline Ironman mode"
+
+  - id: 28
+    description: "Complete final dialogues"
+    mcp_tool: "click_text"
+    args:
+      text: "continue"
+    repeat_until: "teleport"
+    status: "VALIDATED"
+    notes: "Keep clicking continue until teleported to Lumbridge"
+
+# PITFALLS DISCOVERED:
+# 1. Door navigation: Must use GOTO to position directly in front of door,
+#    then use INTERACT_OBJECT Door Open
+# 2. Account Management tab widget ID: 35913777
+# 3. Prayer tab widget ID: 35913797
+# 4. Magic tab widget ID: 35913798
+# 5. Multiple dialogue sections require many space/continue presses
+# 6. CAST_SPELL_NPC command is BROKEN - causes client issues
+#    Must cast spell manually: click spell, then click NPC
+# 7. Ironman question dialogue sequence:
+#    - First "Yes" to continue talking
+#    - Then "No" to decline Ironman mode
+# 8. KEY_PRESS space sometimes doesn't work for dialogue - use click_text("continue")
+# 9. get_dialogue hint shows "CLICK_CONTINUE" but actual text is "Click here to continue"
+
+# WORKING PATTERNS:
+# - Account Management tab: click_widget(widget_id=35913777)
+# - Prayer tab: click_widget(widget_id=35913797)
+# - Magic tab: click_widget(widget_id=35913798)
+# - Dialogue advancement: click_text("continue") preferred over KEY_PRESS space
+# - Door interaction: GOTO to door position + INTERACT_OBJECT Door Open
+# - Ironman decline: click_text("Yes") then click_text("No")
+
+# ITEMS RECEIVED:
+# - Air rune x4 (from Magic Instructor)
+# - Mind rune x4 (from Magic Instructor)
+
+# FINAL DESTINATION:
+# - Teleported to Lumbridge (~3232, 3232, plane 0)
+# - Nearby NPCs: Adventurer Jon, Lumbridge Guide, Ironman tutor

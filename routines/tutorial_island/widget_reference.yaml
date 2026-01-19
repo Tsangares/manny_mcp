@@ -22,6 +22,12 @@ tabs:
   prayer_tab: 35913813       # (548 << 16) | 0x55
   magic_tab: 35913814        # (548 << 16) | 0x56
 
+# Tutorial Island Tab Widgets (VALIDATED 2026-01-18)
+tutorial_tabs:
+  equipment_tab: 35913771    # find_and_click_widget(text="Worn Equipment") - VALIDATED
+  combat_options_tab: 35913792  # Has action "Combat Options" - VALIDATED
+  # Note: Use find_and_click_widget instead of hardcoded IDs when possible
+
 # Icon Widgets (clickable)
 icons:
   inventory_icon: 35913795   # Opens inventory - WORKS
@@ -78,6 +84,21 @@ commands:
 # - Must use direct widget clicks or find Tutorial Island-specific widgets
 # - Tutorial Island fishing spots use action "Net" not "Small Net"
 # - Coordinate-based clicking causes server disconnections!
+#
+# INVENTORY ITEM INTERACTION (FIXED 2026-01-18):
+# 1. Equipment stats panel uses DYNAMIC WIDGETS - bounds return -1,-1
+#    FIX: Press ESC to close panel, use regular inventory
+# 2. find_widget for inventory items returned WRONG BOUNDS (slot 0 for all items)
+#    FIX: ScanWidgetsCommand.java now calculates grid position from slot index
+# 3. equip_item() clicked first "Wield"-able item instead of specific item
+#    FIX: equip_item now uses xdotool with bounds from find_widget
+#
+# WORKING PATTERNS (2026-01-18):
+# - Dialogue advancement: KEY_PRESS space (most reliable)
+# - Equipment tab: find_and_click_widget(text="Worn Equipment")
+# - Combat tab: CLICK_WIDGET 35913792
+# - Equipping items: equip_item(item_name="X") - works after fix
+# - Attacking NPCs: INTERACT_NPC Giant_rat Attack
 #
 # SKILLS TAB INVESTIGATION (BLOCKED - need client running):
 # Widget 35913809 (group 548, child 0x51) is NOT VISIBLE on Tutorial Island

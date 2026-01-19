@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "runelite": {
+      "command": "python",
+      "args": ["/home/wil/manny-mcp/server.py"],
+      "env": {
+        "PYTHONUNBUFFERED": "1"
+      }
+    }
+  }
+}

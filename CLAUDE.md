@@ -937,6 +937,25 @@ Each client runs on a separate X display to avoid mouse conflicts:
 - Auto-allocated when starting: `start_runelite(account_id="aux")`
 - Or specify manually: `start_runelite(account_id="aux", display=":3")`
 
+### CRITICAL: Stopping Clients Safely ⚠️
+
+**NEVER use `pkill` or broad kill commands that affect all RuneLite clients!**
+
+```python
+# ❌ DANGEROUS - Kills ALL RuneLite clients (including main!)
+Bash("pkill -f runelite")  # NEVER DO THIS
+Bash("pkill -f RuneLite")  # NEVER DO THIS
+Bash('pkill -f "runelite-client.*RuneLite"')  # NEVER DO THIS
+
+# ✅ CORRECT - Kill specific PID only
+Bash("kill 12345")  # Kill specific process by PID
+
+# ✅ BEST - Use MCP tool
+stop_runelite(account_id="aux")  # Stops only the specified account
+```
+
+**Why this matters:** Multiple accounts run simultaneously on different displays. A broad `pkill` kills ALL clients, disrupting other accounts the user may be actively using.
+
 ### Playtime Tracking
 
 **12-hour limit per 24-hour window** per account to prevent excessive play.

@@ -136,9 +136,10 @@ Supports filtering by:
 
 For item widgets (inventory, bank, deposit box), returns itemId, itemQuantity, and itemName.
 
-DEEP SCAN MODE: Use deep=True to scan ALL widget groups (0-800) instead of just common ones.
-This is slower but catches dynamic/unusual interfaces like Tutorial Island experience selection.
-Use this when the standard scan doesn't find the widget you're looking for.""",
+SPECIFIC GROUP: Use group=593 to scan only a specific widget group (e.g., 593 for Combat Interface).
+This is useful when you know which interface you're looking for.
+
+Also scans widget roots and their children to catch active interfaces not in the default list.""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -146,14 +147,13 @@ Use this when the standard scan doesn't find the widget you're looking for.""",
                 "type": "string",
                 "description": "Optional text to filter widgets by - matches text, name, and item names (case-insensitive)"
             },
-            "deep": {
-                "type": "boolean",
-                "description": "Deep scan mode: scan ALL widget groups (0-800). Slower but finds hidden/dynamic widgets.",
-                "default": False
+            "group": {
+                "type": "integer",
+                "description": "Scan only a specific widget group (e.g., 593 for Combat Interface, 149 for Inventory)"
             },
             "timeout_ms": {
                 "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000, use 10000+ for deep scan)",
+                "description": "Timeout in milliseconds (default: 3000)",
                 "default": 3000
             },
             "account_id": {
@@ -167,13 +167,13 @@ async def handle_scan_widgets(arguments: dict) -> dict:
     """Scan all visible widgets."""
     timeout_ms = arguments.get("timeout_ms", 3000)
     filter_text = arguments.get("filter_text")
-    deep_scan = arguments.get("deep", False)
+    specific_group = arguments.get("group")
     account_id = arguments.get("account_id")
 
-    # Build command with optional --deep flag and filter
+    # Build command with optional --group flag and filter
     parts = ["SCAN_WIDGETS"]
-    if deep_scan:
-        parts.append("--deep")
+    if specific_group is not None:
+        parts.append(f"--group {specific_group}")
     if filter_text:
         parts.append(filter_text)
     command = " ".join(parts)
@@ -189,18 +189,29 @@ async def handle_scan_widgets(arguments: dict) -> dict:
             if "group" in w:
                 groups_found.add(w["group"])
 
-        result = {
-            "success": True,
-            "widgets": widgets,
-            "count": len(widgets),
-            "filtered_by": filter_text,
-            "groups_found": sorted(groups_found),
-            "deep_scan": deep_scan
-        }
-
-        # For deep scan, add a hint about which groups had widgets
-        if deep_scan and groups_found:
-            result["hint"] = f"Found widgets in groups: {sorted(groups_found)}. Add these to groupsToScan for faster future scans."
+        # When unfiltered and large result set, return summary only to avoid overwhelming Claude
+        # Full data is always available in /tmp/manny_widgets.json
+        MAX_INLINE_WIDGETS = 50
+        if not filter_text and not specific_group and len(widgets) > MAX_INLINE_WIDGETS:
+            result = {
+                "success": True,
+                "count": len(widgets),
+                "groups_found": sorted(groups_found),
+                "truncated": True,
+                "widgets": widgets[:20],  # Return first 20 as sample
+                "hint": f"Large result ({len(widgets)} widgets). Full data in /tmp/manny_widgets.json. Use find_widget(text='...') for filtered searches.",
+                "file": "/tmp/manny_widgets.json"
+            }
+        else:
+            result = {
+                "success": True,
+                "widgets": widgets,
+                "count": len(widgets),
+                "filtered_by": filter_text,
+                "groups_found": sorted(groups_found),
+            }
+            if specific_group is not None:
+                result["scanned_group"] = specific_group
 
         return result
     else:
@@ -841,8 +852,8 @@ Returns progress updates and final results.""",
             },
             "max_loops": {
                 "type": "integer",
-                "description": "Maximum number of loop iterations (default: 100)",
-                "default": 100
+                "description": "Maximum number of loop iterations (default: 10000)",
+                "default": 10000
             },
             "account_id": {
                 "type": "string",
@@ -856,7 +867,7 @@ async def handle_execute_routine(arguments: dict) -> dict:
     """Execute a YAML routine step by step."""
     routine_path = arguments.get("routine_path")
     start_step = arguments.get("start_step", 1)
-    max_loops = arguments.get("max_loops", 100)
+    max_loops = arguments.get("max_loops", 10000)
     account_id = arguments.get("account_id")
 
     # Load routine YAML
@@ -1396,17 +1407,42 @@ async def handle_find_and_click_widget(arguments: dict) -> dict:
     bounds = widget.get("bounds", {})
 
     # Step 3: Click the widget
-    if action:
-        # Click with specific action
-        click_command = f'CLICK_WIDGET {widget_id} "{action}"'
-    elif widget_actions:
-        # Use first available action
-        click_command = f'CLICK_WIDGET {widget_id} "{widget_actions[0]}"'
-    else:
-        # Just click the widget (no action)
-        click_command = f'CLICK_WIDGET {widget_id}'
+    # IMPORTANT: For inventory items that share widget IDs (like container 9764864),
+    # we must use the BOUNDS from find_widget, not search by action (which finds wrong item).
+    # Use direct coordinate clicking when we have valid bounds.
 
-    click_response = await send_command_with_response(click_command, timeout_ms, account_id)
+    has_valid_bounds = bounds and all(k in bounds for k in ("x", "y", "width", "height")) and bounds.get("x", -1) >= 0
+
+    if has_valid_bounds:
+        # Click at center of the found widget's bounds (reliable for inventory items)
+        click_x = bounds["x"] + bounds["width"] // 2
+        click_y = bounds["y"] + bounds["height"] // 2
+
+        # Use xdotool for clicking - the Java Mouse.click() doesn't register properly
+        # Get display from account config
+        account_config = config.get_account_config(account_id)
+        display = account_config.display or config.display or ":2"
+        import subprocess
+        try:
+            subprocess.run(
+                ["xdotool", "mousemove", str(click_x), str(click_y), "click", "1"],
+                env={**os.environ, "DISPLAY": display},
+                timeout=5,
+                check=True
+            )
+            click_response = {"status": "success"}
+        except Exception as e:
+            click_response = {"status": "error", "error": str(e)}
+    else:
+        # Fallback: Use CLICK_WIDGET with action (for widgets with proper individual IDs)
+        if action:
+            click_command = f'CLICK_WIDGET {widget_id} "{action}"'
+        elif widget_actions:
+            click_command = f'CLICK_WIDGET {widget_id} "{widget_actions[0]}"'
+        else:
+            click_command = f'CLICK_WIDGET {widget_id}'
+
+        click_response = await send_command_with_response(click_command, timeout_ms, account_id)
 
     if click_response.get("status") == "success":
         return {

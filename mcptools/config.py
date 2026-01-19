@@ -99,6 +99,11 @@ class ServerConfig:
         # Default response file path
         return self.state_file.replace("state.json", "response.json")
 
+    def get_display(self, account_id: str = None) -> str:
+        """Get display for account (e.g., ':2', ':3')"""
+        account_config = self.get_account_config(account_id)
+        return account_config.display or self.display
+
     @classmethod
     def load(cls, path: str | Path = None) -> "ServerConfig":
         """

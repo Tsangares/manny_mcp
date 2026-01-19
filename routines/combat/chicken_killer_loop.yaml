@@ -1,0 +1,25 @@
+# Chicken Killer - Auto-Looping Version
+# Eliminates dead time between kill batches by using YAML loop
+
+name: "Chicken Killer Auto-Loop"
+type: combat
+skill: combat
+
+locations:
+  lumbridge_chicken_coop:
+    x: 3232
+    y: 3295
+    plane: 0
+
+steps:
+  - id: 1
+    phase: "combat"
+    action: KILL_LOOP
+    args: "Chicken 100"
+    description: "Kill 100 chickens"
+
+# Auto-restart loop - eliminates dead time
+loop:
+  enabled: true
+  max_iterations: 50  # 50 batches x 100 kills = 5000 total kills
+  delay_between_loops_ms: 2000  # 2 sec between batches

@@ -18,7 +18,7 @@ TARGET_DISPLAY="${1:-}"
 
 if [ -n "$TARGET_DISPLAY" ]; then
     # Starting additional display - don't kill existing ones
-    echo "Starting additional display :$TARGET_DISPLAY..."
+    echo "Starting additional display (requesting :$TARGET_DISPLAY)..."
 
     # Check if already running
     if [ -S "/tmp/.X11-unix/X$TARGET_DISPLAY" ]; then
@@ -26,23 +26,37 @@ if [ -n "$TARGET_DISPLAY" ]; then
         exit 0
     fi
 
-    # Start Xwayland for additional displays (gamescope picks its own display)
-    Xwayland -geometry 1920x1080 -decorate -host-grab :$TARGET_DISPLAY &
-    XWAYLAND_PID=$!
+    # Use gamescope for additional displays (better input handling, GPU compositing)
+    # Gamescope auto-picks the next available display number
+    export _JAVA_AWT_WM_NONREPARENTING=1
+    gamescope \
+        -W 1920 -H 1080 \
+        -w 1920 -h 1080 \
+        --force-windows-fullscreen \
+        --xwayland-count 1 \
+        -- sleep infinity &
+    GAMESCOPE_PID=$!
 
-    # Wait for socket
+    # Wait for gamescope to create its display
     for i in {1..10}; do
         sleep 1
         if [ -S "/tmp/.X11-unix/X$TARGET_DISPLAY" ]; then
-            if kill -0 $XWAYLAND_PID 2>/dev/null; then
-                echo "Display :$TARGET_DISPLAY started (PID: $XWAYLAND_PID)"
+            if kill -0 $GAMESCOPE_PID 2>/dev/null; then
+                echo "Gamescope started on :$TARGET_DISPLAY (PID: $GAMESCOPE_PID)"
                 exit 0
             fi
         fi
     done
 
-    echo "Failed to start display :$TARGET_DISPLAY"
-    kill $XWAYLAND_PID 2>/dev/null || true
+    # If requested display not available, check what gamescope actually created
+    ACTUAL_DISPLAY=$(ls /tmp/.X11-unix/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
+    if [ -n "$ACTUAL_DISPLAY" ] && kill -0 $GAMESCOPE_PID 2>/dev/null; then
+        echo "Gamescope started on :$ACTUAL_DISPLAY (requested :$TARGET_DISPLAY) (PID: $GAMESCOPE_PID)"
+        exit 0
+    fi
+
+    echo "Failed to start gamescope for display :$TARGET_DISPLAY"
+    kill $GAMESCOPE_PID 2>/dev/null || true
     exit 1
 fi
 
