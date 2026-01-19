@@ -1,107 +1,106 @@
 # Aux Account (LOSTimposter) Leveling Plan
 
-**Account Status:** Fresh from Tutorial Island
-**Goal:** Build a functional auxillary bot
-**Strategy:** Routine-based automation for token efficiency
+**Last Updated:** 2026-01-19
+**Account Status:** Combat training at Giant Frogs
+**Goal:** Build a functional auxiliary bot with 40 combat stats
 
-## Current Stats
-- Combat: Level 3
-- All skills: Level 1
-- Gold: 0
-- Location: Lumbridge
+## Current Stats (2026-01-19)
 
-## Phase 1: Early Combat (Target: Combat 15)
+| Skill | Level | XP | Target | Progress |
+|-------|-------|-----|--------|----------|
+| Attack | 34 | 21,396 | 40 | 57% |
+| Strength | 38 | 31,608 | 40 | 85% |
+| Defence | 20 | 4,548 | 40 | 12% |
+| Hitpoints | 33 | 20,128 | 40 | 54% |
+| Prayer | 23 | 7,014 | 25 | 56% |
+| Magic | 1 | 69 | - | - |
+| Ranged | 1 | 76 | - | - |
 
-**Routine:** `routines/combat/chicken_killer_training.yaml`
+**Combat Level:** ~42
+**Gold:** ~50k (from cowhides sold earlier)
+**Location:** Lumbridge Swamp (Giant Frogs)
 
-```bash
-execute_routine(routine_path="routines/combat/chicken_killer_training.yaml")
-```
+## Training History
 
-**Why chickens first:**
-- Level 1 NPCs = zero risk even at combat 3
-- Feathers drop (~45gp/kill) for early gold
-- Raw chicken for cooking practice or selling
-- Right next to Lumbridge spawn
+### Phase 1: Chickens (COMPLETED)
+- Combat 3 → 10
+- Collected feathers
 
-**Expected outcome:**
-- Combat level 10-15
-- ~3,000 feathers (~9,000gp)
-- Ready for cows
+### Phase 2: Cows (COMPLETED)
+- Combat 10 → 20
+- Banked cowhides for gold
 
-## Phase 2: Intermediate Combat (Target: Combat 30)
+### Phase 3: Giant Frogs (IN PROGRESS)
+**Current training spot.** Better than Al Kharid Warriors because:
+- Big Bones drops → Prayer XP (currently 23!)
+- Lower HP = faster kills
+- Less damage taken
 
-**Routine:** `routines/combat/cow_killer_training.yaml`
+**Command:** `KILL_LOOP Giant_frog 1000`
 
-After combat 15:
-```bash
-execute_routine(routine_path="routines/combat/cow_killer_training.yaml")
-```
+**Target:** 40 Attack before moving on
 
-**Why cows:**
-- Level 2 NPCs - safe at combat 15+
-- Cowhide drops (~150gp each) - best early F2P money
-- Near Lumbridge bank for easy banking
+## Next Steps
 
-**Expected outcome:**
-- Combat level 25-30
-- Bank full of cowhides (~50k gp potential)
+### Immediate (After 40 Attack)
+1. **Switch to Strength training** - Change combat style
+2. **Continue at frogs** until 40 Strength (already 38, almost done)
+3. **Then Defence** - Train to 40
 
-## Phase 3: Fishing Foundation (Target: Fishing 40)
+### After 40/40/40 Base Stats
+- Move to **Hill Giants** for better XP and Big Bones
+- Or **Flesh Crawlers** in Stronghold for herbs + combat XP
+- Consider **Restless Ghost** quest for prayer XP boost
 
-**Routine:** `routines/skilling/fishing_draynor.yaml`
+### Quests to Complete
+| Quest | Status | Rewards |
+|-------|--------|---------|
+| Cook's Assistant | NOT STARTED | 300 Cooking XP |
+| Sheep Shearer | NOT STARTED | 150 Crafting XP |
+| Restless Ghost | NOT STARTED | 1,125 Prayer XP |
+| Imp Catcher | NOT STARTED | 875 Magic XP |
 
-```bash
-execute_routine(routine_path="routines/skilling/fishing_draynor.yaml")
-```
+## Inventory Setup for Frogs
 
-**Why fishing:**
-- AFK-able skill
-- Fish = free food for combat
-- Fishing 40 unlocks lobsters at Karamja
+- 4-5 cowhides (to sell/bank later)
+- 15-20 Tuna for food
+- Big Bones to bury (auto-picked up by loop)
 
-## Phase 4: Easy Quests (Target: 10+ QP)
+## Session Notes
 
-Run quest routines for XP rewards:
+### 2026-01-19 Session
+- Started at Attack 24, now at 34
+- HP leveled from 31 → 33
+- Prayer leveled from 21 → 23
+- XP rate: ~7-9k Attack XP/hour
+- ETA to 40 Attack: ~2 hours
 
-| Quest | Routine | Rewards |
-|-------|---------|---------|
-| Cook's Assistant | `routines/quests/cooks_assistant.yaml` | 300 Cooking XP |
-| Sheep Shearer | `routines/quests/sheep_shearer.yaml` | 150 Crafting XP, 60gp |
-| Restless Ghost | `routines/quests/restless_ghost.yaml` | 1,125 Prayer XP |
+### Known Issues
+- Kill loop sometimes stops (needs restart every ~30-60 min)
+- Disconnects require manual restart
+- Giant frogs may not be nearby (check with `query_nearby`)
 
-## Phase 5: Money Making Loop
+## Monitoring Commands
 
-Once combat 30+ and fishing 40:
-
-**Karamja Lobsters** - `routines/skilling/fishing_karamja_lobster.yaml`
-- ~30k gp/hour from lobsters
-- Can cook for Cooking XP too
-
-**Cow Hides** - `routines/combat/cow_killer_training.yaml` (KILL_COW_GET_HIDES mode)
-- Combat XP + 150gp per hide
-- ~20k gp/hour
-
-## Routine Execution Order
-
-1. `chicken_killer_training.yaml` - Until combat 15
-2. `cow_killer_training.yaml` - Until combat 25
-3. `fishing_draynor.yaml` - Until fishing 20
-4. `cooks_assistant.yaml` - Quest
-5. `sheep_shearer.yaml` - Quest
-6. `cow_killer_training.yaml` - Until combat 30
-7. `fishing_draynor.yaml` - Until fishing 40
-8. Loop: Karamja lobsters or cow hides
-
-## Session Monitoring
-
-Check progress periodically:
 ```python
-get_game_state(account_id="aux", fields=["skills", "inventory"])
-```
+# Check current stats
+get_game_state(account_id="aux", fields=["skills", "health", "inventory"])
 
-Restart if stuck:
-```python
+# Restart kill loop
+send_command(account_id="aux", command="KILL_LOOP Giant_frog 1000")
+
+# Check health
 check_health(account_id="aux")
+
+# If frozen/DC
 restart_if_frozen(account_id="aux")
+start_runelite(account_id="aux")
 ```
+
+## Long-Term Goals
+
+1. **40/40/40 melee stats** - Base for most F2P content
+2. **43 Prayer** - Protect from Melee
+3. **50 Magic** - Unlock High Alchemy
+4. **40 Fishing** - Lobsters at Karamja
+5. **Complete F2P quests** - Quest cape potential
