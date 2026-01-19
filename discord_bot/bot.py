@@ -326,7 +326,7 @@ def setup_commands(bot: OSRSBot):
 
 def create_bot(
     llm_provider: str = "gemini",
-    account_id: str = "main",
+    account_id: str = "aux",
     owner_id: Optional[int] = None
 ) -> OSRSBot:
     """Create and configure the bot."""
