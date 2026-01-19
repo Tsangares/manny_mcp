@@ -1,4 +1,4 @@
-"""
+How """
 Discord bot for OSRS automation control.
 Receives commands via DM, uses LLM to interpret, calls MCP tools directly.
 """
@@ -26,7 +26,7 @@ logger = logging.getLogger("discord_bot")
 class OSRSBot(commands.Bot):
     """Discord bot for controlling OSRS automation."""
 
-    def __init__(self, llm_provider: str = "gemini", account_id: str = "main"):
+    def __init__(self, llm_provider: str = "gemini", account_id: str = "aux"):
         # DM-focused bot - minimal intents
         intents = discord.Intents.default()
         intents.message_content = True
