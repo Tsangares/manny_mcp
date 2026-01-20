@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from discord_bot.llm_client import LLMClient
 from discord_bot.agent_brain import AgentBrain, TaskClassifier, TaskType
 from discord_bot.conversation_logger import get_conversation_logger
+from discord_bot.training_logger import training_logger
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -128,7 +129,12 @@ class OSRSBot(commands.Bot):
 
     async def _execute_tool_with_logging(self, tool_name: str, arguments: dict) -> dict:
         """Wrapper that logs tool calls before executing."""
+        import time
+        start_time = time.time()
+
         result = await self._execute_tool(tool_name, arguments)
+
+        latency_ms = int((time.time() - start_time) * 1000)
 
         # Log if we have a current request context
         if self._current_request_id:
@@ -143,6 +149,11 @@ class OSRSBot(commands.Bot):
                 arguments=arguments,
                 result=log_result
             )
+
+            # Also log to training data
+            training_example = training_logger.get_example(self._current_request_id)
+            if training_example:
+                training_example.add_tool_call(tool_name, arguments, result, latency_ms)
 
         return result
 
@@ -216,6 +227,14 @@ class OSRSBot(commands.Bot):
         # Set request context for tool logging
         self._current_request_id = request_id
 
+        # Start training data collection
+        training_logger.start_example(
+            request_id=request_id,
+            user_message=content,
+            task_type=task_type.value,
+            source="discord"
+        )
+
         # Show typing indicator
         async with message.channel.typing():
             try:
@@ -224,6 +243,11 @@ class OSRSBot(commands.Bot):
                     message=content,
                     conversation_history=history
                 )
+
+                # Handle empty responses - LLM sometimes returns just whitespace after tool calls
+                if not response or not response.strip():
+                    response = "Done."
+                    logger.warning(f"Empty LLM response for request {request_id}, using fallback")
 
                 # Log the response
                 conv_logger.log_response(request_id=request_id, response=response)
@@ -257,9 +281,22 @@ class OSRSBot(commands.Bot):
                 else:
                     await message.channel.send(response[:2000])  # Discord limit
 
+                # Complete training example
+                training_logger.complete_example(
+                    request_id=request_id,
+                    response=response,
+                    success=True  # Assume success if no exception
+                )
+
             except Exception as e:
                 logger.error(f"LLM/Brain error: {e}", exc_info=True)
                 conv_logger.log_error(request_id=request_id, error=str(e))
+                # Complete training example with failure
+                training_logger.complete_example(
+                    request_id=request_id,
+                    response=str(e),
+                    success=False
+                )
                 await message.channel.send(f"Error: {e}")
             finally:
                 # Clear request context
@@ -407,6 +444,59 @@ class OSRSBot(commands.Bot):
                     "current": self.account_id,
                     "count": len(accounts)
                 }
+
+            elif tool_name == "lookup_location":
+                from discord_bot.locations import find_location, get_goto_command
+                location_query = arguments.get("location", "")
+                loc = find_location(location_query)
+                if loc:
+                    goto_cmd = get_goto_command(location_query)
+                    return {
+                        "found": True,
+                        "name": loc["name"],
+                        "x": loc["x"],
+                        "y": loc["y"],
+                        "plane": loc["plane"],
+                        "goto_command": goto_cmd
+                    }
+                else:
+                    return {
+                        "found": False,
+                        "error": f"Location '{location_query}' not found",
+                        "hint": "Try common names like: lumbridge, draynor, varrock, ge, cows, frogs"
+                    }
+
+            elif tool_name == "list_plugin_commands":
+                # Use manny-cli to list commands
+                import subprocess
+                category = arguments.get("category", "")
+                try:
+                    result = subprocess.run(
+                        ["/home/wil/manny-mcp/manny/manny-cli", "--list"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    output = result.stdout
+                    # Parse and filter if category provided
+                    if category:
+                        lines = output.split('\n')
+                        filtered = [l for l in lines if category.lower() in l.lower()]
+                        return {"commands": filtered, "filter": category}
+                    return {"commands": output[:3000]}  # Truncate for token limits
+                except Exception as e:
+                    return {"error": str(e)}
+
+            elif tool_name == "get_command_help":
+                # Use manny-cli to get command help
+                import subprocess
+                command = arguments.get("command", "").upper()
+                try:
+                    result = subprocess.run(
+                        ["/home/wil/manny-mcp/manny/manny-cli", command, "--help"],
+                        capture_output=True, text=True, timeout=5
+                    )
+                    return {"command": command, "help": result.stdout or result.stderr}
+                except Exception as e:
+                    return {"error": str(e)}
 
             else:
                 return {"error": f"Unknown tool: {tool_name}"}

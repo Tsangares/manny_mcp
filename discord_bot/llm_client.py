@@ -18,6 +18,53 @@ logger = logging.getLogger("llm_client")
 # Thread pool for running blocking API calls
 _executor = ThreadPoolExecutor(max_workers=2)
 
+
+def _normalize_args(obj: Any) -> Any:
+    """Recursively normalize arguments to standard Python types.
+
+    Converts protobuf types, iterables, etc. to standard Python dict/list/str.
+    """
+    if obj is None:
+        return None
+    if isinstance(obj, (str, int, float, bool)):
+        return obj
+    if isinstance(obj, dict):
+        return {k: _normalize_args(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_normalize_args(item) for item in obj]
+    # Handle protobuf RepeatedComposite and similar iterables
+    if hasattr(obj, '__iter__'):
+        try:
+            return [_normalize_args(item) for item in obj]
+        except:
+            pass
+    # Fallback: convert to string
+    return str(obj)
+
+
+def _safe_json_dumps(obj: Any) -> str:
+    """Safely serialize object to JSON, converting non-serializable types to strings.
+
+    Handles protobuf types (like RepeatedComposite) and other exotic types
+    that might leak through from Google's SDK.
+    """
+    def default_handler(o):
+        # Handle any non-serializable type by converting to string
+        try:
+            # Try to convert to list (for iterable protobuf types)
+            if hasattr(o, '__iter__') and not isinstance(o, (str, bytes, dict)):
+                return list(o)
+        except:
+            pass
+        # Fallback to string representation
+        return str(o)
+
+    try:
+        return json.dumps(obj, default=default_handler)
+    except Exception as e:
+        # Ultimate fallback
+        return json.dumps({"serialization_error": str(e), "type": str(type(obj))})
+
 # Ollama configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b-multi")
@@ -169,60 +216,81 @@ TOOL_DEFINITIONS = [
             "type": "object",
             "properties": {}
         }
+    },
+    {
+        "name": "lookup_location",
+        "description": "Look up OSRS coordinates for a location. Use this when you need to GOTO somewhere but don't know the coordinates. Returns x, y, plane for the location.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "Location name to look up (e.g., 'lumbridge swamp', 'draynor fishing', 'varrock bank', 'ge', 'cows')"
+                }
+            },
+            "required": ["location"]
+        }
+    },
+    {
+        "name": "list_plugin_commands",
+        "description": "List all available plugin commands with their syntax. Use this when you're unsure about command format or want to discover available commands. Can filter by category.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {
+                    "type": "string",
+                    "description": "Optional category filter (e.g., 'combat', 'skilling', 'banking', 'movement')"
+                }
+            }
+        }
+    },
+    {
+        "name": "get_command_help",
+        "description": "Get detailed help for a specific command including usage and examples.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Command name to get help for (e.g., 'KILL_LOOP', 'GOTO', 'BANK_WITHDRAW')"
+                }
+            },
+            "required": ["command"]
+        }
     }
 ]
 
 
 def get_gemini_tools():
-    """Convert tool definitions to Gemini function declarations format."""
-    import google.generativeai as genai
+    """Convert tool definitions to Gemini function declarations format for new SDK."""
+    from google.genai import types
 
-    functions = []
+    tools = []
     for tool in TOOL_DEFINITIONS:
+        # Build parameter schema dict
         properties = {}
         for k, v in tool["parameters"].get("properties", {}).items():
-            prop_type = v.get("type", "string")
+            prop_schema = {"type": v.get("type", "string").upper()}
+            if v.get("description"):
+                prop_schema["description"] = v["description"]
+            if v.get("type") == "array" and "items" in v:
+                prop_schema["items"] = {"type": v["items"].get("type", "string").upper()}
+            if v.get("enum"):
+                prop_schema["enum"] = v["enum"]
+            properties[k] = prop_schema
 
-            if prop_type == "array":
-                # Arrays need items specification
-                items_type = v.get("items", {}).get("type", "string")
-                properties[k] = genai.protos.Schema(
-                    type=genai.protos.Type.ARRAY,
-                    items=genai.protos.Schema(type=_get_gemini_type(items_type)),
-                    description=v.get("description", "")
-                )
-            else:
-                properties[k] = genai.protos.Schema(
-                    type=_get_gemini_type(prop_type),
-                    description=v.get("description", "")
-                )
-
-        functions.append(genai.protos.FunctionDeclaration(
+        func_decl = types.FunctionDeclaration(
             name=tool["name"],
             description=tool["description"],
-            parameters=genai.protos.Schema(
-                type=genai.protos.Type.OBJECT,
+            parameters=types.Schema(
+                type="OBJECT",
                 properties=properties,
                 required=tool["parameters"].get("required", [])
             )
-        ))
+        )
+        tools.append(func_decl)
 
-    return genai.protos.Tool(function_declarations=functions)
-
-
-def _get_gemini_type(type_str: str):
-    """Convert JSON schema type to Gemini type."""
-    import google.generativeai as genai
-
-    type_map = {
-        "string": genai.protos.Type.STRING,
-        "integer": genai.protos.Type.INTEGER,
-        "number": genai.protos.Type.NUMBER,
-        "boolean": genai.protos.Type.BOOLEAN,
-        "array": genai.protos.Type.ARRAY,
-        "object": genai.protos.Type.OBJECT
-    }
-    return type_map.get(type_str, genai.protos.Type.STRING)
+    return tools
 
 
 class LLMClient:
@@ -263,20 +331,20 @@ class LLMClient:
             raise ValueError(f"Unknown provider: {provider}")
 
     def _init_gemini(self):
-        """Initialize Gemini provider."""
-        import google.generativeai as genai
+        """Initialize Gemini provider using the new google.genai SDK."""
+        from google import genai
+        from google.genai import types
+
         api_key = os.environ.get("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY environment variable not set")
-        genai.configure(api_key=api_key)
 
-        # Create model with tools
-        self._genai = genai
+        # Create client with the new SDK
+        self._genai_client = genai.Client(api_key=api_key)
+        self._genai_types = types
         self._tools = get_gemini_tools()
-        self.model = genai.GenerativeModel(
-            'gemini-2.5-flash-lite',
-            tools=[self._tools]
-        )
+        self._gemini_model = "gemini-2.0-flash-lite"
+        logger.info(f"Gemini client initialized with model {self._gemini_model}")
 
     def _get_fallback_client(self) -> 'LLMClient':
         """Get or create the fallback LLM client."""
@@ -330,6 +398,14 @@ class LLMClient:
         """
         available_routines = available_routines or []
         conversation_history = conversation_history or []
+
+        # Log which provider/model is handling this request
+        if self.provider == "ollama":
+            logger.info(f"Processing request with Ollama ({self.ollama_model})")
+        elif self.provider == "gemini":
+            logger.info(f"Processing request with Gemini (gemini-2.0-flash-lite)")
+        else:
+            logger.info(f"Processing request with {self.provider}")
 
         # Build context
         context_parts = []
@@ -451,11 +527,15 @@ class LLMClient:
                         except json.JSONDecodeError:
                             tool_args = {}
 
+                    # Ensure tool_args are standard Python types (not protobuf)
+                    tool_args = _normalize_args(tool_args)
+
                     logger.info(f"Ollama tool call: {tool_name}({tool_args})")
 
                     try:
                         result = await self.tool_executor(tool_name, tool_args)
-                        result_str = json.dumps(result) if isinstance(result, dict) else str(result)
+                        # Use safe serialization to handle any non-JSON types (like protobuf)
+                        result_str = _safe_json_dumps(result)
                     except Exception as e:
                         result_str = json.dumps({"error": str(e)})
 
@@ -483,58 +563,80 @@ class LLMClient:
         return tools
 
     async def _chat_gemini(self, message: str, routines: List[str], history: List[Dict]) -> str:
-        """Gemini-specific chat with function calling support."""
+        """Gemini-specific chat with function calling support using new google.genai SDK."""
+        types = self._genai_types
         system_prompt = self.get_system_prompt(routines)
 
-        # Convert history to Gemini format
-        gemini_history = []
+        # Build contents list with history
+        contents = []
         for msg in history:
             role = "user" if msg["role"] == "user" else "model"
-            gemini_history.append({
-                "role": role,
-                "parts": [msg["content"]]
-            })
+            contents.append(types.Content(
+                role=role,
+                parts=[types.Part.from_text(msg["content"])]
+            ))
 
-        # Start a chat session with history
-        chat = self.model.start_chat(history=gemini_history)
-
-        # Build the full message with system context (only on first message)
+        # Add current message with system context on first message
         if not history:
             full_message = f"{system_prompt}\n\n---\n\n{message}"
         else:
             full_message = message
 
-        # Send message in thread pool to avoid blocking Discord event loop
-        loop = asyncio.get_event_loop()
-        response = await loop.run_in_executor(_executor, chat.send_message, full_message)
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part.from_text(full_message)]
+        ))
+
+        # Configure with tools
+        config = types.GenerateContentConfig(
+            tools=self._tools,
+            temperature=0.7
+        )
 
         # Handle function calls in a loop
-        max_tool_calls = 5  # Prevent infinite loops
+        max_tool_calls = 5
         tool_calls_made = 0
-        tools_used = []  # Track what tools were called
+        tools_used = []
         last_tool_result = None
 
-        while response.candidates[0].content.parts:
-            # Check if there are function calls
-            function_calls = [
-                part.function_call
-                for part in response.candidates[0].content.parts
-                if hasattr(part, 'function_call') and part.function_call.name
-            ]
+        while tool_calls_made < max_tool_calls:
+            # Generate response
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                _executor,
+                lambda: self._genai_client.models.generate_content(
+                    model=self._gemini_model,
+                    contents=contents,
+                    config=config
+                )
+            )
 
-            if not function_calls:
-                # No function calls, extract text response
+            # Check for function calls
+            if not response.candidates or not response.candidates[0].content.parts:
                 break
 
-            if tool_calls_made >= max_tool_calls:
+            function_calls = []
+            text_parts = []
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'function_call') and part.function_call:
+                    function_calls.append(part.function_call)
+                if hasattr(part, 'text') and part.text:
+                    text_parts.append(part.text)
+
+            if not function_calls:
+                # No function calls, return text response
+                if text_parts:
+                    return "\n".join(text_parts)
                 break
 
             if not self.tool_executor:
-                # No executor set, can't handle tool calls
                 break
 
-            # Execute each function call
-            function_responses = []
+            # Add model's response to contents
+            contents.append(response.candidates[0].content)
+
+            # Execute function calls and build responses
+            function_response_parts = []
             for fc in function_calls:
                 tool_calls_made += 1
                 tool_name = fc.name
@@ -544,38 +646,23 @@ class LLMClient:
                 try:
                     result = await self.tool_executor(tool_name, tool_args)
                     last_tool_result = result
-                    # Convert result to string for Gemini
-                    result_str = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
+                    result_data = result if isinstance(result, dict) else {"result": str(result)}
                 except Exception as e:
-                    result_str = json.dumps({"error": str(e)})
-                    last_tool_result = {"error": str(e)}
+                    result_data = {"error": str(e)}
+                    last_tool_result = result_data
 
-                function_responses.append(
-                    self._genai.protos.Part(
-                        function_response=self._genai.protos.FunctionResponse(
-                            name=tool_name,
-                            response={"result": result_str}
-                        )
+                function_response_parts.append(
+                    types.Part.from_function_response(
+                        name=tool_name,
+                        response=result_data
                     )
                 )
 
-            # Send function responses back to model with instruction to respond
-            # Add a nudge to make sure the model responds with text
-            function_responses.append(
-                self._genai.protos.Part(text="Now please summarize the results and answer my question in plain English.")
-            )
-            # Run in thread pool to avoid blocking Discord
-            response = await loop.run_in_executor(_executor, chat.send_message, function_responses)
-
-        # Extract final text response
-        text_parts = [
-            part.text
-            for part in response.candidates[0].content.parts
-            if hasattr(part, 'text') and part.text
-        ]
-
-        if text_parts:
-            return "\n".join(text_parts)
+            # Add function responses to contents
+            contents.append(types.Content(
+                role="user",
+                parts=function_response_parts
+            ))
 
         # Fallback: generate a basic response from tool results
         if tools_used and last_tool_result:

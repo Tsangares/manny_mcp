@@ -45,9 +45,9 @@ def main():
     )
     parser.add_argument(
         "--provider", "-p",
-        choices=["gemini", "claude", "openai"],
-        default="gemini",
-        help="LLM provider (default: gemini)"
+        choices=["ollama", "gemini", "claude", "openai"],
+        default="ollama",
+        help="LLM provider (default: ollama, with gemini fallback)"
     )
     parser.add_argument(
         "--owner", "-o",
@@ -74,8 +74,17 @@ def main():
     if owner_id:
         owner_id = int(owner_id)
 
-    # Verify LLM API key exists
-    if args.provider == "gemini" and not os.environ.get("GEMINI_API_KEY"):
+    # Verify LLM API key exists (ollama doesn't need one)
+    if args.provider == "ollama":
+        ollama_host = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
+        ollama_model = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b-multi")
+        logger.info(f"Using Ollama at {ollama_host} with model {ollama_model}")
+        # Check if Gemini fallback is available
+        if os.environ.get("GEMINI_API_KEY"):
+            logger.info("Gemini fallback available")
+        else:
+            logger.warning("No GEMINI_API_KEY - fallback disabled")
+    elif args.provider == "gemini" and not os.environ.get("GEMINI_API_KEY"):
         logger.error("GEMINI_API_KEY environment variable not set")
         sys.exit(1)
     elif args.provider == "claude" and not os.environ.get("ANTHROPIC_API_KEY"):

@@ -48,6 +48,10 @@ SIMPLE_COMMAND_PATTERNS = [
     r'^kill all\b',
     r'\b(open bank|bank open)\b',
     r'^screenshot\b',
+    r'\b(open|switch to)\s+(combat|inventory|skills|equipment|prayer|magic)\s*(tab)?\b',
+    r'\btab[_ ]?open\b',
+    r'^[A-Z_]{3,}(\s|$)',  # Matches uppercase commands like "KILL_LOOP", "GOTO", etc.
+    r'^send\s+[A-Z_]',     # "send KILL_LOOP..."
 ]
 
 LOOP_PATTERNS = [
@@ -71,6 +75,13 @@ class TaskClassifier:
     def classify(self, message: str) -> TaskType:
         """Classify a user message into a task type."""
         message_lower = message.lower().strip()
+        message_original = message.strip()
+
+        # Check for raw commands (uppercase like KILL_LOOP, GOTO, etc.)
+        if re.match(r'^[A-Z_]{3,}(\s|$)', message_original):
+            return TaskType.SIMPLE_COMMAND
+        if re.match(r'^send\s+[A-Z_]', message_original, re.IGNORECASE):
+            return TaskType.SIMPLE_COMMAND
 
         # Check for multi-step first (highest complexity)
         for pattern in MULTI_STEP_PATTERNS:
@@ -102,10 +113,10 @@ class ContextEnricher:
     # Command categories for context injection
     COMMAND_CATEGORIES = {
         "combat": [
-            "KILL <npc_name> - Kill a single NPC",
-            "KILL_LOOP <npc_name> - Continuously kill NPCs (use for grinding)",
-            "ATTACK_NPC <name> - Attack specific NPC once",
-            "STOP - Stop current combat loop",
+            "ATTACK_NPC <npc> - Attack an NPC once",
+            "KILL_LOOP <npc> <food> [count] [area] - e.g., KILL_LOOP Giant_frog Tuna 100 (use 'none' for no food)",
+            "STOP - Stop current activity gracefully",
+            "KILL - NUCLEAR STOP - forcefully halt all automation",
         ],
         "skilling": [
             "FISH - Fish at current spot",
@@ -135,17 +146,21 @@ class ContextEnricher:
         "system": [
             "STOP - Stop current activity immediately",
             "LIST_COMMANDS - List all available commands",
+            "WAIT <ms> - Wait for milliseconds",
+        ],
+        "ui": [
+            "TAB_OPEN <tab> - Open game tab (combat, skills, inventory, equipment, prayer, magic)",
+            "CLICK_WIDGET <id> \"<action>\" - Click a widget button",
+            "CLICK_DIALOGUE \"<option>\" - Click dialogue option",
+            "CLICK_CONTINUE - Click through dialogue",
         ],
     }
 
-    # Common locations for context
-    COMMON_LOCATIONS = {
-        "lumbridge": {"x": 3222, "y": 3218, "plane": 0},
-        "lumbridge_swamp": {"x": 3197, "y": 3169, "plane": 0},
-        "draynor_fishing": {"x": 3087, "y": 3228, "plane": 0},
-        "varrock_bank": {"x": 3253, "y": 3420, "plane": 0},
-        "falador_bank": {"x": 2946, "y": 3368, "plane": 0},
-    }
+    # Import locations from the locations module
+    @staticmethod
+    def _get_locations_module():
+        from discord_bot.locations import find_locations_in_text, find_location
+        return find_locations_in_text, find_location
 
     def __init__(self, tool_executor: Callable = None):
         self.tool_executor = tool_executor
@@ -176,6 +191,7 @@ class ContextEnricher:
         elif task_type == TaskType.SIMPLE_COMMAND:
             context["available_commands"]["system"] = self.COMMAND_CATEGORIES["system"]
             context["available_commands"]["banking"] = self.COMMAND_CATEGORIES["banking"]
+            context["available_commands"]["ui"] = self.COMMAND_CATEGORIES["ui"]
 
         # Try to get current game state if we have a tool executor
         if self.tool_executor and task_type != TaskType.CONVERSATION:
@@ -185,11 +201,18 @@ class ContextEnricher:
             except Exception as e:
                 logger.warning(f"Failed to get game state for context: {e}")
 
-        # Add location hints based on message content
-        message_lower = message.lower()
-        for loc_name, coords in self.COMMON_LOCATIONS.items():
-            if loc_name.replace("_", " ") in message_lower:
-                context["hints"].append(f"Location '{loc_name}': GOTO {coords['x']} {coords['y']} {coords['plane']}")
+        # Add location hints based on message content (using locations module)
+        try:
+            find_locations_in_text, _ = self._get_locations_module()
+            detected_locations = find_locations_in_text(message)
+            for loc in detected_locations:
+                context["hints"].append(
+                    f"Location '{loc['name']}': GOTO {loc['x']} {loc['y']} {loc['plane']}"
+                )
+            if not detected_locations:
+                context["hints"].append("Use lookup_location tool if you need coordinates for a place")
+        except Exception as e:
+            logger.warning(f"Failed to detect locations: {e}")
 
         return context
 

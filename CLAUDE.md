@@ -690,6 +690,14 @@ Start or restart the web dashboard:
 
 The dashboard runs on `http://0.0.0.0:8080` with live video stream, game state, MCP activity log, and player stats.
 
+## Discord Bot Logs
+
+Conversation logs for the Discord bot are stored in `logs/conversations/`:
+- `conversations_YYYY-MM-DD.log` - Human-readable logs (user messages, tool calls, responses)
+- `conversations_YYYY-MM-DD.jsonl` - Structured JSON for analysis
+
+Use these to debug LLM behavior, track tool usage patterns, and understand why the bot responded a certain way.
+
 ## Related Paths
 
 - RuneLite source: `/home/wil/Desktop/runelite`
