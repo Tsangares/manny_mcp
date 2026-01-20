@@ -75,55 +75,9 @@ send_command("MOUSE_CLICK left")    # Click lands elsewhere
 
 **Why this matters:** Separate MOUSE_MOVE + MOUSE_CLICK commands race and cancel each other. Coordinate-based clicking is unreliable on Wayland with UI scaling. The `CLICK_WIDGET` command handles everything atomically.
 
-## Widget Discovery (PRIORITIZE find_widget) ⚡
+## Widget Discovery ⚡
 
-**ALWAYS start with lightweight tools before resorting to scan_widgets.**
-
-### Step 1: Try find_widget FIRST (multiple searches)
-
-```python
-# ✅ CORRECT - Try multiple lightweight searches first
-find_widget(text="Inventory")     # Search by text
-find_widget(text="Quest")         # Try different terms
-find_widget(text="Skills")        # Try variations
-click_text("Continue")            # Find and click in one call
-
-# The above are fast (~100ms) and return compact results
-```
-
-### Step 2: Only use scan_widgets if find_widget fails
-
-```python
-# If find_widget returns nothing, delegate scan to Haiku subagent
-Task(
-    prompt="Use scan_widgets to find widgets related to the inventory tab. Return only widget_id and actions.",
-    subagent_type="general-purpose",
-    model="haiku"
-)
-```
-
-### Step 3: NEVER use deep scan
-
-```python
-# ❌ NEVER use --deep flag - extremely slow and returns massive data
-scan_widgets(deep=True)           # Takes 15+ seconds, times out often
-send_command("SCAN_WIDGETS --deep")  # Same problem
-
-# ✅ Standard scan is sufficient for 99% of use cases
-scan_widgets()                    # Scans common widget groups (0-100 children each)
-```
-
-### Why This Matters
-
-| Tool | Response Size | Speed | Use Case |
-|------|---------------|-------|----------|
-| `find_widget` | ~500 bytes | ~100ms | **First choice** - specific searches |
-| `click_text` | ~200 bytes | ~100ms | **First choice** - find and click |
-| `get_dialogue` | ~1KB | ~100ms | Dialogue options specifically |
-| `scan_widgets` | ~35k tokens | ~3s | Last resort via Haiku subagent |
-| `scan_widgets --deep` | ~100k+ tokens | ~15s+ | **NEVER USE** - times out |
-
-**Pattern:** `find_widget` (3-5 searches) → `click_text` → Haiku subagent with `scan_widgets` → never deep scan
+Use lightweight tools first: `find_widget(text="...")` and `click_text("...")` are fast (~100ms). Only use `scan_widgets` as a last resort via Haiku subagent (returns ~35k tokens). **Never use `--deep` flag** - times out.
 
 ## Working with Manny Plugin Code
 
@@ -251,41 +205,10 @@ get_game_state(fields=["inventory"])
 **Available fields:** `location`, `inventory` (compact), `inventory_full`, `equipment`, `skills`, `dialogue`, `nearby`, `combat`, `health`, `scenario`
 
 ### State-Aware Waiting Tools ⚡
-These tools replace manual `sleep` + `get_game_state` polling:
 
-- **await_state_change**: Wait for a game state condition to be met
-- **send_and_await**: Send command AND wait for condition (combined)
+Use `send_and_await(command, await_condition)` instead of `send_command` + `sleep` + `get_game_state`. Reduces tool calls by 70%.
 
-**Supported conditions:**
-- `plane:N` - Player on plane N (0, 1, or 2)
-- `has_item:ItemName` - Inventory contains item (case-insensitive)
-- `no_item:ItemName` - Inventory doesn't have item
-- `inventory_count:<=N` or `>=N` or `<N` or `>N` - Slot count comparison
-- `location:X,Y` - Player within 3 tiles of coordinates
-- `idle` - Player not moving
-
-**Example - Before (3 tool calls):**
-```python
-send_command("INTERACT_OBJECT Ladder Climb-up")
-Bash("sleep 3")  # Wasteful fixed delay
-get_game_state()  # Manual verification
-```
-
-**Example - After (1 tool call):**
-```python
-send_and_await(
-    command="INTERACT_OBJECT Ladder Climb-up",
-    await_condition="plane:2",
-    timeout_ms=10000
-)
-# Returns: {"success": true, "elapsed_ms": 2004, "final_state": {...}}
-```
-
-**Benefits:**
-- 70% fewer tool calls
-- Early exit when condition met (avg 2s vs 3s fixed sleep)
-- Returns final state for verification
-- Reduces context usage during long sessions
+**Conditions:** `plane:N`, `has_item:Name`, `no_item:Name`, `inventory_count:<=N`, `location:X,Y`, `idle`
 
 ### Code Change Tools
 - **prepare_code_change**: Gather context for code-fixing subagent (auto-includes CLAUDE.md guidelines)
@@ -409,164 +332,31 @@ get_command_response()
 
 ## Session Recording (Create Routines from Manual Play) ⚡
 
-**Commands are ALWAYS logged** to `/tmp/manny_sessions/commands_YYYY-MM-DD.yaml` - you can always look back at what was sent, even without explicit recording.
+**Commands are ALWAYS logged** to `/tmp/manny_sessions/commands_YYYY-MM-DD.yaml`. Use `get_command_history()` to review.
 
-**Use explicit session recording** when you want full state tracking (inventory changes, location, dialogue) for converting to routines.
+**For full state tracking** (inventory, location, dialogue deltas), use explicit session recording:
 
-### Two Recording Modes
+1. `start_session_recording(goal="Complete quest X")` - Begin recording
+2. Execute commands manually (auto-recorded with state deltas)
+3. `add_session_marker(label="Phase 2")` - Add checkpoints (optional)
+4. `stop_session_recording()` - Save to YAML file
+5. `session_to_routine(session_path="...")` - Convert to routine
 
-| Mode | What's Logged | When Active |
-|------|---------------|-------------|
-| **Always-on** | Commands + timestamps | Always (daily files) |
-| **Explicit session** | Commands + state deltas + markers | When you call `start_session_recording()` |
-
-### Workflow
-
-```python
-# 1. START recording before manual task
-start_session_recording(goal="Complete The Restless Ghost quest")
-
-# 2. DO the task manually (commands are auto-recorded)
-send_command("GOTO 3243 3208 0")
-send_command("INTERACT_NPC Father_Aereck Talk-to")
-# ... more commands ...
-
-# 3. ADD markers for phases (optional but helpful)
-add_session_marker(label="Phase 2: Get amulet from Father Urhney")
-
-# 4. STOP and get the session file
-stop_session_recording()
-# Returns: /tmp/manny_sessions/session_20250115_234500.yaml
-
-# 5. CONVERT to routine
-session_to_routine(session_path="/tmp/manny_sessions/session_20250115_234500.yaml")
-```
-
-### What Gets Recorded
-
-- **Commands** - Every `send_command` with timestamp
-- **State deltas** - Location changes, inventory add/remove, equipment changes, dialogue opens
-- **Markers** - Your manual checkpoints and notes
-- **Errors** - Failed commands with context
-
-### Session File Format
-
-```yaml
-session:
-  id: "20250115_234500"
-  goal: "Complete The Restless Ghost quest"
-
-events:
-  - timestamp: "2025-01-15T23:45:01"
-    type: command
-    id: 1
-    command: "GOTO 3243 3208 0"
-
-  - timestamp: "2025-01-15T23:45:05"
-    type: state_delta
-    changes:
-      location: {x: 3243, y: 3208, plane: 0}
-
-  - timestamp: "2025-01-15T23:45:10"
-    type: marker
-    label: "Phase 2: Get amulet"
-```
-
-### Available Tools
-
-| Tool | Purpose |
-|------|---------|
-| `get_command_history(last_n, date)` | **Always available** - Get recent commands from daily log |
-| `start_session_recording(goal)` | Begin full session recording (with state tracking) |
-| `stop_session_recording()` | Stop and save session to YAML file |
-| `add_session_marker(label, note)` | Add checkpoint/note during session |
-| `get_session_events(last_n)` | Peek at recent session events |
-| `is_session_recording()` | Check if session recording is active |
-| `session_to_routine(session_path)` | Convert session to routine YAML |
-
-### When to Use
-
-- **First time doing a quest** - Record it, then have a routine for alts
-- **Debugging a failed run** - Review the session file to see what went wrong
-- **Creating new routines** - Faster than writing YAML from scratch
-- **Learning command sequences** - See exact commands for complex tasks
+**When to use:** First time doing a quest, debugging failed runs, creating new routines faster than writing YAML from scratch.
 
 ## Quest Automation (YAML Hybrid Approach) ⚡
 
-**When automating quests, always use a YAML hybrid approach:**
+1. **Research** - Look up quest on OSRS wiki (`WebFetch` the quick guide)
+2. **Create YAML** - Write `routines/quests/<quest_name>.yaml` with items, locations, steps
+3. **Execute + Revise** - Run steps, fix YAML as you discover issues
+4. **Document pitfalls** - Add comments about what went wrong
 
-1. **Research first** - Look up the quest on OSRS wiki
-2. **Create rough YAML** - Write `routines/quests/<quest_name>.yaml` with steps from wiki
-3. **Execute + Revise** - Run steps manually, fixing the YAML as you discover issues
-4. **Document pitfalls** - Add comments about what went wrong and how to fix it
+**Key tips:**
+- Use `dialogue.hint` from game state (not screenshots) to decide `click_continue()` vs `click_text("option")`
+- Mark coordinates `validated: true` after confirming they work
+- Use underscores for multi-word object names in commands
 
-### Workflow
-
-```python
-# 1. RESEARCH: Get quest info from wiki
-WebSearch("OSRS <quest_name> quick guide")
-WebFetch("https://oldschool.runescape.wiki/w/<Quest>/Quick_guide", "Extract steps, items, locations")
-
-# 2. CREATE: Write initial YAML routine
-# routines/quests/quest_name.yaml with:
-# - items_needed, locations, steps
-
-# 3. EXECUTE: Run steps, checking game state (not screenshots!)
-get_game_state()  # Check dialogue.hint, inventory, location
-click_continue()  # Or click_text() based on hint
-
-# 4. REVISE: Update YAML with validated coordinates and pitfalls
-```
-
-### YAML Quest Template
-
-```yaml
-# Quest Name Routine
-# STATUS: IN PROGRESS / VALIDATED
-# Source: https://oldschool.runescape.wiki/w/Quest/Quick_guide
-
-name: "Quest Name"
-type: quest
-quest_points: 1
-
-items_needed:
-  - item_name: quantity
-
-locations:
-  location_name:
-    x: 1234
-    y: 5678
-    plane: 0
-    validated: false  # Set true after testing
-
-steps:
-  - id: 1
-    phase: "phase_name"
-    action: GOTO
-    args: "x y plane"
-    description: "What this step does"
-    await_condition: "location:x,y"
-
-# PITFALLS DISCOVERED:
-# Document issues found during execution
-```
-
-### Key Quest Automation Tips
-
-1. **Use `dialogue.hint`** from game state instead of screenshots:
-   - `CLICK_CONTINUE` → use `click_continue()`
-   - `SELECT_OPTION` → use `click_text("option")`
-
-2. **Validate coordinates** - Mark `validated: true` after confirming location works
-
-3. **Document pitfalls** - Add comments for:
-   - Multi-word object names (use underscores!)
-   - Multiple staircases (which one goes up vs down?)
-   - Dialogue options (exact text needed)
-
-4. **Existing routines:** See `routines/quests/` for validated examples:
-   - `sheep_shearer.yaml` - Simple item gathering quest
-   - `imp_catcher.yaml` - Turn-in quest with navigation pitfalls
+**Reference:** See `routines/quests/sheep_shearer.yaml` for a validated example.
 
 ## Indoor Navigation Protocol
 
@@ -681,51 +471,6 @@ get_location_info(area="lumbridge_castle", room="kitchen")
 
 See `data/locations/lumbridge.yaml` for defined locations.
 
-## Teleportation (USE IT!) ⚡
-
-**Always prefer teleports over walking when you have the magic level and runes!**
-
-Check inventory for runes and use teleports to save significant time:
-
-| Teleport | Level | Runes | Destination |
-|----------|-------|-------|-------------|
-| Home Teleport | 0 | Free (30min cooldown) | Lumbridge spawn |
-| Varrock | 25 | 1 law, 3 air, 1 fire | Varrock center |
-| Lumbridge | 31 | 1 law, 3 air, 1 earth | Lumbridge castle |
-| Falador | 37 | 1 law, 3 air, 1 water | Falador center |
-| Camelot | 45 | 1 law, 5 air | Camelot/Seers |
-
-**Staff of fire** provides unlimited fire runes. Check equipped weapon!
-
-```python
-# ✅ GOOD - Check runes and teleport
-# Have law runes + air runes + earth runes? Use Lumbridge Teleport!
-send_command("CAST_SPELL Lumbridge_Teleport")
-
-# ❌ BAD - Walking 2 minutes when you could teleport in 2 seconds
-send_command("GOTO 3222 3218 0")  # Don't walk if you can teleport!
-```
-
-## Port Sarim / Karamja Travel
-
-**Key locations:**
-- **Deposit Box**: (3029, 3210, 0) - Port Sarim dock
-- **Captain Tobias**: Near (3029, 3216, 0) - Karamja ferry captain
-- **Karamja (Musa Point)**: ~(2954, 3146, 0) - Fishing spot destination
-
-**CRITICAL - Do NOT cross the gangplank!**
-The gangplank at Port Sarim leads to a different ship (charter/quest ship), NOT the Karamja ferry. Crossing it traps you on a ship that requires talking to sailors.
-
-**Correct travel method:**
-1. Use `INTERACT_NPC Captain_Tobias Travel` (Port Sarim → Karamja)
-2. Use `INTERACT_NPC Customs_officer Pay-fare` (Karamja → Port Sarim)
-3. Wait for automatic travel (~3 seconds)
-
-**Troubleshooting NPC interactions:**
-- If INTERACT_NPC isn't working, try zooming in with `CAMERA_PITCH 512`
-- Always right-click NPCs for travel actions (Pay-fare, Travel)
-- The ferry NPCs are: Captain Tobias (Port Sarim), Customs Officer (Karamja return)
-
 ## Code Fix Workflow
 
 When you observe a bug requiring code changes to the manny plugin:
@@ -797,63 +542,6 @@ The `check_anti_patterns` tool detects these automatically:
 **See examples:** Read manny_src/CLAUDE.md for detailed examples and fixes.
 
 **Update this registry:** When you discover new recurring mistakes, add them to manny_src/CLAUDE.md and update the `check_anti_patterns` tool.
-
-## Known Limitations ⚠️
-
-These are known issues that haven't been fixed yet. Work around them or fix in plugin.
-
-### Shop Interface Widget Clicking (User Error - Fixed)
-
-**Original Problem:** `CLICK_WIDGET <id>` on shop items triggered "Value" check instead of purchase.
-
-**Root Cause:** Default left-click on shop items shows Value. Need to specify action.
-
-**Solution:** Pass the action as second parameter:
-```python
-# ❌ Wrong - triggers Value check
-send_command("CLICK_WIDGET 19660816")
-
-# ✅ Correct - buys the item
-send_command('CLICK_WIDGET 19660816 "Buy 1"')
-send_command('CLICK_WIDGET 19660816 "Buy 5"')
-```
-
-**Journal:** `journals/shop_widget_click_issue_2025-01-07.md`
-
-### FISH Command NPC ID Conflict (Possibly Fixed)
-
-**Problem:** At locations with multiple fishing spot types (e.g., Musa Point), different spot types share the same name "Fishing spot" but have different NPC IDs and actions.
-
-| NPC ID | Actions | Fish Types |
-|--------|---------|------------|
-| 1521 | Small Net, Bait | Shrimp, Anchovies |
-| 1522 | Cage, Harpoon | Lobster, Tuna |
-
-**Status:** The `interactWithNPC` method now uses `findNPCByNameAndAction` which filters by action. This should fix the issue - **needs testing at Musa Point** to verify.
-
-**If still broken:** The fix filters by action, but if there's still an issue, `INTERACT_NPC_BY_ID` would be needed.
-
-**Journal:** `journals/fishing_karamja_2025-01-07.md`
-
-### Deposit Box Virtual Widgets
-
-**Note:** This was fixed! The `deposit_item()` MCP tool now handles deposit box correctly.
-
-The deposit box interface (192, 2) doesn't create real widgets for items - they're rendered directly from inventory. The grid is **4 columns x 7 rows** (not 7 columns). Coordinates are affected by UI scaling (`-Dsun.java2d.uiScale=2.0`).
-
-**Journal:** `journals/deposit_box_lessons_2025-01-08.md`
-
-### Thread Contention (Fixed)
-
-**Original Problem:** 4 background threads competed for actions, causing duplicate logs.
-
-**Fix Applied:** Commands now run sequentially - before starting a new command, the plugin:
-1. Cancels any existing command task
-2. Sets `shouldInterrupt = true` to signal loops to exit
-3. Waits 500ms for cleanup
-4. Only then starts the new command
-
-If you still see duplicate logs from different threads, it may be a different issue.
 
 ## Efficient Subagent Usage
 
@@ -1070,48 +758,9 @@ Write journals to capture **lessons for future agents**, not activity logs.
 
 ## Effective Routine Monitoring
 
-You are a **monitor**, not the executor. The manny plugin runs autonomously - observe, detect failures, and issue high-level commands.
+You are a **monitor**, not the executor. Poll `get_game_state()` every 30-60 seconds. Only check logs when state indicates a problem.
 
-### Token-Efficient Monitoring
+**Intervene if:** Idle but task incomplete, stuck >60 seconds, 3+ consecutive errors.
+**Don't intervene for:** Click retries, brief pauses, duplicate thread logs.
 
-- **Poll sparingly**: Check `get_game_state()` every 30-60 seconds during stable operation
-- **Only dive into logs on failure**: Use `get_logs()` when state indicates a problem
-- **Trust the routine**: Don't analyze every log message - wait for meaningful state changes
-
-### When to Intervene
-
-**DO intervene:**
-- Scenario shows "Idle" but task isn't complete
-- Same position for >60 seconds with no progress
-- 3+ consecutive errors in logs
-
-**DON'T intervene:**
-- Multiple threads logging the same action (normal)
-- Occasional click retries (2/3 or 3/3 attempts is fine)
-- Brief pauses between actions (natural RNG)
-
-### Effective Pattern
-
-**For long-running loops:**
-```
-1. send_command("FISH_DRAYNOR_LOOP 45")
-2. Wait 30-60 seconds
-3. get_game_state() - check inventory, XP, location
-4. If state changed meaningfully → log progress
-5. If stuck/idle unexpectedly → check logs, restart if needed
-6. Repeat until goal reached
-```
-
-**For step-by-step actions (use state-aware waiting):**
-```python
-# Flour milling example - 7 calls instead of 20+
-send_and_await("INTERACT_OBJECT Ladder Climb-up", "plane:1")
-send_and_await("INTERACT_OBJECT Ladder Climb-up", "plane:2")
-send_and_await("USE_ITEM_ON_OBJECT Grain Hopper", "no_item:Grain")
-send_and_await("INTERACT_OBJECT Hopper controls Operate", "idle")
-send_and_await("INTERACT_OBJECT Ladder Climb-down", "plane:1")
-send_and_await("INTERACT_OBJECT Ladder Climb-down", "plane:0")
-send_and_await("USE_ITEM_ON_OBJECT Pot Flour bin", "has_item:Pot of flour")
-```
-
-**Key insight:** Use `send_and_await` for discrete actions with verifiable outcomes. Use periodic polling for long-running autonomous loops.
+Use `send_and_await` for discrete actions. Use periodic polling for long-running loops.
