@@ -6,6 +6,7 @@ import os
 import subprocess
 import time
 import base64
+import tempfile
 from pathlib import Path
 from mcp.types import ImageContent, TextContent
 from ..registry import registry
@@ -36,7 +37,7 @@ ACCOUNT_ID_SCHEMA = {
 }
 
 
-def _take_screenshot(output_path: str = None, mode: str = "fullscreen", account_id: str = None) -> dict:
+def _take_screenshot(output_path: str = None, mode: str = "viewport", account_id: str = None) -> dict:
     """
     Internal screenshot function.
 
@@ -48,13 +49,18 @@ def _take_screenshot(output_path: str = None, mode: str = "fullscreen", account_
     Returns:
         dict with success, path, base64, display, mode, account_id
     """
-    # Get display from active session, fall back to config default
-    session_display = session_manager.get_display_for_account(account_id or config.default_account)
-    if session_display:
-        display = session_display
-    else:
-        account_config = config.get_account_config(account_id)
-        display = account_config.display
+    # Get display - try session first, then config, then default to :2
+    display = ":2"  # Default for VPS
+    try:
+        session_display = session_manager.get_display_for_account(account_id or config.default_account)
+        if session_display:
+            display = session_display
+        elif config:
+            account_config = config.get_account_config(account_id)
+            if account_config and hasattr(account_config, 'display'):
+                display = account_config.display
+    except Exception:
+        pass  # Use default :2
 
     if output_path is None:
         # Include account_id in filename for multi-client
@@ -78,56 +84,31 @@ def _take_screenshot(output_path: str = None, mode: str = "fullscreen", account_
         if window_result.returncode == 0 and window_result.stdout.strip():
             window_id = window_result.stdout.strip().split('\n')[0]
 
-        if window_id:
-            # Try ImageMagick first, then scrot as fallback
+        # Use scrot for full screen capture (most reliable on Xvfb)
+        # Window-specific capture often fails with BadDrawable on virtual displays
+        try:
+            result = subprocess.run(
+                ["scrot", "-o", output_path],
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=20
+            )
+        except FileNotFoundError:
+            # scrot not installed, try ImageMagick
             try:
                 result = subprocess.run(
-                    ["import", "-window", window_id, output_path],
+                    ["import", "-window", "root", output_path],
                     env=env,
                     capture_output=True,
                     text=True,
-                    timeout=10
+                    timeout=20
                 )
             except FileNotFoundError:
-                # ImageMagick not installed, try scrot
-                try:
-                    result = subprocess.run(
-                        ["scrot", "-u", "-o", output_path],  # -u for focused window
-                        env=env,
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                except FileNotFoundError:
-                    return {
-                        "success": False,
-                        "error": "No screenshot tool installed. Install with: sudo pacman -S scrot"
-                    }
-        else:
-            # No window found, capture full screen
-            try:
-                result = subprocess.run(
-                    ["scrot", "-o", output_path],
-                    env=env,
-                    capture_output=True,
-                    text=True,
-                    timeout=10
-                )
-            except FileNotFoundError:
-                try:
-                    # Try import for root window
-                    result = subprocess.run(
-                        ["import", "-window", "root", output_path],
-                        env=env,
-                        capture_output=True,
-                        text=True,
-                        timeout=10
-                    )
-                except FileNotFoundError:
-                    return {
-                        "success": False,
-                        "error": "No screenshot tool installed. Install with: sudo pacman -S scrot"
-                    }
+                return {
+                    "success": False,
+                    "error": "No screenshot tool installed. Install with: sudo pacman -S scrot"
+                }
 
         if result.returncode != 0:
             return {"success": False, "error": result.stderr or "Screenshot capture failed"}
@@ -137,8 +118,8 @@ def _take_screenshot(output_path: str = None, mode: str = "fullscreen", account_
             try:
                 from PIL import Image
                 img = Image.open(output_path)
-                # Viewport coordinates: 1020x666 at offset 200,8
-                cropped = img.crop((200, 8, 1220, 674))
+                # Viewport coordinates: 752x499 at offset (120, 137)
+                cropped = img.crop((120, 137, 872, 636))
                 cropped.save(output_path)
             except ImportError:
                 pass  # PIL not available
@@ -264,3 +245,155 @@ Be concise and accurate - this is used for game automation."""
         }
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+def _capture_gif(output_path: str = None, duration: int = 5, fps: int = 10, account_id: str = None) -> dict:
+    """
+    Capture a GIF of the game screen using ffmpeg.
+
+    Args:
+        output_path: Where to save the GIF
+        duration: Recording duration in seconds (default: 5)
+        fps: Frames per second (default: 10)
+        account_id: Account ID for multi-client support
+
+    Returns:
+        dict with success, path, duration, size_kb
+    """
+    # Get display
+    session_display = session_manager.get_display_for_account(account_id or config.default_account)
+    if session_display:
+        display = session_display
+    else:
+        account_config = config.get_account_config(account_id)
+        display = account_config.display
+
+    if output_path is None:
+        account_suffix = f"_{account_id}" if account_id and account_id != "default" else ""
+        output_path = f"/tmp/runelite_gif{account_suffix}_{int(time.time())}.gif"
+
+    env = os.environ.copy()
+    env["DISPLAY"] = display
+
+    # Use a temp file for the raw video, then convert to GIF
+    with tempfile.NamedTemporaryFile(suffix='.mp4', delete=False) as tmp:
+        tmp_video = tmp.name
+
+    try:
+        # Capture video with ffmpeg
+        # x11grab captures the X11 display, crop to game viewport
+        capture_cmd = [
+            "ffmpeg", "-y",
+            "-f", "x11grab",
+            "-video_size", "1024x768",  # Match Xvfb resolution
+            "-framerate", str(fps),
+            "-i", display,
+            "-t", str(duration),
+            "-vf", "crop=752:499:120:137",  # Crop to viewport (w:h:x:y)
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            tmp_video
+        ]
+
+        result = subprocess.run(
+            capture_cmd,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=duration + 10
+        )
+
+        if result.returncode != 0:
+            return {"success": False, "error": f"ffmpeg capture failed: {result.stderr[:500]}"}
+
+        # Convert to GIF with reasonable quality/size
+        # Use palettegen for better colors
+        palette_file = tmp_video + "_palette.png"
+
+        # Generate palette (no scaling - already cropped to 752x499)
+        palette_cmd = [
+            "ffmpeg", "-y",
+            "-i", tmp_video,
+            "-vf", f"fps={fps},palettegen",
+            palette_file
+        ]
+        subprocess.run(palette_cmd, capture_output=True, timeout=30)
+
+        # Create GIF using palette
+        gif_cmd = [
+            "ffmpeg", "-y",
+            "-i", tmp_video,
+            "-i", palette_file,
+            "-lavfi", f"fps={fps}[x];[x][1:v]paletteuse",
+            output_path
+        ]
+
+        result = subprocess.run(
+            gif_cmd,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+
+        # Cleanup temp files
+        try:
+            os.unlink(tmp_video)
+            os.unlink(palette_file)
+        except:
+            pass
+
+        if result.returncode != 0:
+            return {"success": False, "error": f"GIF conversion failed: {result.stderr[:500]}"}
+
+        # Get file size
+        size_kb = os.path.getsize(output_path) // 1024
+
+        return {
+            "success": True,
+            "path": output_path,
+            "duration": duration,
+            "fps": fps,
+            "size_kb": size_kb,
+            "display": display,
+            "account_id": account_id or config.default_account
+        }
+
+    except subprocess.TimeoutExpired:
+        return {"success": False, "error": "GIF capture timed out"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+    finally:
+        # Cleanup on error
+        try:
+            if os.path.exists(tmp_video):
+                os.unlink(tmp_video)
+        except:
+            pass
+
+
+@registry.register({
+    "name": "capture_gif",
+    "description": "[Screenshot] Record a short GIF of the game screen. Good for showing recent activity.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "duration": {
+                "type": "integer",
+                "description": "Recording duration in seconds (default: 5, max: 15)"
+            },
+            "fps": {
+                "type": "integer",
+                "description": "Frames per second (default: 10)"
+            },
+            "account_id": ACCOUNT_ID_SCHEMA
+        }
+    }
+})
+async def handle_capture_gif(arguments: dict) -> dict:
+    """Capture a GIF of the game screen."""
+    duration = min(arguments.get("duration", 5), 15)  # Cap at 15 seconds
+    fps = arguments.get("fps", 10)
+    account_id = arguments.get("account_id")
+
+    result = _capture_gif(duration=duration, fps=fps, account_id=account_id)
+    return result

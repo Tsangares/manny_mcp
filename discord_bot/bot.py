@@ -11,6 +11,7 @@ from typing import Optional, Dict, List
 from datetime import datetime
 
 import discord
+from discord import app_commands
 from discord.ext import commands
 import yaml
 
@@ -27,7 +28,7 @@ logger = logging.getLogger("discord_bot")
 class OSRSBot(commands.Bot):
     """Discord bot for controlling OSRS automation."""
 
-    def __init__(self, llm_provider: str = "gemini", account_id: str = "aux"):
+    def __init__(self, llm_provider: str = "ollama", account_id: str = "aux"):
         # DM-focused bot - minimal intents
         intents = discord.Intents.default()
         intents.message_content = True
@@ -117,6 +118,23 @@ class OSRSBot(commands.Bot):
 
     async def on_ready(self):
         logger.info(f"Bot ready: {self.user.name} ({self.user.id})")
+
+        # Sync slash commands
+        try:
+            # Check for guild-specific sync (instant) via env var
+            guild_id = os.environ.get("DISCORD_GUILD_ID")
+            if guild_id:
+                guild = discord.Object(id=int(guild_id))
+                self.tree.copy_global_to(guild=guild)
+                synced = await self.tree.sync(guild=guild)
+                logger.info(f"Synced {len(synced)} slash commands to guild {guild_id} (instant)")
+            else:
+                # Global sync (can take up to 1 hour)
+                synced = await self.tree.sync()
+                logger.info(f"Synced {len(synced)} slash commands globally (may take up to 1 hour)")
+        except Exception as e:
+            logger.error(f"Failed to sync commands: {e}")
+
         logger.info("Send me a DM to control the bot!")
 
     async def on_message(self, message: discord.Message):
@@ -186,7 +204,19 @@ class OSRSBot(commands.Bot):
                     if action_result:
                         response += f"\n\n**Executed:** {action_result}"
 
-                await message.channel.send(response[:2000])  # Discord limit
+                # Try to attach a screenshot with the response
+                screenshot_file = None
+                try:
+                    ss_result = self._screenshot._take_screenshot(account_id=self.account_id)
+                    if ss_result.get("success") and "path" in ss_result:
+                        screenshot_file = discord.File(ss_result["path"])
+                except Exception as e:
+                    logger.debug(f"Auto-screenshot failed: {e}")
+
+                if screenshot_file:
+                    await message.channel.send(response[:2000], file=screenshot_file)
+                else:
+                    await message.channel.send(response[:2000])  # Discord limit
 
             except Exception as e:
                 logger.error(f"LLM error: {e}")
@@ -392,203 +422,253 @@ class OSRSBot(commands.Bot):
         return None
 
 
-# Direct commands (prefix-based, for quick actions)
-@commands.command(name="status")
-async def status(ctx: commands.Context):
-    """Get current bot status."""
-    bot: OSRSBot = ctx.bot
-    bot._load_tools()
+def setup_slash_commands(bot: OSRSBot):
+    """Register slash commands with the bot's command tree."""
 
-    try:
-        health = await bot._monitoring.handle_check_health({
-            "account_id": bot.account_id
-        })
+    @bot.tree.command(name="status", description="Get current bot status")
+    async def status(interaction: discord.Interaction):
+        bot._load_tools()
+        await interaction.response.defer()
 
-        state = await bot._monitoring.handle_get_game_state({
-            "account_id": bot.account_id,
-            "fields": ["location", "health", "inventory"]
-        })
+        try:
+            health = await bot._monitoring.handle_check_health({
+                "account_id": bot.account_id
+            })
 
-        player = state.get("state", {})
-        loc = player.get("location", {})
-        hp = player.get("health", {})
-        inv = player.get("inventory", {})
+            state = await bot._monitoring.handle_get_game_state({
+                "account_id": bot.account_id,
+                "fields": ["location", "health", "inventory"]
+            })
 
-        msg = f"""**Bot Status**
+            player = state.get("state", {})
+            loc = player.get("location", {})
+            hp = player.get("health", {})
+            inv = player.get("inventory", {})
+
+            msg = f"""**Bot Status**
 Account: {bot.account_id}
 Alive: {health.get('alive', False)}
 Location: ({loc.get('x')}, {loc.get('y')})
 Health: {hp.get('current', '?')}/{hp.get('max', '?')}
 Inventory: {inv.get('used', '?')}/{inv.get('capacity', 28)} slots"""
 
-        await ctx.send(msg)
-    except Exception as e:
-        logger.error(f"!status error: {e}")
-        await ctx.send(f"Error getting status: {e}")
+            await interaction.followup.send(msg)
+        except Exception as e:
+            logger.error(f"/status error: {e}")
+            await interaction.followup.send(f"Error getting status: {e}")
 
+    @bot.tree.command(name="screenshot", description="Get a screenshot of the game")
+    async def screenshot(interaction: discord.Interaction):
+        bot._load_tools()
+        await interaction.response.defer()
 
-@commands.command(name="screenshot")
-async def screenshot(ctx: commands.Context):
-    """Get a screenshot of the game."""
-    bot: OSRSBot = ctx.bot
-    bot._load_tools()
+        try:
+            result = bot._screenshot._take_screenshot(account_id=bot.account_id)
 
-    try:
-        # Use the internal function which returns a simple dict
-        result = bot._screenshot._take_screenshot(account_id=bot.account_id)
+            if result.get("success") and "path" in result:
+                await interaction.followup.send(file=discord.File(result["path"]))
+            else:
+                error_msg = result.get('error', 'unknown error')
+                logger.error(f"/screenshot failed: {error_msg}")
+                await interaction.followup.send(f"Failed to capture screenshot: {error_msg}")
+        except Exception as e:
+            logger.error(f"/screenshot error: {e}")
+            await interaction.followup.send(f"Error: {e}")
 
-        if result.get("success") and "path" in result:
-            await ctx.send(file=discord.File(result["path"]))
+    @bot.tree.command(name="gif", description="Record a short GIF of the game")
+    @app_commands.describe(
+        duration="Recording duration in seconds (default: 5, max: 15)"
+    )
+    async def gif(interaction: discord.Interaction, duration: int = 5):
+        bot._load_tools()
+        await interaction.response.defer()
+
+        try:
+            await interaction.followup.send(f"Recording {duration}s GIF...")
+            result = bot._screenshot._capture_gif(duration=min(duration, 15), account_id=bot.account_id)
+
+            if result.get("success") and "path" in result:
+                size = result.get("size_kb", 0)
+                await interaction.followup.send(
+                    content=f"GIF recorded ({size}KB)",
+                    file=discord.File(result["path"])
+                )
+            else:
+                error_msg = result.get('error', 'unknown error')
+                logger.error(f"/gif failed: {error_msg}")
+                await interaction.followup.send(f"Failed to record GIF: {error_msg}")
+        except Exception as e:
+            logger.error(f"/gif error: {e}")
+            await interaction.followup.send(f"Error: {e}")
+
+    @bot.tree.command(name="stop", description="Stop current bot activity")
+    async def stop(interaction: discord.Interaction):
+        bot._load_tools()
+        await interaction.response.defer()
+
+        try:
+            await bot._commands.handle_send_command({
+                "command": "STOP",
+                "account_id": bot.account_id
+            })
+            await interaction.followup.send("Stop command sent")
+        except Exception as e:
+            logger.error(f"/stop error: {e}")
+            await interaction.followup.send(f"Error: {e}")
+
+    @bot.tree.command(name="restart", description="Kill all RuneLite instances and restart")
+    async def restart(interaction: discord.Interaction):
+        import subprocess
+        bot._load_tools()
+        await interaction.response.defer()
+
+        try:
+            # Kill all RuneLite/java processes
+            await interaction.followup.send("Killing all RuneLite instances...")
+            subprocess.run(["pkill", "-9", "-f", "runelite"], capture_output=True)
+            subprocess.run(["pkill", "-9", "-f", "RuneLite"], capture_output=True)
+
+            # Wait for processes to die
+            await asyncio.sleep(2)
+
+            # Start RuneLite
+            await interaction.followup.send("Starting RuneLite...")
+            result = bot._manager.start_instance(bot.account_id)
+
+            if result.get("success") or result.get("pid"):
+                await interaction.followup.send(f"RuneLite started (PID: {result.get('pid', 'unknown')})")
+            else:
+                await interaction.followup.send(f"Start result: {result}")
+        except Exception as e:
+            logger.error(f"/restart error: {e}")
+            await interaction.followup.send(f"Error: {e}")
+
+    @bot.tree.command(name="kill", description="Kill all RuneLite instances")
+    async def kill(interaction: discord.Interaction):
+        import subprocess
+        await interaction.response.defer()
+
+        try:
+            # Kill all RuneLite/java processes
+            subprocess.run(["pkill", "-9", "-f", "runelite"], capture_output=True)
+            subprocess.run(["pkill", "-9", "-f", "RuneLite"], capture_output=True)
+
+            await asyncio.sleep(1)
+
+            # Check if any remain
+            result = subprocess.run(["pgrep", "-f", "runelite"], capture_output=True)
+            if result.returncode == 0:
+                await interaction.followup.send("Killed RuneLite (some processes may remain)")
+            else:
+                await interaction.followup.send("All RuneLite instances killed")
+        except Exception as e:
+            logger.error(f"/kill error: {e}")
+            await interaction.followup.send(f"Error: {e}")
+
+    @bot.tree.command(name="run", description="Run a routine")
+    @app_commands.describe(
+        routine="Path to routine (e.g., combat/hill_giants.yaml)",
+        loops="Number of loops to run (default: 1)"
+    )
+    async def run_routine(interaction: discord.Interaction, routine: str, loops: int = 1):
+        bot._load_tools()
+        await interaction.response.defer()
+
+        routine_path = f"routines/{routine}"
+        if not routine_path.endswith(".yaml"):
+            routine_path += ".yaml"
+
+        try:
+            await interaction.followup.send(f"Starting routine: {routine} ({loops} loops)")
+            result = await bot._routine.handle_execute_routine({
+                "routine_path": routine_path,
+                "max_loops": loops,
+                "account_id": bot.account_id
+            })
+            await interaction.followup.send(f"Routine completed: {result.get('status', 'unknown')}")
+        except Exception as e:
+            logger.error(f"/run error for {routine}: {e}")
+            await interaction.followup.send(f"Error: {e}")
+
+    @bot.tree.command(name="routines", description="List available routines")
+    async def list_routines(interaction: discord.Interaction):
+        routines = bot._get_available_routines()
+
+        if routines:
+            msg = "**Available Routines:**\n" + "\n".join(f"- {r}" for r in routines[:20])
+            if len(routines) > 20:
+                msg += f"\n... and {len(routines) - 20} more"
         else:
-            error_msg = result.get('error', 'unknown error')
-            logger.error(f"!screenshot failed: {error_msg}")
-            await ctx.send(f"Failed to capture screenshot: {error_msg}")
-    except Exception as e:
-        logger.error(f"!screenshot error: {e}")
-        await ctx.send(f"Error: {e}")
+            msg = "No routines found"
 
+        await interaction.response.send_message(msg)
 
-@commands.command(name="stop")
-async def stop(ctx: commands.Context):
-    """Stop current bot activity."""
-    bot: OSRSBot = ctx.bot
-    bot._load_tools()
+    @bot.tree.command(name="switch", description="Switch to a different account")
+    @app_commands.describe(account="Account alias to switch to (e.g., main, aux)")
+    async def switch_account(interaction: discord.Interaction, account: str):
+        account = account.lower()
+        available = bot._get_available_accounts()
 
-    try:
-        await bot._commands.handle_send_command({
-            "command": "STOP",
-            "account_id": bot.account_id
-        })
-        await ctx.send("Stop command sent")
-    except Exception as e:
-        logger.error(f"!stop error: {e}")
-        await ctx.send(f"Error: {e}")
+        if bot.switch_account(account):
+            display_name = available.get(account, account)
+            await interaction.response.send_message(f"Switched to **{account}** ({display_name})")
+        else:
+            account_list = ", ".join(available.keys()) if available else "none found"
+            logger.warning(f"/switch failed: account '{account}' not found. Available: {account_list}")
+            await interaction.response.send_message(f"Account '{account}' not found. Available: {account_list}")
 
+    @bot.tree.command(name="accounts", description="List available accounts")
+    async def list_accounts(interaction: discord.Interaction):
+        accounts = bot._get_available_accounts()
 
-@commands.command(name="run")
-async def run_routine(ctx: commands.Context, routine: str, loops: int = 1):
-    """Run a routine. Usage: !run combat/hill_giants.yaml 5"""
-    bot: OSRSBot = ctx.bot
-    bot._load_tools()
+        if accounts:
+            lines = []
+            for alias, display_name in accounts.items():
+                marker = " (active)" if alias == bot.account_id else ""
+                lines.append(f"- **{alias}**: {display_name}{marker}")
+            msg = "**Available Accounts:**\n" + "\n".join(lines)
+        else:
+            logger.warning("/accounts: No accounts configured in ~/.manny/credentials.yaml")
+            msg = "No accounts configured. Check `~/.manny/credentials.yaml`"
 
-    routine_path = f"routines/{routine}"
-    if not routine_path.endswith(".yaml"):
-        routine_path += ".yaml"
+        await interaction.response.send_message(msg)
 
-    try:
-        await ctx.send(f"Starting routine: {routine} ({loops} loops)")
-        result = await bot._routine.handle_execute_routine({
-            "routine_path": routine_path,
-            "max_loops": loops,
-            "account_id": bot.account_id
-        })
-        await ctx.send(f"Routine completed: {result.get('status', 'unknown')}")
-    except Exception as e:
-        logger.error(f"!run error for {routine}: {e}")
-        await ctx.send(f"Error: {e}")
-
-
-@commands.command(name="routines")
-async def list_routines(ctx: commands.Context):
-    """List available routines."""
-    bot: OSRSBot = ctx.bot
-    routines = bot._get_available_routines()
-
-    if routines:
-        msg = "**Available Routines:**\n" + "\n".join(f"- {r}" for r in routines[:20])
-        if len(routines) > 20:
-            msg += f"\n... and {len(routines) - 20} more"
-    else:
-        msg = "No routines found"
-
-    await ctx.send(msg)
-
-
-@commands.command(name="switch")
-async def switch_account(ctx: commands.Context, account: str = None):
-    """Switch to a different account. Usage: !switch main"""
-    bot: OSRSBot = ctx.bot
-
-    if not account:
-        await ctx.send(f"Current account: **{bot.account_id}**\nUsage: `!switch <account>`\nSee `!accounts` for available accounts.")
-        return
-
-    account = account.lower()
-    available = bot._get_available_accounts()
-
-    if bot.switch_account(account):
-        display_name = available.get(account, account)
-        await ctx.send(f"Switched to **{account}** ({display_name})")
-    else:
-        account_list = ", ".join(available.keys()) if available else "none found"
-        logger.warning(f"!switch failed: account '{account}' not found. Available: {account_list}")
-        await ctx.send(f"Account '{account}' not found. Available: {account_list}")
-
-
-@commands.command(name="accounts")
-async def list_accounts(ctx: commands.Context):
-    """List available accounts."""
-    bot: OSRSBot = ctx.bot
-    accounts = bot._get_available_accounts()
-
-    if accounts:
-        lines = []
-        for alias, display_name in accounts.items():
-            marker = " (active)" if alias == bot.account_id else ""
-            lines.append(f"- **{alias}**: {display_name}{marker}")
-        msg = "**Available Accounts:**\n" + "\n".join(lines)
-    else:
-        logger.warning("!accounts: No accounts configured in ~/.manny/credentials.yaml")
-        msg = "No accounts configured. Check `~/.manny/credentials.yaml`"
-
-    await ctx.send(msg)
-
-
-@commands.command(name="help")
-async def help_command(ctx: commands.Context):
-    """Show all available commands."""
-    help_text = """**OSRS Bot Commands**
+    @bot.tree.command(name="help", description="Show all available commands")
+    async def help_command(interaction: discord.Interaction):
+        help_text = """**OSRS Bot Commands**
 
 **Status & Info**
-`!status` - Get bot status (location, health, inventory)
-`!screenshot` - Get a screenshot of the game
-`!accounts` - List available accounts
-`!help` - Show this help message
+`/status` - Get bot status (location, health, inventory)
+`/screenshot` - Get a screenshot of the game
+`/gif [duration]` - Record a GIF (default 5s, max 15s)
+`/accounts` - List available accounts
+`/help` - Show this help message
 
 **Control**
-`!stop` - Stop current bot activity
-`!switch <account>` - Switch to a different account (e.g., `!switch main`)
-`!run <routine> [loops]` - Run a routine (e.g., `!run combat/hill_giants 5`)
-`!routines` - List available routines
+`/stop` - Stop current bot activity
+`/switch <account>` - Switch to a different account
+`/run <routine> [loops]` - Run a routine
+`/routines` - List available routines
 
 **Natural Language**
-Just type normally! The bot uses AI to understand requests like:
+Just type normally in DMs! The bot uses AI to understand requests like:
 - "go fish at draynor"
 - "what's in my inventory?"
 - "stop what you're doing"
 """
-    await ctx.send(help_text)
-
-
-def setup_commands(bot: OSRSBot):
-    """Add commands to bot."""
-    bot.add_command(status)
-    bot.add_command(screenshot)
-    bot.add_command(stop)
-    bot.add_command(run_routine)
-    bot.add_command(list_routines)
-    bot.add_command(switch_account)
-    bot.add_command(list_accounts)
-    bot.add_command(help_command)
+        await interaction.response.send_message(help_text)
 
 
 def create_bot(
-    llm_provider: str = "gemini",
+    llm_provider: str = "ollama",
     account_id: str = "aux",
     owner_id: Optional[int] = None
 ) -> OSRSBot:
-    """Create and configure the bot."""
+    """Create and configure the bot.
+
+    Default provider is 'ollama' (local qwen2.5:14b-multi) with automatic fallback to 'gemini'.
+    """
     bot = OSRSBot(llm_provider=llm_provider, account_id=account_id)
     bot.owner_id = owner_id
-    setup_commands(bot)
+    setup_slash_commands(bot)
     return bot

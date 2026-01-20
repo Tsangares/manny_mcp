@@ -38,6 +38,8 @@ class RuneLiteInstance:
         self.log_buffer = deque(maxlen=config.log_buffer_size)
         self.log_lock = threading.Lock()
         self.log_thread = None
+        self.log_file = None
+        self.log_file_path = None
 
     def _capture_logs(self):
         """Background thread to capture process output."""
@@ -126,9 +128,9 @@ class RuneLiteInstance:
 
         env = os.environ.copy()
 
-        # Increase Java heap to prevent OutOfMemoryError during map loading
+        # Java heap size - reduced for VPS with limited RAM
         # _JAVA_OPTIONS has higher priority and can override Maven's -Xmx512m
-        env["_JAVA_OPTIONS"] = "-Xmx1536m"
+        env["_JAVA_OPTIONS"] = "-Xmx768m -XX:MaxMetaspaceSize=128m"
 
         # Use allocated display
         env["DISPLAY"] = target_display
@@ -152,23 +154,30 @@ class RuneLiteInstance:
 
         self.log_buffer.clear()
 
+        # Use file output instead of PIPE to prevent subprocess deadlock
+        # PIPE can block when buffer fills during heavy logging (e.g., plugin loading)
+        log_suffix = f"_{self.account_id}" if self.account_id and self.account_id != "default" else ""
+        self.log_file_path = f"/tmp/runelite{log_suffix}.log"
+        self.log_file = open(self.log_file_path, "w")
+
         self.process = subprocess.Popen(
             cmd,
-            stdout=subprocess.PIPE,
+            stdout=self.log_file,
             stderr=subprocess.STDOUT,
-            text=True,
             env=env,
-            cwd=cwd,
-            bufsize=1
+            cwd=cwd
         )
-
-        self.log_thread = threading.Thread(target=self._capture_logs, daemon=True)
-        self.log_thread.start()
 
         time.sleep(3)
 
-        with self.log_lock:
-            startup_logs = [line for _, line in list(self.log_buffer)[:50]]
+        # Read startup logs from file
+        startup_logs = []
+        try:
+            self.log_file.flush()
+            with open(self.log_file_path, "r") as f:
+                startup_logs = f.read().splitlines()[:50]
+        except Exception:
+            pass
 
         return {
             "account_id": self.account_id,
@@ -176,6 +185,7 @@ class RuneLiteInstance:
             "status": status,
             "display": target_display,
             "startup_logs": startup_logs,
+            "log_file": self.log_file_path,
             "command": " ".join(cmd)
         }
 
@@ -194,6 +204,15 @@ class RuneLiteInstance:
             exit_code = self.process.wait()
 
         self.process = None
+
+        # Close log file
+        if self.log_file:
+            try:
+                self.log_file.close()
+            except Exception:
+                pass
+            self.log_file = None
+
         return {"stopped": True, "account_id": self.account_id, "exit_code": exit_code, "pid": pid}
 
     def is_running(self) -> bool:
