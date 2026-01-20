@@ -22,6 +22,8 @@ from discord_bot.llm_client import LLMClient
 from discord_bot.agent_brain import AgentBrain, TaskClassifier, TaskType
 from discord_bot.conversation_logger import get_conversation_logger
 from discord_bot.training_logger import training_logger
+from discord_bot.task_manager import TaskManager
+from discord_bot.task_queue import when_level, after_level_up, when_inventory_full, when_health_below, immediately
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -54,6 +56,11 @@ class OSRSBot(commands.Bot):
         # Agent brain for intelligent task routing
         self._brain: Optional[AgentBrain] = None
         self._classifier = TaskClassifier()
+
+        # Task manager for queued/conditional tasks
+        self._task_manager: Optional[TaskManager] = None
+        self._task_manager_started: bool = False
+        self._dm_channel: Optional[discord.DMChannel] = None  # For notifications
 
     def _load_tools(self):
         """Lazy load MCP tools."""
@@ -125,7 +132,34 @@ class OSRSBot(commands.Bot):
 
         # Create agent brain for intelligent routing
         self._brain = AgentBrain(self.llm, self._execute_tool_with_logging)
-        logger.info("MCP tools and agent brain loaded")
+
+        # Create task manager for queued/conditional tasks
+        async def get_state_func():
+            result = await self._monitoring.handle_get_game_state({
+                "account_id": self.account_id,
+                "fields": ["location", "health", "skills", "inventory"]
+            })
+            return result.get("state", {})
+
+        self._task_manager = TaskManager(
+            send_command_func=send_command_with_response,
+            get_state_func=get_state_func
+        )
+
+        # Set up notification callback for task manager events
+        self._task_manager.set_notify_callback(self._task_notification)
+
+        # Track if task manager queue has been started
+        self._task_manager_started = False
+
+        logger.info("MCP tools, agent brain, and task manager loaded")
+
+    async def _ensure_task_manager_started(self):
+        """Start the task manager queue if not already running."""
+        if self._task_manager and not self._task_manager_started:
+            await self._task_manager.initialize()
+            self._task_manager_started = True
+            logger.info("Task manager initialized and queue started")
 
     async def _execute_tool_with_logging(self, tool_name: str, arguments: dict) -> dict:
         """Wrapper that logs tool calls before executing."""
@@ -157,6 +191,16 @@ class OSRSBot(commands.Bot):
 
         return result
 
+    async def _task_notification(self, message: str):
+        """Send task manager notifications to the user's DM channel."""
+        if self._dm_channel:
+            try:
+                await self._dm_channel.send(f"📋 **Task Update:** {message}")
+            except Exception as e:
+                logger.error(f"Failed to send task notification: {e}")
+        else:
+            logger.info(f"Task notification (no DM channel): {message}")
+
     async def on_ready(self):
         logger.info(f"Bot ready: {self.user.name} ({self.user.id})")
 
@@ -187,6 +231,9 @@ class OSRSBot(commands.Bot):
         if not isinstance(message.channel, discord.DMChannel):
             return
 
+        # Store DM channel for task notifications
+        self._dm_channel = message.channel
+
         # Optional: restrict to specific user
         if self.owner_id and message.author.id != self.owner_id:
             await message.channel.send("Sorry, you're not authorized to control this bot.")
@@ -202,6 +249,7 @@ class OSRSBot(commands.Bot):
     async def handle_natural_language(self, message: discord.Message):
         """Handle natural language messages via LLM with intelligent routing."""
         self._load_tools()
+        await self._ensure_task_manager_started()
 
         user_id = message.author.id
         username = str(message.author)
@@ -783,13 +831,196 @@ Inventory: {inv.get('used', '?')}/{inv.get('capacity', 28)} slots"""
 `/run <routine> [loops]` - Run a routine
 `/routines` - List available routines
 
+**Task Queue**
+`/queue` - Show queued tasks
+`/queue_task <command>` - Queue a command
+`/queue_on_level <skill> <level> <command>` - Queue for level condition
+`/queue_rotation` - Set up combat rotation
+`/clear_queue` - Clear pending tasks
+
 **Natural Language**
 Just type normally in DMs! The bot uses AI to understand requests like:
 - "go fish at draynor"
 - "what's in my inventory?"
-- "stop what you're doing"
+- "when I hit 40 strength, switch to defence"
 """
         await interaction.response.send_message(help_text)
+
+    # =========================================================================
+    # Task Queue Commands
+    # =========================================================================
+
+    @bot.tree.command(name="queue", description="Show queued tasks and their status")
+    async def queue_status(interaction: discord.Interaction):
+        bot._load_tools()
+        await bot._ensure_task_manager_started()
+
+        if not bot._task_manager:
+            await interaction.response.send_message("Task manager not initialized")
+            return
+
+        status = bot._task_manager.get_status()
+        queue_status = status.get("queue", {})
+
+        # Parse task list by status
+        tasks = queue_status.get("tasks", [])
+        pending_tasks = [t for t in tasks if t.get("status") in ("pending", "waiting")]
+        running_task_id = queue_status.get("current_task")
+        by_status = queue_status.get("by_status", {})
+
+        lines = ["**Task Queue Status**"]
+
+        if running_task_id:
+            running_task = next((t for t in tasks if t.get("id") == running_task_id), None)
+            if running_task:
+                lines.append(f"\n🔄 **Running:** {running_task.get('command', 'unknown')}")
+
+        if pending_tasks:
+            lines.append(f"\n📋 **Pending ({len(pending_tasks)}):**")
+            for task in pending_tasks[:5]:
+                cond = task.get("condition", "immediately")
+                lines.append(f"  - `{task.get('command')}` ({cond})")
+            if len(pending_tasks) > 5:
+                lines.append(f"  ... and {len(pending_tasks) - 5} more")
+        else:
+            lines.append("\n📋 No pending tasks")
+
+        completed = by_status.get("completed", 0)
+        failed = by_status.get("failed", 0)
+        lines.append(f"\n✅ Completed: {completed}")
+        if failed:
+            lines.append(f"❌ Failed: {failed}")
+
+        await interaction.response.send_message("\n".join(lines))
+
+    @bot.tree.command(name="queue_task", description="Queue a command for execution")
+    @app_commands.describe(
+        command="The command to queue (e.g., KILL_LOOP Giant_frog none)",
+        priority="Priority (higher = runs first)"
+    )
+    async def queue_task(interaction: discord.Interaction, command: str, priority: int = 0):
+        bot._load_tools()
+        await bot._ensure_task_manager_started()
+
+        if not bot._task_manager:
+            await interaction.response.send_message("Task manager not initialized")
+            return
+
+        task_id = bot._task_manager.queue_task(
+            command=command,
+            condition=immediately(),
+            priority=priority
+        )
+        await interaction.response.send_message(f"Queued task: `{command}` (ID: {task_id[:8]})")
+
+    @bot.tree.command(name="queue_on_level", description="Queue a command to run when a skill reaches a level")
+    @app_commands.describe(
+        skill="Skill name (e.g., strength, attack, defence)",
+        level="Target level",
+        command="Command to run when level is reached"
+    )
+    async def queue_on_level(interaction: discord.Interaction, skill: str, level: int, command: str):
+        bot._load_tools()
+        await bot._ensure_task_manager_started()
+
+        if not bot._task_manager:
+            await interaction.response.send_message("Task manager not initialized")
+            return
+
+        task_id = bot._task_manager.queue_on_level(
+            skill=skill.lower(),
+            level=level,
+            command=command
+        )
+        await interaction.response.send_message(
+            f"Queued: `{command}` when {skill.title()} reaches {level} (ID: {task_id[:8]})"
+        )
+
+    @bot.tree.command(name="queue_rotation", description="Set up combat style rotation based on levels")
+    @app_commands.describe(
+        str_until="Train Strength until this level",
+        att_until="Train Attack until this level",
+        def_until="Train Defence until this level"
+    )
+    async def queue_rotation(
+        interaction: discord.Interaction,
+        str_until: int = 40,
+        att_until: int = 40,
+        def_until: int = 40
+    ):
+        bot._load_tools()
+        await bot._ensure_task_manager_started()
+
+        if not bot._task_manager:
+            await interaction.response.send_message("Task manager not initialized")
+            return
+
+        rotations = [
+            {"skill": "strength", "until_level": str_until, "style": "aggressive"},
+            {"skill": "attack", "until_level": att_until, "style": "accurate"},
+            {"skill": "defence", "until_level": def_until, "style": "defensive"},
+        ]
+
+        task_ids = bot._task_manager.setup_combat_rotation(rotations)
+
+        msg = f"""**Combat Rotation Set Up**
+1. Strength (aggressive) until level {str_until}
+2. Attack (accurate) until level {att_until}
+3. Defence (defensive) until level {def_until}
+
+Queued {len(task_ids)} style switches."""
+
+        await interaction.response.send_message(msg)
+
+    @bot.tree.command(name="clear_queue", description="Clear all pending tasks")
+    async def clear_queue(interaction: discord.Interaction):
+        bot._load_tools()
+        await bot._ensure_task_manager_started()
+
+        if not bot._task_manager:
+            await interaction.response.send_message("Task manager not initialized")
+            return
+
+        # Clear the queue
+        bot._task_manager.queue.clear()
+        await interaction.response.send_message("Task queue cleared")
+
+    @bot.tree.command(name="capabilities", description="List available commands by category")
+    @app_commands.describe(
+        category="Filter by category (combat, skilling, banking, navigation, etc.)",
+        keyword="Search by keyword"
+    )
+    async def list_capabilities(
+        interaction: discord.Interaction,
+        category: str = None,
+        keyword: str = None
+    ):
+        bot._load_tools()
+        await bot._ensure_task_manager_started()
+
+        if not bot._task_manager:
+            await interaction.response.send_message("Task manager not initialized")
+            return
+
+        caps = bot._task_manager.list_capabilities(category=category, keyword=keyword)
+
+        if not caps:
+            await interaction.response.send_message("No capabilities found matching that criteria")
+            return
+
+        lines = ["**Available Commands**"]
+        if category:
+            lines[0] += f" ({category})"
+        if keyword:
+            lines[0] += f" matching '{keyword}'"
+
+        for cap in caps[:15]:
+            lines.append(f"- **{cap['name']}** ({cap['category']}): {cap['description'][:50]}")
+
+        if len(caps) > 15:
+            lines.append(f"\n... and {len(caps) - 15} more")
+
+        await interaction.response.send_message("\n".join(lines))
 
 
 def create_bot(
