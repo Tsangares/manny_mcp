@@ -79,23 +79,55 @@ def _take_screenshot(output_path: str = None, mode: str = "fullscreen", account_
             window_id = window_result.stdout.strip().split('\n')[0]
 
         if window_id:
-            # Use ImageMagick to capture window
-            result = subprocess.run(
-                ["import", "-window", window_id, output_path],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
+            # Try ImageMagick first, then scrot as fallback
+            try:
+                result = subprocess.run(
+                    ["import", "-window", window_id, output_path],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+            except FileNotFoundError:
+                # ImageMagick not installed, try scrot
+                try:
+                    result = subprocess.run(
+                        ["scrot", "-u", "-o", output_path],  # -u for focused window
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                except FileNotFoundError:
+                    return {
+                        "success": False,
+                        "error": "No screenshot tool installed. Install with: sudo pacman -S scrot"
+                    }
         else:
-            # Fallback to scrot
-            result = subprocess.run(
-                ["scrot", "-o", output_path],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
+            # No window found, capture full screen
+            try:
+                result = subprocess.run(
+                    ["scrot", "-o", output_path],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+            except FileNotFoundError:
+                try:
+                    # Try import for root window
+                    result = subprocess.run(
+                        ["import", "-window", "root", output_path],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                except FileNotFoundError:
+                    return {
+                        "success": False,
+                        "error": "No screenshot tool installed. Install with: sudo pacman -S scrot"
+                    }
 
         if result.returncode != 0:
             return {"success": False, "error": result.stderr or "Screenshot capture failed"}

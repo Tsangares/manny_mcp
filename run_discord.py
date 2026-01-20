@@ -40,8 +40,8 @@ def main():
     parser = argparse.ArgumentParser(description="OSRS Discord Bot")
     parser.add_argument(
         "--account", "-a",
-        default="main",
-        help="Account ID to control (default: main)"
+        default="aux",
+        help="Account ID to control (default: aux)"
     )
     parser.add_argument(
         "--provider", "-p",

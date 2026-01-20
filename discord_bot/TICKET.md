@@ -36,8 +36,10 @@ The Discord bot runs on the same VPS as RuneLite. It imports MCP tools directly 
 ```
 manny-mcp/
 ├── discord_bot/
-│   ├── bot.py          # Discord client, command handlers
-│   └── llm_client.py   # Gemini/Claude/OpenAI wrapper
+│   ├── bot.py          # Discord client, command handlers, tool executor
+│   ├── llm_client.py   # Gemini/Claude/OpenAI wrapper with function calling
+│   ├── CONTEXT.md      # LLM system prompt (edit to customize behavior)
+│   └── TICKET.md       # This file
 ├── run_discord.py      # Entry point
 └── .env                # Tokens (gitignored)
 ```
@@ -46,17 +48,32 @@ manny-mcp/
 
 - [x] Discord connection and DM handling
 - [x] Prefix commands: `!status`, `!screenshot`, `!stop`, `!run`, `!routines`
-- [x] LLM client with Gemini Flash
+- [x] LLM client with Gemini 2.5 Flash Lite
 - [x] Natural language message handling (sends to LLM)
 - [x] Owner restriction (optional)
 - [x] Conversation history per user
+- [x] Multi-account switching: `!switch`, `!accounts`
+- [x] Help command: `!help`
+- [x] **LLM Function Calling** - Gemini can directly invoke MCP tools
+- [x] **CONTEXT.md** - Configurable system prompt for LLM
+
+### LLM Tools Available
+
+The LLM can use these tools via function calling:
+- `get_game_state` - Player location, inventory, health
+- `get_screenshot` - Capture game screenshot
+- `check_health` - Client health check
+- `send_command` - Send plugin commands
+- `start_runelite` / `stop_runelite` / `restart_runelite` - Client control
+- `auto_reconnect` - Handle disconnections
+- `run_routine` / `list_routines` - Routine management
+- `get_logs` - Plugin logs for debugging
+- `switch_account` / `list_accounts` - Account management
 
 ### Not Yet Tested / May Need Work
 
-- [ ] MCP tool loading (`_load_tools()`) - dependencies may need adjustment
-- [ ] Screenshot sending via Discord
+- [ ] Screenshot sending via Discord (xdotool required)
 - [ ] Routine execution through bot
-- [ ] LLM action parsing and auto-execution
 - [ ] Error handling and recovery
 - [ ] Proactive alerts (bot messages user when something breaks)
 
@@ -131,8 +148,11 @@ The bot parses these and auto-executes if found.
 
 | Command | Description |
 |---------|-------------|
+| `!help` | Show all available commands |
 | `!status` | Get bot status, location, health, inventory |
 | `!screenshot` | Send a screenshot of the game |
+| `!accounts` | List available accounts |
+| `!switch <account>` | Switch to a different account (e.g., `!switch main`) |
 | `!stop` | Stop current activity |
 | `!run <routine> [loops]` | Run a routine (e.g., `!run combat/hill_giants 5`) |
 | `!routines` | List available routines |
@@ -151,9 +171,9 @@ The bot parses these and auto-executes if found.
    - Inventory summary
    - Mini-map or location
 
-3. **Multi-Account** - Switch accounts mid-conversation:
-   - `!switch main`
-   - `!status aux`
+3. ~~**Multi-Account** - Switch accounts mid-conversation:~~ ✅ DONE
+   - `!switch main` - switches active account
+   - `!accounts` - lists available accounts
 
 4. **Scheduled Routines** - Run routines on a schedule:
    - `!schedule fishing 2h`
@@ -171,6 +191,9 @@ The bot parses these and auto-executes if found.
 6. [ ] LLM correctly summarizes game state
 7. [ ] LLM suggests appropriate routines
 8. [ ] Error messages are helpful
+9. [ ] `!help` shows all commands
+10. [ ] `!accounts` lists available accounts
+11. [ ] `!switch` changes active account
 
 ## Known Issues / Debugging
 

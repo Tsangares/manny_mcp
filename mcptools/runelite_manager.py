@@ -76,7 +76,33 @@ class RuneLiteInstance:
         use_vgl = self.config.use_virtualgl
         vgl_display = self.config.vgl_display
 
-        if self.config.use_exec_java:
+        # Determine launch mode: prefer exec:java if source exists, fall back to JAR
+        use_exec_java = self.config.use_exec_java
+        runelite_root_exists = self.config.runelite_root and self.config.runelite_root.exists()
+        runelite_jar_exists = self.config.runelite_jar and self.config.runelite_jar.exists()
+
+        # Fall back to JAR if exec:java requested but source dir doesn't exist
+        if use_exec_java and not runelite_root_exists:
+            if runelite_jar_exists:
+                use_exec_java = False  # Fall back to JAR
+            else:
+                return {
+                    "account_id": self.account_id,
+                    "pid": None,
+                    "status": "error",
+                    "error": f"RuneLite source not found at {self.config.runelite_root} and no JAR configured"
+                }
+
+        # If not using exec:java, verify JAR exists
+        if not use_exec_java and not runelite_jar_exists:
+            return {
+                "account_id": self.account_id,
+                "pid": None,
+                "status": "error",
+                "error": f"RuneLite JAR not found at {self.config.runelite_jar}"
+            }
+
+        if use_exec_java:
             args = " ".join(self.config.runelite_args)
             base_cmd = [
                 "mvn", "exec:java",

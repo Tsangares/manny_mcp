@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "mcp__runelite-debug__send_command",
+      "mcp__runelite-debug__validate_routine_deep"
+    ]
+  }
+}

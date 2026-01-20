@@ -12,6 +12,7 @@ from datetime import datetime
 
 import discord
 from discord.ext import commands
+import yaml
 
 # Add parent dir to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -32,7 +33,7 @@ class OSRSBot(commands.Bot):
         intents.message_content = True
         intents.dm_messages = True
 
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix="!", intents=intents, help_command=None)
 
         self.llm = LLMClient(provider=llm_provider)
         self.account_id = account_id
@@ -44,13 +45,14 @@ class OSRSBot(commands.Bot):
         self._monitoring = None
         self._commands = None
         self._routine = None
+        self._screenshot = None
 
     def _load_tools(self):
         """Lazy load MCP tools."""
         if self._tools_loaded:
             return
 
-        from mcptools.tools import monitoring, commands as cmd_tools, routine
+        from mcptools.tools import monitoring, commands as cmd_tools, routine, screenshot
         from mcptools.config import ServerConfig
         from mcptools.runelite_manager import MultiRuneLiteManager
 
@@ -58,15 +60,59 @@ class OSRSBot(commands.Bot):
         config = ServerConfig.load()
         manager = MultiRuneLiteManager(config)
 
+        # Create a simple send_command_with_response wrapper for tools that need it
+        async def send_command_with_response(command: str, timeout_ms: int = 10000, account_id: str = None):
+            """Simple command sender - writes to file and polls for response."""
+            import json
+            import time
+            import asyncio
+
+            command_file = config.get_command_file(account_id)
+            response_file = config.get_response_file(account_id)
+
+            # Get current response timestamp
+            old_ts = 0
+            try:
+                with open(response_file) as f:
+                    old_response = json.load(f)
+                    old_ts = old_response.get("timestamp", 0)
+            except:
+                pass
+
+            # Send command
+            with open(command_file, "w") as f:
+                f.write(command + "\n")
+
+            # Poll for response
+            start = time.time()
+            while (time.time() - start) < (timeout_ms / 1000.0):
+                try:
+                    with open(response_file) as f:
+                        response = json.load(f)
+                    if response.get("timestamp", 0) > old_ts:
+                        return response
+                except:
+                    pass
+                await asyncio.sleep(0.3)
+
+            return {"status": "timeout", "error": "No response received"}
+
         # Set up tool dependencies
         monitoring.set_dependencies(manager, config)
-        cmd_tools.set_dependencies(manager, config)
-        routine.set_dependencies(manager, config)
+        cmd_tools.set_dependencies(send_command_with_response, config)
+        routine.set_dependencies(send_command_with_response, config)
+        screenshot.set_dependencies(manager, config)
 
         self._monitoring = monitoring
         self._commands = cmd_tools
         self._routine = routine
+        self._screenshot = screenshot
+        self._manager = manager
+        self._config = config
         self._tools_loaded = True
+
+        # Set up the tool executor for LLM function calling
+        self.llm.set_tool_executor(self._execute_tool)
         logger.info("MCP tools loaded")
 
     async def on_ready(self):
@@ -158,6 +204,144 @@ class OSRSBot(commands.Bot):
             routines.append(str(rel_path))
         return sorted(routines)
 
+    def _get_available_accounts(self) -> Dict[str, str]:
+        """Get available accounts from credentials file.
+
+        Returns dict of alias -> display_name.
+        """
+        creds_path = Path.home() / ".manny" / "credentials.yaml"
+        if not creds_path.exists():
+            return {}
+
+        try:
+            with open(creds_path) as f:
+                creds = yaml.safe_load(f) or {}
+
+            accounts = {}
+            for alias, data in creds.get("accounts", {}).items():
+                display_name = data.get("display_name", alias)
+                accounts[alias] = display_name
+            return accounts
+        except Exception as e:
+            logger.error(f"Failed to load credentials: {e}")
+            return {}
+
+    def switch_account(self, account_id: str) -> bool:
+        """Switch to a different account.
+
+        Returns True if successful, False if account doesn't exist.
+        """
+        available = self._get_available_accounts()
+        if account_id not in available:
+            return False
+
+        self.account_id = account_id
+        # Clear conversation history on account switch
+        self.conversation_history.clear()
+        logger.info(f"Switched to account: {account_id}")
+        return True
+
+    async def _execute_tool(self, tool_name: str, arguments: dict) -> dict:
+        """Execute a tool call from the LLM.
+
+        Routes tool calls to the appropriate MCP handlers.
+        """
+        logger.info(f"LLM tool call: {tool_name}({arguments})")
+
+        try:
+            if tool_name == "get_game_state":
+                return await self._monitoring.handle_get_game_state({
+                    "account_id": self.account_id,
+                    "fields": arguments.get("fields")
+                })
+
+            elif tool_name == "get_screenshot":
+                result = self._screenshot._take_screenshot(account_id=self.account_id)
+                # Don't return base64 to LLM - too large
+                if result.get("success"):
+                    return {"success": True, "path": result.get("path"), "message": "Screenshot captured"}
+                return result
+
+            elif tool_name == "check_health":
+                return await self._monitoring.handle_check_health({
+                    "account_id": self.account_id
+                })
+
+            elif tool_name == "send_command":
+                return await self._commands.handle_send_command({
+                    "command": arguments.get("command", ""),
+                    "account_id": self.account_id
+                })
+
+            elif tool_name == "start_runelite":
+                result = self._manager.start_instance(self.account_id)
+                return result
+
+            elif tool_name == "stop_runelite":
+                result = self._manager.stop_instance(self.account_id)
+                return result
+
+            elif tool_name == "restart_runelite":
+                self._manager.stop_instance(self.account_id)
+                import asyncio
+                await asyncio.sleep(2)
+                result = self._manager.start_instance(self.account_id)
+                return {"restarted": True, "start_result": result}
+
+            elif tool_name == "auto_reconnect":
+                return await self._monitoring.handle_auto_reconnect({
+                    "account_id": self.account_id
+                })
+
+            elif tool_name == "run_routine":
+                routine_path = arguments.get("routine_path", "")
+                if not routine_path.startswith("routines/"):
+                    routine_path = f"routines/{routine_path}"
+                if not routine_path.endswith(".yaml"):
+                    routine_path += ".yaml"
+
+                # For now, just dispatch the command - routine execution is complex
+                return await self._commands.handle_send_command({
+                    "command": f"RUN_ROUTINE {routine_path}",
+                    "account_id": self.account_id
+                })
+
+            elif tool_name == "list_routines":
+                routines = self._get_available_routines()
+                return {"routines": routines, "count": len(routines)}
+
+            elif tool_name == "get_logs":
+                return await self._monitoring.handle_get_logs({
+                    "account_id": self.account_id,
+                    "level": arguments.get("level", "WARN"),
+                    "since_seconds": arguments.get("since_seconds", 30),
+                    "grep": arguments.get("grep"),
+                    "max_lines": 50
+                })
+
+            elif tool_name == "switch_account":
+                new_account = arguments.get("account_id", "")
+                if self.switch_account(new_account):
+                    return {"success": True, "account_id": new_account, "message": f"Switched to {new_account}"}
+                else:
+                    available = list(self._get_available_accounts().keys())
+                    return {"success": False, "error": f"Account not found. Available: {available}"}
+
+            elif tool_name == "list_accounts":
+                accounts = self._get_available_accounts()
+                return {
+                    "accounts": accounts,
+                    "current": self.account_id,
+                    "count": len(accounts)
+                }
+
+            else:
+                return {"error": f"Unknown tool: {tool_name}"}
+
+        except Exception as e:
+            logger.error(f"Tool execution error: {tool_name} - {e}")
+            return {"error": str(e)}
+
     def _parse_action(self, response: str) -> Optional[Dict]:
         """Parse LLM response for actionable commands."""
         response_lower = response.lower()
@@ -239,6 +423,7 @@ Inventory: {inv.get('used', '?')}/{inv.get('capacity', 28)} slots"""
 
         await ctx.send(msg)
     except Exception as e:
+        logger.error(f"!status error: {e}")
         await ctx.send(f"Error getting status: {e}")
 
 
@@ -249,15 +434,17 @@ async def screenshot(ctx: commands.Context):
     bot._load_tools()
 
     try:
-        result = await bot._monitoring.handle_get_screenshot({
-            "account_id": bot.account_id
-        })
+        # Use the internal function which returns a simple dict
+        result = bot._screenshot._take_screenshot(account_id=bot.account_id)
 
-        if "path" in result:
+        if result.get("success") and "path" in result:
             await ctx.send(file=discord.File(result["path"]))
         else:
-            await ctx.send("Failed to capture screenshot")
+            error_msg = result.get('error', 'unknown error')
+            logger.error(f"!screenshot failed: {error_msg}")
+            await ctx.send(f"Failed to capture screenshot: {error_msg}")
     except Exception as e:
+        logger.error(f"!screenshot error: {e}")
         await ctx.send(f"Error: {e}")
 
 
@@ -274,6 +461,7 @@ async def stop(ctx: commands.Context):
         })
         await ctx.send("Stop command sent")
     except Exception as e:
+        logger.error(f"!stop error: {e}")
         await ctx.send(f"Error: {e}")
 
 
@@ -296,6 +484,7 @@ async def run_routine(ctx: commands.Context, routine: str, loops: int = 1):
         })
         await ctx.send(f"Routine completed: {result.get('status', 'unknown')}")
     except Exception as e:
+        logger.error(f"!run error for {routine}: {e}")
         await ctx.send(f"Error: {e}")
 
 
@@ -315,6 +504,72 @@ async def list_routines(ctx: commands.Context):
     await ctx.send(msg)
 
 
+@commands.command(name="switch")
+async def switch_account(ctx: commands.Context, account: str = None):
+    """Switch to a different account. Usage: !switch main"""
+    bot: OSRSBot = ctx.bot
+
+    if not account:
+        await ctx.send(f"Current account: **{bot.account_id}**\nUsage: `!switch <account>`\nSee `!accounts` for available accounts.")
+        return
+
+    account = account.lower()
+    available = bot._get_available_accounts()
+
+    if bot.switch_account(account):
+        display_name = available.get(account, account)
+        await ctx.send(f"Switched to **{account}** ({display_name})")
+    else:
+        account_list = ", ".join(available.keys()) if available else "none found"
+        logger.warning(f"!switch failed: account '{account}' not found. Available: {account_list}")
+        await ctx.send(f"Account '{account}' not found. Available: {account_list}")
+
+
+@commands.command(name="accounts")
+async def list_accounts(ctx: commands.Context):
+    """List available accounts."""
+    bot: OSRSBot = ctx.bot
+    accounts = bot._get_available_accounts()
+
+    if accounts:
+        lines = []
+        for alias, display_name in accounts.items():
+            marker = " (active)" if alias == bot.account_id else ""
+            lines.append(f"- **{alias}**: {display_name}{marker}")
+        msg = "**Available Accounts:**\n" + "\n".join(lines)
+    else:
+        logger.warning("!accounts: No accounts configured in ~/.manny/credentials.yaml")
+        msg = "No accounts configured. Check `~/.manny/credentials.yaml`"
+
+    await ctx.send(msg)
+
+
+@commands.command(name="help")
+async def help_command(ctx: commands.Context):
+    """Show all available commands."""
+    help_text = """**OSRS Bot Commands**
+
+**Status & Info**
+`!status` - Get bot status (location, health, inventory)
+`!screenshot` - Get a screenshot of the game
+`!accounts` - List available accounts
+`!help` - Show this help message
+
+**Control**
+`!stop` - Stop current bot activity
+`!switch <account>` - Switch to a different account (e.g., `!switch main`)
+`!run <routine> [loops]` - Run a routine (e.g., `!run combat/hill_giants 5`)
+`!routines` - List available routines
+
+**Natural Language**
+Just type normally! The bot uses AI to understand requests like:
+- "go fish at draynor"
+- "what's in my inventory?"
+- "stop what you're doing"
+"""
+    await ctx.send(help_text)
+
+
 def setup_commands(bot: OSRSBot):
     """Add commands to bot."""
     bot.add_command(status)
@@ -322,6 +577,9 @@ def setup_commands(bot: OSRSBot):
     bot.add_command(stop)
     bot.add_command(run_routine)
     bot.add_command(list_routines)
+    bot.add_command(switch_account)
+    bot.add_command(list_accounts)
+    bot.add_command(help_command)
 
 
 def create_bot(

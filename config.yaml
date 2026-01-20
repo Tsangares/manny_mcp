@@ -6,12 +6,12 @@ runelite_root: /home/wil/Desktop/runelite
 # Path to the plugin source (manny plugin)
 plugin_directory: /home/wil/Desktop/manny
 
-# RuneLite client JAR (built from source) - set to null to use exec:java instead
-# runelite_jar: /home/wil/Desktop/runelite/runelite-client/target/client-1.12.4-SNAPSHOT-shaded.jar
-runelite_jar: null
+# RuneLite client JAR - use this when not building from source
+runelite_jar: /home/wil/runelite.jar
 
-# Use mvn exec:java to run (more reliable when building from source)
-use_exec_java: true
+# Use mvn exec:java to run (requires runelite source)
+# Set to false to use JAR directly (portable mode)
+use_exec_java: false
 
 # Java executable
 java_path: java
