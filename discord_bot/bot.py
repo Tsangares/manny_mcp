@@ -19,6 +19,8 @@ import yaml
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from discord_bot.llm_client import LLMClient
+from discord_bot.agent_brain import AgentBrain, TaskClassifier, TaskType
+from discord_bot.conversation_logger import get_conversation_logger
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +49,10 @@ class OSRSBot(commands.Bot):
         self._commands = None
         self._routine = None
         self._screenshot = None
+
+        # Agent brain for intelligent task routing
+        self._brain: Optional[AgentBrain] = None
+        self._classifier = TaskClassifier()
 
     def _load_tools(self):
         """Lazy load MCP tools."""
@@ -112,9 +118,33 @@ class OSRSBot(commands.Bot):
         self._config = config
         self._tools_loaded = True
 
-        # Set up the tool executor for LLM function calling
-        self.llm.set_tool_executor(self._execute_tool)
-        logger.info("MCP tools loaded")
+        # Set up the tool executor for LLM function calling (with logging wrapper)
+        self._current_request_id: Optional[str] = None
+        self.llm.set_tool_executor(self._execute_tool_with_logging)
+
+        # Create agent brain for intelligent routing
+        self._brain = AgentBrain(self.llm, self._execute_tool_with_logging)
+        logger.info("MCP tools and agent brain loaded")
+
+    async def _execute_tool_with_logging(self, tool_name: str, arguments: dict) -> dict:
+        """Wrapper that logs tool calls before executing."""
+        result = await self._execute_tool(tool_name, arguments)
+
+        # Log if we have a current request context
+        if self._current_request_id:
+            conv_logger = get_conversation_logger()
+            # Truncate large results for logging
+            log_result = result
+            if isinstance(result, dict) and len(str(result)) > 500:
+                log_result = {"_truncated": True, "keys": list(result.keys())}
+            conv_logger.log_tool_call(
+                request_id=self._current_request_id,
+                tool_name=tool_name,
+                arguments=arguments,
+                result=log_result
+            )
+
+        return result
 
     async def on_ready(self):
         logger.info(f"Bot ready: {self.user.name} ({self.user.id})")
@@ -159,59 +189,68 @@ class OSRSBot(commands.Bot):
             await self.handle_natural_language(message)
 
     async def handle_natural_language(self, message: discord.Message):
-        """Handle natural language messages via LLM."""
+        """Handle natural language messages via LLM with intelligent routing."""
         self._load_tools()
 
         user_id = message.author.id
+        username = str(message.author)
         content = message.content.strip()
 
         # Get conversation history for this user
         history = self.conversation_history.get(user_id, [])
 
-        # Get current game state for context
-        try:
-            state_result = await self._monitoring.handle_get_game_state({
-                "account_id": self.account_id,
-                "fields": ["location", "inventory", "skills", "health"]
-            })
-            game_state = state_result.get("state", {})
-        except Exception as e:
-            logger.error(f"Failed to get game state: {e}")
-            game_state = None
+        # Classify the task for logging/debugging
+        task_type = self._classifier.classify(content)
+        logger.info(f"Task classified as: {task_type.value} for '{content[:50]}'")
 
-        # Get available routines
-        routines = self._get_available_routines()
+        # Log to conversation logger
+        conv_logger = get_conversation_logger()
+        request_id = conv_logger.log_request(
+            user_id=user_id,
+            username=username,
+            message=content,
+            task_type=task_type.value,
+            account_id=self.account_id
+        )
+
+        # Set request context for tool logging
+        self._current_request_id = request_id
 
         # Show typing indicator
         async with message.channel.typing():
             try:
-                response = await self.llm.chat(
+                # Use the agent brain for intelligent processing
+                response = await self._brain.process_request(
                     message=content,
-                    game_state={"player": game_state} if game_state else None,
-                    available_routines=routines,
                     conversation_history=history
                 )
+
+                # Log the response
+                conv_logger.log_response(request_id=request_id, response=response)
 
                 # Update history (keep last 10 exchanges)
                 history.append({"role": "user", "content": content})
                 history.append({"role": "assistant", "content": response})
                 self.conversation_history[user_id] = history[-20:]
 
-                # Check if LLM suggested an action we should auto-execute
-                action = self._parse_action(response)
-                if action:
-                    action_result = await self._execute_action(action)
-                    if action_result:
-                        response += f"\n\n**Executed:** {action_result}"
+                # For multi-step tasks, don't auto-parse actions - the brain handles it
+                # Only parse for conversation responses that might suggest actions
+                if task_type == TaskType.CONVERSATION:
+                    action = self._parse_action(response)
+                    if action:
+                        action_result = await self._execute_action(action)
+                        if action_result:
+                            response += f"\n\n**Executed:** {action_result}"
 
-                # Try to attach a screenshot with the response
+                # Try to attach a screenshot with the response (only for status/query tasks)
                 screenshot_file = None
-                try:
-                    ss_result = self._screenshot._take_screenshot(account_id=self.account_id)
-                    if ss_result.get("success") and "path" in ss_result:
-                        screenshot_file = discord.File(ss_result["path"])
-                except Exception as e:
-                    logger.debug(f"Auto-screenshot failed: {e}")
+                if task_type in [TaskType.STATUS_QUERY, TaskType.SIMPLE_COMMAND]:
+                    try:
+                        ss_result = self._screenshot._take_screenshot(account_id=self.account_id)
+                        if ss_result.get("success") and "path" in ss_result:
+                            screenshot_file = discord.File(ss_result["path"])
+                    except Exception as e:
+                        logger.debug(f"Auto-screenshot failed: {e}")
 
                 if screenshot_file:
                     await message.channel.send(response[:2000], file=screenshot_file)
@@ -219,8 +258,12 @@ class OSRSBot(commands.Bot):
                     await message.channel.send(response[:2000])  # Discord limit
 
             except Exception as e:
-                logger.error(f"LLM error: {e}")
+                logger.error(f"LLM/Brain error: {e}", exc_info=True)
+                conv_logger.log_error(request_id=request_id, error=str(e))
                 await message.channel.send(f"Error: {e}")
+            finally:
+                # Clear request context
+                self._current_request_id = None
 
     def _get_available_routines(self) -> List[str]:
         """Get list of available routine files."""

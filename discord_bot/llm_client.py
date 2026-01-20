@@ -408,7 +408,7 @@ class LLMClient:
         # Build request with tools
         tools = self._get_ollama_tools() if self.tool_executor else None
 
-        max_tool_calls = 5
+        max_tool_calls = 10  # Allow more for multi-step tasks
         tool_calls_made = 0
 
         async with httpx.AsyncClient(timeout=120.0) as client:
