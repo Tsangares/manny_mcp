@@ -121,9 +121,10 @@ class JournalParser:
         self.journals_dir = Path(journals_dir or "journals")
 
     def list_journals(self) -> List[Path]:
-        """List all journal files, excluding template."""
-        journals = sorted(self.journals_dir.glob("*.md"))
-        return [j for j in journals if "TEMPLATE" not in j.name.upper()]
+        """List all journal files, excluding template. Searches subdirectories."""
+        # Search both root and subdirectories
+        journals = sorted(self.journals_dir.glob("**/*.md"))
+        return [j for j in journals if "TEMPLATE" not in j.name.upper() and "README" not in j.name.upper()]
 
     def parse_journal(self, filepath: Path) -> ParsedJournal:
         """Parse a single journal file."""

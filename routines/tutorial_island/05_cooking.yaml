@@ -1,5 +1,5 @@
 # Tutorial Island - Part 5: Cooking
-# STATUS: VALIDATED
+# STATUS: IN PROGRESS
 #
 # This routine handles the cooking section:
 # 1. Enter cooking building
@@ -12,92 +12,86 @@ name: "Tutorial Island - Cooking"
 type: tutorial
 phase: 5
 
-# Key NPCs
-npcs:
-  master_chef:
-    name: "Master Chef"
-    id: 3305
-    location: {x: 3076, y: 3083, plane: 0}
-
-# Key Objects
-objects:
-  door_enter:
-    location: {x: 3072, y: 3090}  # Enter cooking building FROM Quest Guide side
-  door_exit_correct:
-    location: {x: 3072, y: 3090}  # CORRECT exit - same door, leads to Quest Guide
-  door_exit_wrong:
-    location: {x: 3079, y: 3084}  # WRONG exit - leads to complex maze area
-  range:
-    name: "Range"
-
-# Key Widgets
-widgets:
-  continue_button: 12648448
-
 steps:
   - id: 1
     description: "Enter cooking building"
     action: INTERACT_OBJECT
     args: "Door Open"
-    validated: true
 
   - id: 2
     description: "Talk to Master Chef"
     action: INTERACT_NPC
     args: "Master_Chef Talk-to"
-    await_condition: "dialogue"
-    validated: true
+    delay_before_ms: 2000
 
   - id: 3
-    description: "Click through dialogue"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
-    notes: "Master Chef gives you pot of flour and bucket of water"
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
 
   - id: 4
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 5
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 6
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 7
     description: "Make bread dough"
     action: USE_ITEM_ON_ITEM
     args: "flour water"
-    await_condition: "has_item:Bread dough"
-    validated: true
+    delay_before_ms: 1000
     notes: |
       CRITICAL: Use partial item names!
       - "flour" matches "Pot of flour"
       - "water" matches "Bucket of water"
-      Full names with underscores DON'T work because findItemIdByNameUnsafe
-      uses contains() match without underscore-to-space conversion.
 
-  - id: 5
+  - id: 8
+    description: "Continue dialogue after making dough"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
+
+  - id: 9
     description: "Cook bread on range"
     action: USE_ITEM_ON_OBJECT
     args: "dough Range"
-    await_condition: "has_item:Bread"
-    validated: true
+    delay_before_ms: 1000
     notes: "Partial name 'dough' works to match 'Bread dough'"
 
-  - id: 6
+  - id: 10
+    description: "Continue dialogue after cooking"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 3000
+
+  - id: 11
     description: "Exit cooking building to Quest Guide area"
     action: INTERACT_OBJECT
     args: "Door Open"
-    location: {x: 3072, y: 3090}
-    validated: true
+    delay_before_ms: 1000
     notes: |
-      CRITICAL: Use the SAME door you entered through at (3072, 3090)!
+      CRITICAL: Use the door at (3072, 3090) on the NORTH side.
       This leads directly to the Quest Guide area.
-      DO NOT use the door at (3079, 3084) - that leads to a maze area.
+      DO NOT use the door at (3079, 3084) - leads to maze area.
 
 # PITFALLS DISCOVERED:
 # 1. USE_ITEM_ON_ITEM with full names like "Pot_of_flour" FAILS
-#    - findItemIdByNameUnsafe uses contains() without underscore conversion
 #    - SOLUTION: Use partial names like "flour" and "water"
-# 2. WRONG EXIT DOOR at (3079, 3084) leads to complex maze area!
-#    - This door is on the EAST side of the cooking building
-#    - Using it requires navigating multiple doors/gates to reach Quest Guide
-#    - SOLUTION: Use the CORRECT door at (3072, 3090) on the NORTH side
-#    - This is the same door you entered through - it leads directly to Quest Guide
+# 2. CLICK_CONTINUE doesn't exist - use KEY_PRESS Space
+# 3. WRONG EXIT DOOR at (3079, 3084) leads to complex maze area
 
-# VALIDATED COMMANDS:
-# - INTERACT_OBJECT Door Open         # Enter building at (3072, 3090), exit same door
-# - INTERACT_NPC Master_Chef Talk-to  # Talk to chef
-# - USE_ITEM_ON_ITEM flour water      # Make bread dough (PARTIAL NAMES!)
-# - USE_ITEM_ON_OBJECT dough Range    # Cook bread (PARTIAL NAME!)
+# After this routine:
+# Player exits to Quest Guide area, ready for 06_quest_guide.yaml

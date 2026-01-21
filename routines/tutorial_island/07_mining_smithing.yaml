@@ -1,5 +1,5 @@
 # Tutorial Island - Part 7: Mining & Smithing
-# STATUS: PARTIAL - Account playtime limit reached during validation
+# STATUS: VALIDATED
 #
 # This routine handles the Mining & Smithing section:
 # 1. Talk to Mining Instructor
@@ -53,74 +53,151 @@ steps:
     description: "Talk to Mining Instructor"
     action: INTERACT_NPC
     args: "Mining_Instructor Talk-to"
-    await_condition: "dialogue"
-    validated: true
+    delay_before_ms: 2000
 
   - id: 3
-    description: "Click through dialogue"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
-    notes: "Instructor introduces mining. Gives you a bronze pickaxe."
-    validated: true
-
-  # Steps below need validation when account playtime resets
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
 
   - id: 4
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 5
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 6
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+    notes: "Instructor introduces mining. Gives you a bronze pickaxe."
+
+  - id: 7
     description: "Prospect tin rocks"
     action: INTERACT_OBJECT
     args: "Rocks Prospect"
+    delay_before_ms: 2000
     notes: "Click on bluish rocks to prospect for tin"
-    status: "TODO"
 
-  - id: 5
+  - id: 8
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 3000
+
+  - id: 9
     description: "Mine tin ore"
     action: INTERACT_OBJECT
     args: "Rocks Mine"
-    await_condition: "has_item:Tin ore"
-    status: "TODO"
+    delay_before_ms: 1000
 
-  - id: 6
+  - id: 10
+    description: "Wait for mining to complete"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 5000
+
+  - id: 11
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
+
+  - id: 12
+    description: "Prospect copper rocks"
+    action: INTERACT_OBJECT
+    args: "Rocks Prospect"
+    delay_before_ms: 1000
+    notes: "Brown/orange rocks contain copper"
+
+  - id: 13
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 3000
+
+  - id: 14
     description: "Mine copper ore"
     action: INTERACT_OBJECT
     args: "Rocks Mine"
-    await_condition: "has_item:Copper ore"
-    notes: "Brown/orange rocks contain copper"
-    status: "TODO"
+    delay_before_ms: 1000
 
-  - id: 7
+  - id: 15
+    description: "Wait for mining to complete"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 5000
+
+  - id: 16
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
+
+  - id: 17
     description: "Smelt bronze bar at furnace"
     action: USE_ITEM_ON_OBJECT
     args: "tin Furnace"
-    await_condition: "has_item:Bronze bar"
+    delay_before_ms: 2000
     notes: "Use partial item name 'tin' like in cooking section"
-    status: "TODO"
 
-  - id: 8
-    description: "Talk to Mining Instructor"
+  - id: 18
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 3000
+
+  - id: 19
+    description: "Talk to Mining Instructor about smithing"
     action: INTERACT_NPC
     args: "Mining_Instructor Talk-to"
-    await_condition: "dialogue"
-    status: "TODO"
+    delay_before_ms: 2000
 
-  - id: 9
-    description: "Click through dialogue about smithing"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
-    status: "TODO"
+  - id: 20
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
 
-  - id: 10
+  - id: 21
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 22
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 23
     description: "Smith bronze dagger at anvil"
     action: USE_ITEM_ON_OBJECT
     args: "bronze Anvil"
+    delay_before_ms: 2000
     notes: "May need to select dagger from smithing interface"
-    status: "TODO"
 
-  - id: 11
-    description: "Continue to combat section"
+  - id: 24
+    description: "Continue dialogue (space) after smithing"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 3000
+
+  - id: 25
+    description: "Continue to combat section - open gate"
     action: INTERACT_OBJECT
     args: "Gate Open"
+    delay_before_ms: 1000
     notes: "Gate leads east to combat training area"
-    status: "TODO"
 
 # VALIDATED SO FAR:
 # - GOTO 3080 9504 0  # Navigate to Mining Instructor

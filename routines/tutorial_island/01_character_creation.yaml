@@ -19,11 +19,10 @@ steps:
 
   - id: 2
     phase: "experience_selection"
-    action: SEND_INPUT
-    args: "click 306 267"
+    action: CLICK_CHILD_WIDGET
+    args: "7995392 0 static"
     description: "Click 'I'm brand new!' button"
-    # Widget scanning doesn't work on this interface
-    # Coordinates from analyze_screenshot
+    # Widget 7995392 = (122 << 16) | 0, static child index 0 = brand new
 
 # PITFALLS DISCOVERED:
 # - Widget scanning (find_widget, scan_widgets) returns 0 widgets for

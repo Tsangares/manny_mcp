@@ -27,36 +27,67 @@ steps:
     description: "Talk to Gielinor Guide"
     action: INTERACT_NPC
     args: "Gielinor_Guide Talk-to"
-    await_condition: "dialogue"
 
   - id: 2
-    description: "Click through dialogue (multiple continues)"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
-    notes: "Gielinor Guide gives intro speech about the world"
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
 
   - id: 3
-    description: "Open Settings tab when prompted"
-    action: CLICK_WIDGET
-    args: "35913780"
-    notes: "Widget 35913780 has actions: Settings, Controls, Audio"
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
 
   - id: 4
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 5
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 6
+    description: "Open Settings tab when prompted"
+    action: KEY_PRESS
+    args: "F11"
+    delay_before_ms: 1000
+    # F11 opens settings tab
+
+  - id: 7
     description: "Talk to Gielinor Guide again"
     action: INTERACT_NPC
     args: "Gielinor_Guide Talk-to"
-    await_condition: "dialogue"
+    delay_before_ms: 1000
 
-  - id: 5
-    description: "Click through final dialogue"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
+  - id: 8
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
 
-  - id: 6
+  - id: 9
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 10
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 11
     description: "Open the door to exit"
     action: INTERACT_OBJECT
     args: "Door Open"
-    notes: "Door at 3098,3107 - 4 tiles east of Gielinor Guide"
+    delay_before_ms: 1000
 
 # After this routine:
 # Player should be outside the building, ready for Survival Expert (03_survival_expert.yaml)

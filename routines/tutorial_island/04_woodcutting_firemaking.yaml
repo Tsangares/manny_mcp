@@ -1,74 +1,100 @@
 # Tutorial Island - Part 4: Woodcutting & Firemaking
 # STATUS: VALIDATED
 #
-# This routine handles woodcutting and firemaking:
-# 1. Talk to Survival Expert (again, for woodcutting intro)
+# This routine handles woodcutting, firemaking, and cooking shrimp on fire:
+# 1. Talk to Survival Expert (for woodcutting intro)
 # 2. Chop down tree
 # 3. Light fire with tinderbox
-# 4. Continue to cooking section
+# 4. Cook shrimp on fire
+# 5. Go through gate to cooking area
 
 name: "Tutorial Island - Woodcutting & Firemaking"
 type: tutorial
 phase: 4
-
-# Key NPCs
-npcs:
-  survival_expert:
-    id: 8503
-    location: {x: 3104, y: 3096, plane: 0}
-
-# Key Objects
-objects:
-  tree:
-    name: "Tree"
-    action: "Chop down"  # NOTE: Space, not underscore or hyphen!
-
-# Key Widgets
-widgets:
-  continue_button: 12648448
 
 steps:
   - id: 1
     description: "Talk to Survival Expert for woodcutting intro"
     action: INTERACT_NPC
     args: "Survival_Expert Talk-to"
-    await_condition: "dialogue"
 
   - id: 2
-    description: "Click through dialogue"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 2000
 
   - id: 3
-    description: "Chop down a tree"
-    action: INTERACT_OBJECT
-    args: "Tree Chop down"
-    await_condition: "has_item:Logs"
-    notes: |
-      CRITICAL: Action is "Chop down" with SPACE, not underscore!
-      - "Chop_down" fails
-      - "Chop-down" fails
-      - "Chop down" works
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
 
   - id: 4
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 5
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 6
+    description: "Chop down a tree"
+    action: INTERACT_OBJECT
+    args: "tree Chop down"
+    delay_before_ms: 1000
+    notes: |
+      Object name is lowercase "tree" (case-sensitive!)
+      Action is "Chop down" with SPACE (args.split(" ", 2) allows space in action)
+
+  - id: 7
+    description: "Wait for chopping to complete"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 5000
+
+  - id: 8
     description: "Light fire with tinderbox"
     action: USE_ITEM_ON_ITEM
     args: "Tinderbox Logs"
-    await_condition: "no_item:Logs"
-    notes: "Player will automatically light the fire"
+    delay_before_ms: 1000
 
-  - id: 5
-    description: "Click continue after lighting fire"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
+  - id: 9
+    description: "Wait for fire to light"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 3000
+
+  - id: 10
+    description: "Cook shrimp on fire"
+    action: USE_ITEM_ON_OBJECT
+    args: "shrimps fire"
+    delay_before_ms: 1000
+    notes: |
+      Use partial name "shrimps" to match "Raw shrimps"
+      Format: <item> <object> (no action needed)
+
+  - id: 11
+    description: "Continue dialogue after cooking"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 3000
+
+  - id: 12
+    description: "Go through gate to cooking area"
+    action: INTERACT_OBJECT
+    args: "gate Open"
+    delay_before_ms: 1000
 
 # PITFALLS DISCOVERED:
-# 1. Tree action is "Chop down" (space) not "Chop_down" or "Chop-down"
-#    - Discovered by trial and error in command history
-# 2. USE_ITEM_ON_ITEM Tinderbox Logs works correctly
+# 1. Object name is lowercase "tree" (case-sensitive)
+# 2. Action "Chop down" uses SPACE (args.split(" ", 2) allows spaces in action)
+# 3. USE_ITEM_ON_OBJECT format is just "<item> <object>" - no action
+# 4. Partial item names work (e.g., "shrimps" matches "Raw shrimps")
 
-# COMMANDS USED (from /tmp/ command log):
-# - INTERACT_NPC Survival_Expert Talk-to
-# - INTERACT_OBJECT Tree Chop down
-# - USE_ITEM_ON_ITEM Tinderbox Logs
-# - CLICK_CONTINUE
+# After this routine:
+# Player at (3089, 3091), ready for 05_cooking.yaml (cooking building)
