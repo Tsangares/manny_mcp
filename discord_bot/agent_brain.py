@@ -52,6 +52,8 @@ SIMPLE_COMMAND_PATTERNS = [
     r'\btab[_ ]?open\b',
     r'^[A-Z_]{3,}(\s|$)',  # Matches uppercase commands like "KILL_LOOP", "GOTO", etc.
     r'^send\s+[A-Z_]',     # "send KILL_LOOP..."
+    r'\bswitch\s+(combat\s+)?style\b',  # "switch combat style to X", "switch style to X"
+    r'\bcombat\s+style\b',  # "change combat style", "combat style to attack"
 ]
 
 LOOP_PATTERNS = [
@@ -60,6 +62,8 @@ LOOP_PATTERNS = [
     r'\b(mine|mining)\b(?!.*\b(and|then|after)\b)',
     r'\b(chop|woodcut)\b(?!.*\b(and|then|after)\b)',
     r'\bloop\b',
+    r'\bgrind\s+(on\s+)?\w+',  # "grind giant frogs", "grind on cows"
+    r'\bkill\s+loop\b',  # "kill loop giant frog"
 ]
 
 MULTI_STEP_PATTERNS = [

@@ -67,7 +67,7 @@ def _safe_json_dumps(obj: Any) -> str:
 
 # Ollama configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:14b-multi")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:14b")
 
 
 # Tool definitions for Gemini function calling

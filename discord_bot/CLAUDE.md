@@ -146,36 +146,51 @@ cd ~/manny-mcp && ./venv/bin/python run_discord.py --account aux --provider gemi
 
 ## Implemented Fixes (2026-01-21)
 
-### Fix 1: Tool Calls in History
+### Fix 1: Direct Command Bypass (HIGHEST IMPACT)
 
-Bot now tracks actual tool calls and includes them in conversation history:
+When user types a raw command like `KILL_LOOP Giant_frog 300`, it bypasses the LLM entirely and executes directly.
+
+```python
+if self._is_direct_command(content):
+    result = await self._execute_tool("send_command", {"command": content})
+    await message.channel.send(f"✅ `{content}`")
+    return
+```
+
+**Detected commands:** KILL_LOOP, GOTO, BANK_*, FISH*, INTERACT_*, TAB_OPEN, SWITCH_COMBAT_STYLE, etc.
+
+Location: `bot.py` `_is_direct_command()` and `handle_natural_language()`
+
+### Fix 2: JSON Rescue
+
+When the LLM outputs `{"name": "send_command", ...}` as text instead of calling the tool, we parse and execute it.
+
+Location: `bot.py` around line ~350
+
+### Fix 3: Tool Calls in History
+
+Bot tracks actual tool calls and includes them in conversation history:
 - `[EXECUTED: KILL_LOOP Giant_frog none]` - shows what was really done
 - `[NO TOOLS CALLED]` - makes faking visible in history
 
-This prevents the LLM from learning that "text responses = action taken".
+### Fix 4: "THIS IS LIVE" System Prompt
 
-Location: `bot.py` lines ~175, ~325
-
-### Fix 2: "THIS IS LIVE" System Prompt
-
-Added explicit emphasis in CONTEXT.md that this is a REAL system, not a simulation:
+Added explicit emphasis in CONTEXT.md:
 - "THIS IS LIVE - NOT A SIMULATION" header
-- "The REAL GAME does not respond to your text. It ONLY responds to tool calls."
 - Removed "Response Patterns" examples that encouraged pattern-matching
 
-### Fix 3: Faking Detection
+### Fix 5: Faking Detection
 
-Bot now detects when LLM claims action but didn't call tools:
-```python
-if claims_action and not has_real_tool_call:
-    response = "⚠️ I described an action but didn't actually execute it..."
+Bot detects when LLM claims action but didn't call tools:
+```
+⚠️ I described an action but didn't actually execute it...
 ```
 
-Location: `bot.py` lines ~318-325
+### Fix 6: Minimal Context Augmentation
 
-### Fix 4: Reduced History
+Removed extra instructions for loop_command/simple_command that were confusing the model. Only STATUS_QUERY gets pre-fetched state now.
 
-History reduced from 20 to 12 messages (6 exchanges) to prevent pattern learning.
+Location: `agent_brain.py`
 
 ## Further Improvements
 

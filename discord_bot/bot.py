@@ -265,6 +265,114 @@ class OSRSBot(commands.Bot):
         if not message.content.startswith("!"):
             await self.handle_natural_language(message)
 
+    def _is_direct_command(self, content: str) -> bool:
+        """Check if content is a direct plugin command that should bypass LLM."""
+        # Known command prefixes that should be sent directly
+        direct_prefixes = [
+            'KILL_LOOP', 'KILL', 'ATTACK_NPC', 'STOP',
+            'GOTO', 'WAIT',
+            'BANK_OPEN', 'BANK_CLOSE', 'BANK_DEPOSIT', 'BANK_WITHDRAW',
+            'FISH', 'CHOP', 'COOK', 'LIGHT',
+            'INTERACT_NPC', 'INTERACT_OBJECT', 'PICK_UP', 'USE_ITEM',
+            'TAB_OPEN', 'CLICK_WIDGET', 'CLICK_DIALOGUE', 'CLICK_CONTINUE',
+            'SWITCH_COMBAT_STYLE', 'EQUIP',
+            'LIST_COMMANDS', 'RUN_ROUTINE',
+        ]
+        content_upper = content.strip().upper()
+        return any(content_upper.startswith(prefix) for prefix in direct_prefixes)
+
+    def _extract_command(self, content: str) -> Optional[str]:
+        """Extract a raw plugin command from anywhere in the message.
+
+        Handles cases like:
+        - "Send the command KILL_LOOP Giant_frog 300"
+        - "Can you KILL_LOOP Giant_frog none 100"
+        - "switch combat style to block" → SWITCH_COMBAT_STYLE block
+        - "open inventory" → TAB_OPEN inventory
+        - Multi-line messages with command on separate line
+
+        Returns the extracted command or None if not found.
+        """
+        import re
+
+        # Normalize: replace newlines with spaces, collapse multiple spaces
+        normalized = ' '.join(content.split())
+        content_lower = normalized.lower()
+        content_upper = normalized.upper()
+
+        # First, check for natural language patterns and convert to commands
+        # Pattern: "switch (combat) style to X" → "SWITCH_COMBAT_STYLE X"
+        style_match = re.search(r'switch\s+(?:combat\s+)?style\s+(?:to\s+)?(\w+)', content_lower)
+        if style_match:
+            style = style_match.group(1).capitalize()
+            return f"SWITCH_COMBAT_STYLE {style}"
+
+        # Pattern: "open inventory/combat/skills/etc" → "TAB_OPEN X"
+        tab_match = re.search(r'open\s+(inventory|combat|skills|equipment|prayer|magic|quest)', content_lower)
+        if tab_match:
+            tab = tab_match.group(1).capitalize()
+            return f"TAB_OPEN {tab}"
+
+        # Pattern: "grind (on) X (number)" → "KILL_LOOP X none number"
+        grind_match = re.search(r'grind\s+(?:on\s+)?(\w+(?:_\w+)?)\s*(\d+)?', content_lower)
+        if grind_match:
+            target = grind_match.group(1).replace(' ', '_').capitalize()
+            # Handle "giant frog" → "Giant_frog"
+            if 'giant' in content_lower and 'frog' in content_lower:
+                target = 'Giant_frog'
+            count = grind_match.group(2) or '100'
+            return f"KILL_LOOP {target} none {count}"
+
+        # Pattern: "kill (loop) X (number)" → "KILL_LOOP X none number"
+        kill_match = re.search(r'kill\s+(?:loop\s+)?(\w+(?:_\w+)?)\s*(\d+)?', content_lower)
+        if kill_match and 'kill_loop' not in content_lower:  # Don't double-match raw commands
+            target = kill_match.group(1).replace(' ', '_').capitalize()
+            if 'giant' in content_lower and 'frog' in content_lower:
+                target = 'Giant_frog'
+            count = kill_match.group(2) or '100'
+            return f"KILL_LOOP {target} none {count}"
+
+        # Command prefixes to look for (order matters - longer/more specific first)
+        command_prefixes = [
+            'KILL_LOOP', 'KILL',
+            'ATTACK_NPC',
+            'GOTO',
+            'WAIT',
+            'BANK_OPEN', 'BANK_CLOSE', 'BANK_DEPOSIT_ALL', 'BANK_DEPOSIT', 'BANK_WITHDRAW',
+            'FISH_DRAYNOR_LOOP', 'FISH_DROP', 'FISH',
+            'CHOP_TREE', 'CHOP',
+            'COOK_ALL', 'COOK',
+            'LIGHT_FIRE', 'LIGHT',
+            'INTERACT_NPC', 'INTERACT_OBJECT',
+            'PICK_UP_ITEM', 'PICK_UP',
+            'USE_ITEM_ON_NPC', 'USE_ITEM_ON_OBJECT', 'USE_ITEM',
+            'TAB_OPEN',
+            'CLICK_WIDGET', 'CLICK_DIALOGUE', 'CLICK_CONTINUE',
+            'SWITCH_COMBAT_STYLE',
+            'EQUIP',
+            'RUN_ROUTINE',
+            'STOP',
+        ]
+
+        for prefix in command_prefixes:
+            # Find the prefix in the content
+            idx = content_upper.find(prefix)
+            if idx != -1:
+                # Extract from prefix to end of line (or end of content)
+                remainder = normalized[idx:]
+                # Take until newline or end
+                end_idx = remainder.find('\n')
+                if end_idx != -1:
+                    command = remainder[:end_idx].strip()
+                else:
+                    command = remainder.strip()
+
+                # Basic validation: command should have the prefix
+                if command.upper().startswith(prefix):
+                    return command
+
+        return None
+
     async def handle_natural_language(self, message: discord.Message):
         """Handle natural language messages via LLM with intelligent routing."""
         self._load_tools()
@@ -273,6 +381,20 @@ class OSRSBot(commands.Bot):
         user_id = message.author.id
         username = str(message.author)
         content = message.content.strip()
+
+        # DIRECT COMMAND BYPASS: If user types a raw command, execute it directly
+        # This avoids the LLM "faking" issue entirely for explicit commands
+        if self._is_direct_command(content):
+            logger.info(f"Direct command detected, bypassing LLM: {content[:50]}")
+            try:
+                result = await self._execute_tool("send_command", {"command": content})
+                if result.get("dispatched"):
+                    await message.channel.send(f"✅ `{content}`")
+                else:
+                    await message.channel.send(f"⚠️ Command may have failed: {result}")
+            except Exception as e:
+                await message.channel.send(f"❌ Error: {e}")
+            return
 
         # Get conversation history for this user
         history = self.conversation_history.get(user_id, [])
@@ -317,27 +439,59 @@ class OSRSBot(commands.Bot):
                     response = "Done."
                     logger.warning(f"Empty LLM response for request {request_id}, using fallback")
 
+                # JSON RESCUE: If LLM output JSON tool calls as text, parse and execute them
+                import re
+                json_pattern = r'\{"name":\s*"(send_command|get_game_state|lookup_location)"[^}]*"arguments":\s*(\{[^}]+\})\}'
+                json_matches = re.findall(json_pattern, response)
+                if json_matches and not self._current_tool_calls:
+                    logger.info(f"Found {len(json_matches)} JSON tool calls in response text, executing...")
+                    for tool_name, args_str in json_matches:
+                        try:
+                            import json
+                            args = json.loads(args_str)
+                            result = await self._execute_tool(tool_name, args)
+                            self._current_tool_calls.append(f"RESCUED: {tool_name}")
+                            logger.info(f"Rescued JSON tool call: {tool_name}({args}) -> {str(result)[:100]}")
+                        except Exception as e:
+                            logger.warning(f"Failed to rescue JSON tool call: {e}")
+                    # Clean the JSON from the response
+                    response = re.sub(r'```json\s*\{[^`]+\}\s*```', '', response)
+                    response = re.sub(json_pattern, '', response)
+                    response = response.strip() or "Done."
+
                 # FAKING DETECTION: Check if LLM claims action without tool calls
                 action_words = ['started', 'switched', 'opened', 'restarted', 'stopped', 'killed', 'executed']
                 claims_action = any(word in response.lower() for word in action_words)
-                has_real_tool_call = bool(self._current_tool_calls)
+                # Check for real send_command calls (not just get_game_state)
+                has_send_command = any('send_command' in tc or 'EXECUTED' in tc for tc in self._current_tool_calls)
 
-                if claims_action and not has_real_tool_call and task_type in [TaskType.SIMPLE_COMMAND, TaskType.LOOP_COMMAND]:
-                    # LLM is faking - it claims to have done something but didn't call tools
-                    logger.warning(f"FAKING DETECTED: Response claims action but no tools called. Request: {content[:50]}")
-                    response = f"⚠️ I described an action but didn't actually execute it. Let me try again with the real command.\n\n(Debug: No send_command was called for '{content}')"
+                # Faking can happen in any task type, but most common in command types
+                if claims_action and not has_send_command:
+                    # Try to extract and auto-execute a command
+                    extracted_cmd = self._extract_command(content)
+                    if extracted_cmd:
+                        logger.warning(f"FAKING DETECTED - Auto-executing extracted command: {extracted_cmd}")
+                        try:
+                            result = await self._execute_tool("send_command", {"command": extracted_cmd})
+                            if result.get("dispatched"):
+                                self._current_tool_calls.append(f"AUTO-EXECUTED: {extracted_cmd}")
+                                response = f"✅ `{extracted_cmd}`"
+                            else:
+                                response = f"⚠️ Command may have failed: {result}"
+                        except Exception as e:
+                            logger.error(f"Auto-execute failed: {e}")
+                            response = f"⚠️ Failed to execute: {e}"
+                    else:
+                        # No command to extract - just warn
+                        logger.warning(f"FAKING DETECTED: No extractable command. Request: {content[:50]}")
+                        response = f"⚠️ I described an action but didn't actually execute it. Please try a more specific command.\n\n(Debug: No send_command was called for '{content}')"
 
                 # Log the response
                 conv_logger.log_response(request_id=request_id, response=response)
 
-                # Build assistant content with tool calls included
-                # This prevents the LLM from learning to "fake" responses without tools
-                if self._current_tool_calls:
-                    tool_summary = " | ".join(self._current_tool_calls)
-                    assistant_content = f"[{tool_summary}] {response}"
-                else:
-                    # Mark when NO tools were called - makes faking visible in history
-                    assistant_content = f"[NO TOOLS CALLED] {response}"
+                # Don't add [EXECUTED: ...] prefix - model learns to mimic it without calling tools
+                # Just store the raw response
+                assistant_content = response
 
                 # Update history (keep last 6 exchanges = 12 messages to reduce pattern learning)
                 history.append({"role": "user", "content": content})
