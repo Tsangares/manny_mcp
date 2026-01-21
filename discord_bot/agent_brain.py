@@ -193,8 +193,9 @@ class ContextEnricher:
             context["available_commands"]["banking"] = self.COMMAND_CATEGORIES["banking"]
             context["available_commands"]["ui"] = self.COMMAND_CATEGORIES["ui"]
 
-        # Try to get current game state if we have a tool executor
-        if self.tool_executor and task_type != TaskType.CONVERSATION:
+        # Only pre-fetch state for STATUS_QUERY - for commands, let LLM call tools itself
+        # Pre-fetching for commands causes LLM to "fake" responses without calling tools
+        if self.tool_executor and task_type == TaskType.STATUS_QUERY:
             try:
                 state = await self.tool_executor("get_game_state", {"fields": ["location", "health", "inventory"]})
                 context["current_state"] = state.get("state", {})
@@ -347,33 +348,10 @@ class AgentBrain:
         """Build an augmented message with injected context."""
         parts = []
 
-        # Add task-specific instructions
-        if task_type == TaskType.LOOP_COMMAND:
-            parts.append("**Task Type: Loop/Continuous Command**")
-            parts.append("You CAN and SHOULD send commands. Use the appropriate _LOOP command for continuous tasks.")
-
-        elif task_type == TaskType.MULTI_STEP:
-            parts.append("**Task Type: Multi-Step Task**")
-            parts.append("Break this into steps. Execute ONE step at a time.")
-            parts.append("After each command, use get_game_state to verify before proceeding.")
-
-        elif task_type == TaskType.SIMPLE_COMMAND:
-            parts.append("**Task Type: Simple Command**")
-            parts.append("Execute this directly with send_command.")
-
-        # Add available commands
-        if context.get("available_commands"):
-            parts.append("\n**Available Commands:**")
-            for category, commands in context["available_commands"].items():
-                parts.append(f"\n{category.title()}:")
-                for cmd in commands:
-                    parts.append(f"  - {cmd}")
-
-        # Add hints
-        if context.get("hints"):
-            parts.append("\n**Hints:**")
-            for hint in context["hints"]:
-                parts.append(f"- {hint}")
+        # MINIMAL context - extra instructions were confusing the model and causing it to fake
+        # The conversation type works best with just the raw message
+        if task_type == TaskType.MULTI_STEP:
+            parts.append("Execute each step by calling the appropriate tool. Don't just describe - actually call the tools.")
 
         # Add the actual user message
         parts.append(f"\n**User Request:** {message}")

@@ -29,11 +29,19 @@ from discord_bot.task_queue import when_level, after_level_up, when_inventory_fu
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("discord_bot")
 
+# Accounts that the Discord bot is NOT allowed to control
+# This protects important accounts from accidental or unauthorized access
+BLOCKED_ACCOUNTS = {"main"}
+
 
 class OSRSBot(commands.Bot):
     """Discord bot for controlling OSRS automation."""
 
     def __init__(self, llm_provider: str = "ollama", account_id: str = "aux"):
+        # Validate account_id is not blocked
+        if account_id in BLOCKED_ACCOUNTS:
+            raise ValueError(f"Account '{account_id}' is blocked and cannot be used by the Discord bot")
+
         # DM-focused bot - minimal intents
         intents = discord.Intents.default()
         intents.message_content = True
@@ -61,6 +69,9 @@ class OSRSBot(commands.Bot):
         self._task_manager: Optional[TaskManager] = None
         self._task_manager_started: bool = False
         self._dm_channel: Optional[discord.DMChannel] = None  # For notifications
+
+        # Track tool calls for current request (to include in history)
+        self._current_tool_calls: List[str] = []
 
     def _load_tools(self):
         """Lazy load MCP tools."""
@@ -170,6 +181,14 @@ class OSRSBot(commands.Bot):
 
         latency_ms = int((time.time() - start_time) * 1000)
 
+        # Track tool calls for history (skip get_game_state which is often just context)
+        if tool_name != "get_game_state":
+            if tool_name == "send_command":
+                cmd = arguments.get("command", "")
+                self._current_tool_calls.append(f"EXECUTED: {cmd}")
+            else:
+                self._current_tool_calls.append(f"CALLED: {tool_name}")
+
         # Log if we have a current request context
         if self._current_request_id:
             conv_logger = get_conversation_logger()
@@ -274,6 +293,7 @@ class OSRSBot(commands.Bot):
 
         # Set request context for tool logging
         self._current_request_id = request_id
+        self._current_tool_calls = []  # Reset tool call tracker
 
         # Start training data collection
         training_logger.start_example(
@@ -297,13 +317,32 @@ class OSRSBot(commands.Bot):
                     response = "Done."
                     logger.warning(f"Empty LLM response for request {request_id}, using fallback")
 
+                # FAKING DETECTION: Check if LLM claims action without tool calls
+                action_words = ['started', 'switched', 'opened', 'restarted', 'stopped', 'killed', 'executed']
+                claims_action = any(word in response.lower() for word in action_words)
+                has_real_tool_call = bool(self._current_tool_calls)
+
+                if claims_action and not has_real_tool_call and task_type in [TaskType.SIMPLE_COMMAND, TaskType.LOOP_COMMAND]:
+                    # LLM is faking - it claims to have done something but didn't call tools
+                    logger.warning(f"FAKING DETECTED: Response claims action but no tools called. Request: {content[:50]}")
+                    response = f"⚠️ I described an action but didn't actually execute it. Let me try again with the real command.\n\n(Debug: No send_command was called for '{content}')"
+
                 # Log the response
                 conv_logger.log_response(request_id=request_id, response=response)
 
-                # Update history (keep last 10 exchanges)
+                # Build assistant content with tool calls included
+                # This prevents the LLM from learning to "fake" responses without tools
+                if self._current_tool_calls:
+                    tool_summary = " | ".join(self._current_tool_calls)
+                    assistant_content = f"[{tool_summary}] {response}"
+                else:
+                    # Mark when NO tools were called - makes faking visible in history
+                    assistant_content = f"[NO TOOLS CALLED] {response}"
+
+                # Update history (keep last 6 exchanges = 12 messages to reduce pattern learning)
                 history.append({"role": "user", "content": content})
-                history.append({"role": "assistant", "content": response})
-                self.conversation_history[user_id] = history[-20:]
+                history.append({"role": "assistant", "content": assistant_content})
+                self.conversation_history[user_id] = history[-12:]
 
                 # For multi-step tasks, don't auto-parse actions - the brain handles it
                 # Only parse for conversation responses that might suggest actions
@@ -366,6 +405,7 @@ class OSRSBot(commands.Bot):
         """Get available accounts from credentials file.
 
         Returns dict of alias -> display_name.
+        Note: Accounts in BLOCKED_ACCOUNTS are excluded.
         """
         creds_path = Path.home() / ".manny" / "credentials.yaml"
         if not creds_path.exists():
@@ -377,6 +417,9 @@ class OSRSBot(commands.Bot):
 
             accounts = {}
             for alias, data in creds.get("accounts", {}).items():
+                # Skip blocked accounts
+                if alias in BLOCKED_ACCOUNTS:
+                    continue
                 display_name = data.get("display_name", alias)
                 accounts[alias] = display_name
             return accounts
@@ -387,8 +430,13 @@ class OSRSBot(commands.Bot):
     def switch_account(self, account_id: str) -> bool:
         """Switch to a different account.
 
-        Returns True if successful, False if account doesn't exist.
+        Returns True if successful, False if account doesn't exist or is blocked.
         """
+        # Explicitly check blocked accounts first
+        if account_id in BLOCKED_ACCOUNTS:
+            logger.warning(f"Attempted to switch to blocked account: {account_id}")
+            return False
+
         available = self._get_available_accounts()
         if account_id not in available:
             return False
@@ -785,9 +833,16 @@ Inventory: {inv.get('used', '?')}/{inv.get('capacity', 28)} slots"""
         await interaction.response.send_message(msg)
 
     @bot.tree.command(name="switch", description="Switch to a different account")
-    @app_commands.describe(account="Account alias to switch to (e.g., main, aux)")
+    @app_commands.describe(account="Account alias to switch to (e.g., aux)")
     async def switch_account(interaction: discord.Interaction, account: str):
         account = account.lower()
+
+        # Check if account is blocked first (give specific error)
+        if account in BLOCKED_ACCOUNTS:
+            logger.warning(f"/switch blocked: account '{account}' is protected")
+            await interaction.response.send_message(f"Account '{account}' is protected and cannot be controlled via Discord")
+            return
+
         available = bot._get_available_accounts()
 
         if bot.switch_account(account):
