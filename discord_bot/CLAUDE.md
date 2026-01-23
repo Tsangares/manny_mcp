@@ -270,7 +270,104 @@ If faking detected, could auto-retry with stronger prompt. Currently just warns 
 
 ## Testing Changes
 
-### Manual Test Flow
+### Test Harness (Fast Iteration)
+
+The test harness lets you test LLM reasoning **without RuneLite running**. It mocks MCP tools and shows exactly what the LLM decides to do.
+
+```bash
+# Quick single test
+./venv/bin/python discord_bot/test_harness.py "Kill 100 giant frogs"
+
+# Interactive mode (REPL)
+./venv/bin/python discord_bot/test_harness.py
+
+# Verbose mode - see all tool calls as they happen
+./venv/bin/python discord_bot/test_harness.py -v "Go fish at draynor"
+
+# JSON output for scripting/analysis
+./venv/bin/python discord_bot/test_harness.py --json "What's my health?" 2>/dev/null
+```
+
+**Using Pre-built Scenarios:**
+
+Test different game situations without needing live data:
+
+```bash
+# List all available scenarios
+./venv/bin/python discord_bot/test_harness.py --list-scenarios
+
+# Test with specific scenario
+./venv/bin/python discord_bot/test_harness.py --scenario low_health "I'm dying!"
+./venv/bin/python discord_bot/test_harness.py --scenario full_inventory "Bank my stuff"
+./venv/bin/python discord_bot/test_harness.py --scenario in_combat "Stop fighting"
+```
+
+| Scenario | Description |
+|----------|-------------|
+| `default` | At Lumbridge Castle, basic gear |
+| `low_health` | 5 HP, in combat with frogs |
+| `full_inventory` | 28/28 slots, at Draynor fishing |
+| `at_bank` | Standing at Draynor bank |
+| `in_combat` | Fighting giant frog |
+| `has_fishing_net` | Has net, at Lumbridge |
+| `no_fishing_net` | No net, at fishing spot |
+| `high_level_combat` | Level 40+ combat stats |
+
+**Recording Live State:**
+
+Capture real game state for realistic testing (requires RuneLite running):
+
+```bash
+./venv/bin/python discord_bot/test_harness.py --record
+# Saves to discord_bot/mock_states/state_YYYYMMDD_HHMMSS.json
+
+# Then use it:
+./venv/bin/python discord_bot/test_harness.py --state-file discord_bot/mock_states/state_20260123_120000.json "message"
+```
+
+**Interactive Mode Commands:**
+
+When running without arguments, you get a REPL:
+
+| Command | Action |
+|---------|--------|
+| `/quit` | Exit |
+| `/state` | Show current mock state |
+| `/reset` | Reset history and state |
+| `/verbose` | Toggle verbose mode |
+| `/history` | Show conversation history |
+| `/help` | Show help |
+
+**What the Output Shows:**
+
+```
+============================================================
+USER: Kill 100 giant frogs
+============================================================
+
+💬 RESPONSE: Started killing 100 giant frogs at the Lumbridge swamp.
+
+============================================================
+TOOL CALL SUMMARY
+============================================================
+
+📊 OBSERVATIONS (1):
+  • get_game_state({"fields": ["location", "health", "inventory"]})
+
+⚡ ACTIONS (1):
+  • send_command: KILL_LOOP Giant_frog none 100
+
+✅ Observed before acting: YES    <-- Key metric! Should always be YES
+📝 Total tool calls: 2
+🎮 Commands sent: 1
+```
+
+**Key things to check:**
+- "Observed before acting: YES" - confirms OBSERVE-ACT-VERIFY is working
+- Actions list shows actual commands sent
+- Response matches what was actually done (no faking)
+
+### Manual Test Flow (Full Stack)
 
 1. Send a simple command via Discord DM: "KILL_LOOP Giant_frog none 1"
 2. Check logs immediately:

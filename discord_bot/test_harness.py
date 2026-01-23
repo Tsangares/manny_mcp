@@ -387,7 +387,10 @@ async def run_test(
     mock_state: Dict[str, Any] = None,
     verbose: bool = False,
     history: List[Dict] = None,
-    json_output: bool = False
+    json_output: bool = False,
+    model: str = None,
+    provider: str = "ollama",
+    gemini_model: str = None
 ) -> Dict[str, Any]:
     """
     Run a single test of the agentic loop.
@@ -398,6 +401,9 @@ async def run_test(
         verbose: Show detailed output
         history: Conversation history
         json_output: Output results as JSON
+        model: Ollama model to use (overrides default)
+        provider: LLM provider (ollama, gemini, claude)
+        gemini_model: Gemini model to use (e.g., gemini-2.0-flash)
 
     Returns:
         Dict with response, tool calls, and analysis
@@ -405,8 +411,17 @@ async def run_test(
     # Create mock executor
     executor = MockToolExecutor(mock_state=mock_state, verbose=verbose and not json_output)
 
-    # Create LLM client
-    llm = LLMClient(provider="ollama")
+    # Create LLM client with provider
+    llm = LLMClient(provider=provider)
+    if provider == "ollama" and model:
+        llm.ollama_model = model
+        if not json_output:
+            print(f"Using model: {model}")
+    elif provider == "gemini":
+        if gemini_model:
+            llm._gemini_model = gemini_model
+        if not json_output:
+            print(f"Using Gemini model: {llm._gemini_model}")
 
     # Create agentic loop with mock executor
     loop = AgenticLoopWithRecovery(
@@ -460,11 +475,17 @@ async def run_test(
     return output
 
 
-async def interactive_mode(mock_state: Dict = None, verbose: bool = False):
+async def interactive_mode(mock_state: Dict = None, verbose: bool = False, model: str = None,
+                          provider: str = "ollama", gemini_model: str = None):
     """Run interactive test session."""
     print("\n" + "="*60)
     print("DISCORD BOT TEST HARNESS - Interactive Mode")
     print("="*60)
+    print(f"Provider: {provider}")
+    if provider == "ollama" and model:
+        print(f"Model: {model}")
+    elif provider == "gemini":
+        print(f"Gemini model: {gemini_model or 'gemini-2.0-flash-lite'}")
     print("Type messages to test the agentic loop.")
     print("Commands: /quit, /state, /reset, /verbose, /help")
     print("="*60)
@@ -526,7 +547,7 @@ Commands:
                 continue
 
         # Run test
-        result = await run_test(message, mock_state=mock_state, verbose=verbose, history=history)
+        result = await run_test(message, mock_state=mock_state, verbose=verbose, history=history, model=model)
 
         # Update history
         history.append({"role": "user", "content": message})
@@ -661,6 +682,10 @@ Examples:
     parser.add_argument("--state-file", help="JSON file with mock game state")
     parser.add_argument("--record", action="store_true", help="Record live game state")
     parser.add_argument("--json", action="store_true", help="Output results as JSON for analysis")
+    parser.add_argument("--model", "-m", help="Ollama model to use (e.g., qwen2.5:14b, qwen3:14b)")
+    parser.add_argument("--provider", "-p", choices=["ollama", "gemini", "claude"], default="ollama",
+                        help="LLM provider (default: ollama)")
+    parser.add_argument("--gemini-model", help="Gemini model (e.g., gemini-2.0-flash, gemini-2.5-flash)")
 
     args = parser.parse_args()
 
@@ -696,10 +721,14 @@ Examples:
             args.message,
             mock_state=mock_state,
             verbose=args.verbose,
-            json_output=args.json
+            json_output=args.json,
+            model=args.model,
+            provider=args.provider,
+            gemini_model=args.gemini_model
         ))
     else:
-        asyncio.run(interactive_mode(mock_state=mock_state, verbose=args.verbose))
+        asyncio.run(interactive_mode(mock_state=mock_state, verbose=args.verbose, model=args.model,
+                                     provider=args.provider, gemini_model=args.gemini_model))
 
 
 if __name__ == "__main__":

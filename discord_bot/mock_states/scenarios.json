@@ -129,6 +129,42 @@
     "nearby": {"npcs": ["Fishing spot"], "objects": []}
   },
 
+  "near_ground_items": {
+    "_description": "Near Draynor fishing spot with ground items nearby",
+    "location": {"x": 3087, "y": 3230, "plane": 0},
+    "health": {"current": 20, "max": 25},
+    "inventory": {
+      "used": 2,
+      "capacity": 28,
+      "items": ["Bronze sword", "Coins x50"]
+    },
+    "skills": {"fishing": {"level": 1, "xp": 0}},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {
+      "npcs": ["Fishing spot"],
+      "objects": ["Tree"],
+      "ground_items": ["Small fishing net", "Bones", "Raw shrimps"]
+    }
+  },
+
+  "near_lumbridge_south": {
+    "_description": "South of Lumbridge, near cow field",
+    "location": {"x": 3242, "y": 3165, "plane": 0},
+    "health": {"current": 25, "max": 30},
+    "inventory": {
+      "used": 2,
+      "capacity": 28,
+      "items": ["Raw beef", "Cowhide"]
+    },
+    "skills": {},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {
+      "npcs": ["Cow", "Cow"],
+      "objects": ["Gate"],
+      "ground_items": []
+    }
+  },
+
   "high_level_combat": {
     "_description": "Higher level player for combat testing",
     "location": {"x": 3253, "y": 3420, "plane": 0},

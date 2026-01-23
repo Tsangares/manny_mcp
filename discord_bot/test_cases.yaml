@@ -1,0 +1,213 @@
+# Test cases for Discord bot LLM reasoning
+# Run with: ./venv/bin/python discord_bot/test_harness.py --scenario <scenario> "<message>"
+#
+# Legend:
+#   PASS - LLM behaved correctly
+#   FAIL - LLM made an incorrect decision
+#   ISSUE - Identified problem pattern
+
+test_cases:
+  # === FAILING CASES ===
+
+  - id: woodcutting_no_axe
+    status: FAIL
+    message: "Start cutting trees, you will need to find an axe"
+    scenario: default  # Has: Bronze sword, Wooden shield, Coins x150, Bread, Logs (NO AXE)
+    expected_behavior:
+      - Observe inventory to check for axe
+      - Notice no axe in inventory
+      - Either ask user where to get axe OR look up where to buy/find one
+      - NOT immediately start chopping
+    actual_behavior: |
+      Observed inventory but ignored contents.
+      Sent CHOP_TREE immediately.
+      Response: "Started chopping trees with the axe."
+    issue: "PREREQUISITE_BLINDNESS - LLM doesn't validate required items before acting"
+
+  - id: low_health_emergency
+    status: FAIL
+    message: "I'm dying!"
+    scenario: low_health  # 5 HP, in combat with frogs
+    expected_behavior:
+      - Observe health/combat status
+      - Eat food OR flee (STOP command)
+      - NOT continue attacking
+    actual_behavior: |
+      Observed health (5/30).
+      Started KILL_LOOP Giant_frog Bread 50.
+      Response: "Started killing 50 giant frogs and eating bread to heal up."
+    issue: "EMERGENCY_MISINTERPRET - Treats emergency as continuation request"
+
+  # === NEW REAL-WORLD FAILURE CASES (2026-01-23) ===
+
+  - id: pickup_ground_item
+    status: FAIL
+    message: "Pick up the small fishing net off the ground"
+    scenario: near_ground_items  # Has ground items: Small fishing net, Bones, Raw shrimps
+    expected_behavior:
+      - Use query_nearby(include_ground_items=True) to scan ground
+      - See "Small fishing net" in ground items
+      - Send PICK_UP_ITEM Small fishing net command
+    actual_behavior: |
+      Used get_game_state(fields=["inventory", "ground_items"]) - BUT ground_items is NOT a valid field!
+      Model couldn't see ground items, yet still tried PICK_UP_ITEM blindly.
+      Sent command twice.
+    issue: "HALLUCINATED_API - Invents non-existent API field 'ground_items', should use query_nearby"
+
+  - id: scan_ground_items
+    status: FAIL
+    message: "Scan the ground tile items for a small fishing net"
+    scenario: near_ground_items
+    expected_behavior:
+      - Use query_nearby(include_ground_items=True) to scan ground
+      - Report ground items found
+      - NOT take a screenshot and ask user to look
+    actual_behavior: |
+      Used get_game_state(fields=["inventory", "ground_items"]) - invalid field.
+      Returned empty, so reported "There is no small fishing net on the ground tile."
+      FALSE - there IS a net in the scenario, model just can't see it.
+    issue: "HALLUCINATED_API - Invents non-existent API field, gives false negative"
+
+  - id: goto_fishing_spot
+    status: FAIL
+    message: "Go to the fishing spot south of lumbridge, we are nearby"
+    scenario: near_lumbridge_south  # At 3242, 3165 (cow field area)
+    expected_behavior:
+      - Look up "fishing spot lumbridge" or "draynor fishing"
+      - Get coords around 3087, 3227 (Draynor fishing spot)
+      - Send GOTO to fishing spot coordinates
+    actual_behavior: |
+      Did NOT use lookup_location at all!
+      Just guessed GOTO 3240 3170 0 (only 5 tiles north of current position).
+      Player at 3242,3165 - sent to 3240,3170. That's NOT a fishing spot.
+    issue: "NO_LOOKUP - Doesn't use lookup_location, guesses wrong coordinates"
+
+  - id: go_south_direction
+    status: FAIL
+    message: "Go south"
+    scenario: near_lumbridge_south  # At 3242, 3165
+    expected_behavior:
+      - Observe current location
+      - Move a reasonable distance south (10-30 tiles)
+      - GOTO 3242 3145 0 (or similar, 20 tiles south)
+    actual_behavior: |
+      Player at 3242, 3165.
+      Sent GOTO 3242 3164 0 - only 1 tile south!
+      Compare: "Go south a bit" → 5 tiles. "Go south" → 1 tile.
+      Logic is inverted - unqualified should be MORE, not LESS.
+    issue: "TINY_MOVEMENT - 'Go south' moves only 1 tile. Inverted from human expectation."
+
+  - id: drop_inventory_naive
+    status: PARTIAL
+    message: "Drop everything in your inventory"
+    scenario: near_lumbridge_south  # Has Raw beef, Cowhide
+    expected_behavior:
+      - Observe inventory to see what items exist
+      - Consider if any items are valuable
+      - Maybe ask for confirmation OR warn about items
+      - Execute DROP_ALL if proceeding
+    actual_behavior: |
+      In test harness: Observed inventory, then DROP Raw beef 1, DROP Cowhide 1 (individual drops).
+      In production: Used DROP_ALL twice without checking.
+      Neither asked for confirmation.
+    issue: "NO_CONFIRMATION - Executes destructive actions without confirmation (varies between DROP_ALL and individual)"
+
+  # === PASSING CASES ===
+
+  - id: scan_fishing_net
+    status: PASS
+    message: "Scan for fishing net"
+    scenario: has_fishing_net
+    expected_behavior:
+      - Observe inventory
+      - Report whether fishing net is present
+      - NOT start fishing
+    actual_behavior: |
+      Observed inventory.
+      Reported: "Scanning complete. I have a Small fishing net in my inventory."
+      No actions taken.
+    issue: null
+
+  - id: kill_frogs
+    status: PASS
+    message: "Kill 100 giant frogs"
+    scenario: default
+    expected_behavior:
+      - Observe game state
+      - Send KILL_LOOP command with correct syntax
+    actual_behavior: |
+      Observed game state.
+      Sent: KILL_LOOP Giant_frog none 100
+      Response: "Started killing 100 giant frogs at Lumbridge swamp."
+    issue: null
+
+  - id: bank_full_inventory
+    status: PASS
+    message: "Bank my stuff"
+    scenario: full_inventory  # 28/28 slots at Draynor fishing
+    expected_behavior:
+      - Observe inventory is full
+      - Open bank
+      - Deposit items
+    actual_behavior: |
+      Observed inventory (28/28).
+      Sent: BANK_OPEN, then BANK_DEPOSIT_ALL
+      Response: "Banked all raw shrimps."
+    issue: null
+
+# === BATCH TEST CASES ===
+
+batch_tests:
+  - id: train_combat
+    message: "Go kill chickens to get your stats up to 15 in att, str, def; you are in lumbridge"
+    scenario: default
+    expected: Should start KILL_LOOP on chickens
+
+  - id: bank_deposit
+    message: "Can you go deposit all your items in the bank"
+    scenario: default
+    expected: Should go to bank and deposit
+
+  - id: fish_shrimp
+    message: "Can you fish shrimp; you have a net already."
+    scenario: has_fishing_net
+    expected: Should start fishing (has net)
+
+  - id: woodcutting_firemaking
+    message: "Can you start cutting trees and lighting fires"
+    scenario: default
+    expected: Should note no axe/tinderbox OR attempt to get them
+
+  - id: multi_step_quest
+    message: "Can you go kill goblins for coins then buy a tinderbox at the nearby store?"
+    scenario: default
+    expected: Multi-step planning - kill goblins, then buy
+
+# === IDENTIFIED ISSUE PATTERNS ===
+#
+# 1. PREREQUISITE_BLINDNESS
+#    - LLM observes but doesn't validate prerequisites
+#    - Example: Sees inventory, assumes axe present
+#    - Fix: Use qwen2.5:14b which reasons correctly
+#
+# 2. EMERGENCY_MISINTERPRET
+#    - "I'm dying" interpreted as "keep me alive while grinding"
+#    - Should interpret as "STOP and save me"
+#    - Fix: Use qwen2.5:14b which stops and advises fleeing
+
+# === MODEL COMPARISON (2026-01-23) ===
+#
+# Hardware: RTX 3060 + 3060 Ti (20GB combined VRAM)
+#
+# | Model              | Size | Woodcutting | Emergency | Speed  | Notes                    |
+# |--------------------|------|-------------|-----------|--------|--------------------------|
+# | hermes3:8b         | 8B   | FAIL        | FAIL      | ~10s   | Hallucinated axe, kept fighting |
+# | qwen2.5:14b        | 14B  | PASS        | PASS      | ~15s   | Best reasoning           |
+# | qwen3:14b          | 14B  | PARTIAL     | -         | ~20s   | Creative but assumes     |
+# | llama3.1:8b        | 8B   | PARTIAL     | FAIL      | ~12s   | Good intent, bad execution |
+# | mistral:7b         | 7B   | -           | -         | -      | Poor structured output   |
+# | deepseek-r1:7b     | 7B   | -           | -         | -      | Poor structured output   |
+#
+# RECOMMENDATION: Use qwen2.5:14b as default model
+# - 50% slower than 8B but actually reasons correctly
+# - Fits comfortably in 20GB VRAM
