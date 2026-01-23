@@ -67,7 +67,7 @@ def _safe_json_dumps(obj: Any) -> str:
 
 # Ollama configuration
 OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")
-OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:14b")
+OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "hermes3:8b-llama3.1-q4_K_M")
 
 
 # Tool definitions for Gemini function calling
@@ -486,9 +486,13 @@ class LLMClient:
 
         max_tool_calls = 10  # Allow more for multi-step tasks
         tool_calls_made = 0
+        llm_turns = 0  # Track LLM API round-trips
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             while tool_calls_made < max_tool_calls:
+                llm_turns += 1
+                logger.info(f"Ollama turn {llm_turns} (tools so far: {tool_calls_made})")
+
                 request_body = {
                     "model": self.ollama_model,
                     "messages": messages,
@@ -509,6 +513,7 @@ class LLMClient:
 
                 if not tool_calls:
                     # No tool calls, return the response
+                    logger.info(f"Ollama completed: {llm_turns} turns, {tool_calls_made} tool calls")
                     return assistant_message.get("content", "No response generated")
 
                 # Process tool calls
@@ -546,6 +551,7 @@ class LLMClient:
                     })
 
             # Max tool calls reached
+            logger.warning(f"Ollama hit limit: {llm_turns} turns, {tool_calls_made} tool calls")
             return "Max tool calls reached. Please try a simpler request."
 
     def _get_ollama_tools(self) -> List[Dict]:
@@ -596,10 +602,14 @@ class LLMClient:
         # Handle function calls in a loop
         max_tool_calls = 5
         tool_calls_made = 0
+        llm_turns = 0  # Track LLM API round-trips
         tools_used = []
         last_tool_result = None
 
         while tool_calls_made < max_tool_calls:
+            llm_turns += 1
+            logger.info(f"Gemini turn {llm_turns} (tools so far: {tool_calls_made})")
+
             # Generate response
             loop = asyncio.get_event_loop()
             response = await loop.run_in_executor(
@@ -625,6 +635,7 @@ class LLMClient:
 
             if not function_calls:
                 # No function calls, return text response
+                logger.info(f"Gemini completed: {llm_turns} turns, {tool_calls_made} tool calls")
                 if text_parts:
                     return "\n".join(text_parts)
                 break

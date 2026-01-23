@@ -26,37 +26,23 @@ if [ -n "$TARGET_DISPLAY" ]; then
         exit 0
     fi
 
-    # Use gamescope for additional displays (better input handling, GPU compositing)
-    # Gamescope auto-picks the next available display number
-    export _JAVA_AWT_WM_NONREPARENTING=1
-    gamescope \
-        -W 1920 -H 1080 \
-        -w 1920 -h 1080 \
-        --force-windows-fullscreen \
-        --xwayland-count 1 \
-        -- sleep infinity &
-    GAMESCOPE_PID=$!
+    # Use Xvfb for additional displays (simple, reliable, no GPU needed)
+    Xvfb :$TARGET_DISPLAY -screen 0 1024x768x24 &
+    XVFB_PID=$!
 
-    # Wait for gamescope to create its display
+    # Wait for Xvfb to create its display
     for i in {1..10}; do
-        sleep 1
+        sleep 0.5
         if [ -S "/tmp/.X11-unix/X$TARGET_DISPLAY" ]; then
-            if kill -0 $GAMESCOPE_PID 2>/dev/null; then
-                echo "Gamescope started on :$TARGET_DISPLAY (PID: $GAMESCOPE_PID)"
+            if kill -0 $XVFB_PID 2>/dev/null; then
+                echo "Xvfb started on :$TARGET_DISPLAY (PID: $XVFB_PID)"
                 exit 0
             fi
         fi
     done
 
-    # If requested display not available, check what gamescope actually created
-    ACTUAL_DISPLAY=$(ls /tmp/.X11-unix/ 2>/dev/null | grep -oE '[0-9]+' | sort -n | tail -1)
-    if [ -n "$ACTUAL_DISPLAY" ] && kill -0 $GAMESCOPE_PID 2>/dev/null; then
-        echo "Gamescope started on :$ACTUAL_DISPLAY (requested :$TARGET_DISPLAY) (PID: $GAMESCOPE_PID)"
-        exit 0
-    fi
-
-    echo "Failed to start gamescope for display :$TARGET_DISPLAY"
-    kill $GAMESCOPE_PID 2>/dev/null || true
+    echo "Failed to start Xvfb for display :$TARGET_DISPLAY"
+    kill $XVFB_PID 2>/dev/null || true
     exit 1
 fi
 

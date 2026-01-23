@@ -35,20 +35,17 @@ class TaskPlan:
     context: Dict[str, Any]
 
 
-# Pattern matchers for task classification
 STATUS_PATTERNS = [
-    r'\b(status|running|alive|health|where|location|inventory|level|stats)\b',
-    r'\b(is it|are you|check|show me|what\'?s)\b',
-    r'\bhow (much|many)\b',
+    r'\b(status|running|alive|health|where|location|inventory|level|stats|xp)\b',
+    r'\b(is it|are you|check|show me|what\'?s|tell me your)\b',
+    r'\b(how (much|many))\b',
 ]
 
 SIMPLE_COMMAND_PATTERNS = [
-    r'^stop\b',
-    r'^restart\b',
-    r'^kill all\b',
+    r'^(stop|restart|kill all|screenshot)\b',
     r'\b(open bank|bank open)\b',
-    r'^screenshot\b',
-    r'\b(open|switch to)\s+(combat|inventory|skills|equipment|prayer|magic)\s*(tab)?\b',
+    r'\b(open|switch to|show|go to)\s+(combat|inventory|skills|equipment|prayer|magic|quest|quests)\s*(tab|list)?\b',
+    r'\b(go|move|walk|head)\s+(north|south|east|west|n|s|e|w|ne|nw|se|sw)\b',
     r'\btab[_ ]?open\b',
     r'^[A-Z_]{3,}(\s|$)',  # Matches uppercase commands like "KILL_LOOP", "GOTO", etc.
     r'^send\s+[A-Z_]',     # "send KILL_LOOP..."
@@ -68,7 +65,7 @@ LOOP_PATTERNS = [
 
 MULTI_STEP_PATTERNS = [
     r'\b(and|then|after|before|first|next)\b',
-    r'\bgo to\b.*\b(and|then)\b',
+    r'\bgo to\b',
     r'\bbank\b.*\b(then|and)\b',
 ]
 
@@ -107,8 +104,8 @@ class TaskClassifier:
             if re.search(pattern, message_lower):
                 return TaskType.STATUS_QUERY
 
-        # Default to conversation
-        return TaskType.CONVERSATION
+        # Default to simple command to encourage tool use
+        return TaskType.SIMPLE_COMMAND
 
 
 class ContextEnricher:

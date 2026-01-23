@@ -65,6 +65,9 @@ class OSRSBot(commands.Bot):
         self._brain: Optional[AgentBrain] = None
         self._classifier = TaskClassifier()
 
+        # Intent planner for complex tasks (plan-and-execute pattern)
+        self._intent_planner = None
+
         # Task manager for queued/conditional tasks
         self._task_manager: Optional[TaskManager] = None
         self._task_manager_started: bool = False
@@ -144,6 +147,13 @@ class OSRSBot(commands.Bot):
         # Create agent brain for intelligent routing
         self._brain = AgentBrain(self.llm, self._execute_tool_with_logging)
 
+        # Create intent planner for complex tasks (plan-and-execute pattern)
+        from discord_bot.intent_planner import IntentPlanner
+        self._intent_planner = IntentPlanner(
+            llm_chat_func=self._simple_llm_completion,
+            tool_executor=self._execute_tool_with_logging
+        )
+
         # Create task manager for queued/conditional tasks
         async def get_state_func():
             result = await self._monitoring.handle_get_game_state({
@@ -171,6 +181,29 @@ class OSRSBot(commands.Bot):
             await self._task_manager.initialize()
             self._task_manager_started = True
             logger.info("Task manager initialized and queue started")
+
+    async def _simple_llm_completion(self, prompt: str) -> str:
+        """Simple LLM completion without tool calling - for intent extraction."""
+        import httpx
+
+        # Use Ollama directly for simple completion (no tools)
+        if self.llm.provider == "ollama":
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(
+                    f"{self.llm.ollama_host}/api/chat",
+                    json={
+                        "model": self.llm.ollama_model,
+                        "messages": [{"role": "user", "content": prompt}],
+                        "stream": False,
+                        "format": "json"
+                    }
+                )
+                response.raise_for_status()
+                result = response.json()
+                return result.get("message", {}).get("content", "")
+        else:
+            # For other providers, use the chat method without tools
+            return await self.llm.chat(prompt, conversation_history=[])
 
     async def _execute_tool_with_logging(self, tool_name: str, arguments: dict) -> dict:
         """Wrapper that logs tool calls before executing."""
@@ -428,11 +461,36 @@ class OSRSBot(commands.Bot):
         # Show typing indicator
         async with message.channel.typing():
             try:
-                # Use the agent brain for intelligent processing
-                response = await self._brain.process_request(
-                    message=content,
-                    conversation_history=history
-                )
+                response = None
+
+                # USE INTENT PLANNER for complex tasks (LOOP_COMMAND, MULTI_STEP)
+                # This extracts intent, generates a plan, and executes directly
+                if task_type in [TaskType.LOOP_COMMAND, TaskType.MULTI_STEP] and self._intent_planner:
+                    logger.info(f"Using intent planner for {task_type.value}")
+                    try:
+                        plan_result = await self._intent_planner.process(content)
+
+                        if not plan_result.get("fallback_to_llm"):
+                            # Plan executed successfully - use the summary as response
+                            response = plan_result.get("summary", "Done.")
+                            # Track the tool calls from execution
+                            execution = plan_result.get("execution", {})
+                            for step_result in execution.get("results", []):
+                                if step_result.get("success") and not step_result.get("skipped"):
+                                    self._current_tool_calls.append(f"PLANNED: {step_result.get('step', 'step')}")
+                            logger.info(f"Intent planner completed: {plan_result.get('intent').intent.value if plan_result.get('intent') else 'unknown'}")
+                        else:
+                            logger.info("Intent planner returned fallback_to_llm, using agent brain")
+
+                    except Exception as e:
+                        logger.warning(f"Intent planner failed, falling back to agent brain: {e}")
+
+                # FALLBACK to agent brain if planner didn't handle it
+                if response is None:
+                    response = await self._brain.process_request(
+                        message=content,
+                        conversation_history=history
+                    )
 
                 # Handle empty responses - LLM sometimes returns just whitespace after tool calls
                 if not response or not response.strip():
@@ -440,24 +498,66 @@ class OSRSBot(commands.Bot):
                     logger.warning(f"Empty LLM response for request {request_id}, using fallback")
 
                 # JSON RESCUE: If LLM output JSON tool calls as text, parse and execute them
+                import json
                 import re
-                json_pattern = r'\{"name":\s*"(send_command|get_game_state|lookup_location)"[^}]*"arguments":\s*(\{[^}]+\})\}'
-                json_matches = re.findall(json_pattern, response)
-                if json_matches and not self._current_tool_calls:
-                    logger.info(f"Found {len(json_matches)} JSON tool calls in response text, executing...")
-                    for tool_name, args_str in json_matches:
+
+                VALID_TOOLS = {
+                    "send_command", "get_game_state", "lookup_location", "check_health",
+                    "get_screenshot", "start_runelite", "stop_runelite", "restart_runelite",
+                    "auto_reconnect", "run_routine", "list_routines", "get_logs",
+                    "switch_account", "list_accounts", "list_plugin_commands",
+                    "get_command_help", "queue_on_level"
+                }
+                rescued_a_tool = False
+                
+                # First, try to load the entire response as a JSON object
+                try:
+                    data = json.loads(response) # Try to load the entire response as JSON
+                    tool_name = data.get("name")
+                    arguments = data.get("arguments")
+
+                    if tool_name in VALID_TOOLS and arguments is not None:
+                        logger.info(f"Found full JSON tool call in response text, executing: {tool_name}")
+                        result = await self._execute_tool(tool_name, arguments)
+                        self._current_tool_calls.append(f"RESCUED: {tool_name}")
+                        logger.info(f"Rescued JSON tool call: {tool_name}({arguments}) -> {str(result)[:100]}")
+                        
+                        response = "Done." # Clear the response, as tool is executed
+                        rescued_a_tool = True
+                except (json.JSONDecodeError, KeyError, TypeError):
+                    # Not valid JSON, or not a tool call, continue to regex search if needed
+                    pass
+                except Exception as e:
+                    logger.warning(f"Failed to execute rescued full JSON tool call: {e}")
+
+                # Fallback to regex search for JSON embedded in text/markdown
+                if not rescued_a_tool:
+                    json_pattern = r'```json\s*(\{[\s\S]*?\})\s*```|(\{[\s\S]*?\})'
+                    original_response = response
+                    modified_response = response
+                    
+                    for match in re.finditer(json_pattern, original_response):
+                        json_text = match.group(1) or match.group(2)
                         try:
-                            import json
-                            args = json.loads(args_str)
-                            result = await self._execute_tool(tool_name, args)
-                            self._current_tool_calls.append(f"RESCUED: {tool_name}")
-                            logger.info(f"Rescued JSON tool call: {tool_name}({args}) -> {str(result)[:100]}")
+                            data = json.loads(json_text)
+                            tool_name = data.get("name")
+                            arguments = data.get("arguments")
+
+                            if tool_name in VALID_TOOLS and arguments is not None:
+                                logger.info(f"Found embedded JSON tool call in response text, executing: {tool_name}")
+                                result = await self._execute_tool(tool_name, arguments)
+                                self._current_tool_calls.append(f"RESCUED: {tool_name}")
+                                logger.info(f"Rescued JSON tool call: {tool_name}({arguments}) -> {str(result)[:100]}")
+                                
+                                modified_response = modified_response.replace(match.group(0), "")
+                                rescued_a_tool = True
+                        except (json.JSONDecodeError, KeyError):
+                            continue
                         except Exception as e:
-                            logger.warning(f"Failed to rescue JSON tool call: {e}")
-                    # Clean the JSON from the response
-                    response = re.sub(r'```json\s*\{[^`]+\}\s*```', '', response)
-                    response = re.sub(json_pattern, '', response)
-                    response = response.strip() or "Done."
+                            logger.warning(f"Failed to execute rescued embedded JSON tool call: {e}")
+
+                    if rescued_a_tool:
+                        response = modified_response.strip() or "Done."
 
                 # FAKING DETECTION: Check if LLM claims action without tool calls
                 action_words = ['started', 'switched', 'opened', 'restarted', 'stopped', 'killed', 'executed']
@@ -486,8 +586,12 @@ class OSRSBot(commands.Bot):
                         logger.warning(f"FAKING DETECTED: No extractable command. Request: {content[:50]}")
                         response = f"⚠️ I described an action but didn't actually execute it. Please try a more specific command.\n\n(Debug: No send_command was called for '{content}')"
 
-                # Log the response
-                conv_logger.log_response(request_id=request_id, response=response)
+                # Log the response with actual tool call count
+                conv_logger.log_response(
+                    request_id=request_id,
+                    response=response,
+                    tool_calls_count=len(self._current_tool_calls)
+                )
 
                 # Don't add [EXECUTED: ...] prefix - model learns to mimic it without calling tools
                 # Just store the raw response
@@ -747,6 +851,24 @@ class OSRSBot(commands.Bot):
                     return {"command": command, "help": result.stdout or result.stderr}
                 except Exception as e:
                     return {"error": str(e)}
+
+            elif tool_name == "queue_on_level":
+                # Queue a command to run when a skill reaches a level
+                if not self._task_manager:
+                    return {"error": "Task manager not initialized"}
+                skill = arguments.get("skill", "").lower()
+                level = arguments.get("level", 1)
+                command = arguments.get("command", "")
+                task_id = self._task_manager.queue_on_level(
+                    skill=skill,
+                    level=level,
+                    command=command
+                )
+                return {
+                    "success": True,
+                    "task_id": task_id,
+                    "message": f"Queued '{command}' to run when {skill} reaches level {level}"
+                }
 
             else:
                 return {"error": f"Unknown tool: {tool_name}"}
