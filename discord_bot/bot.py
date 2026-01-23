@@ -24,6 +24,8 @@ from discord_bot.conversation_logger import get_conversation_logger
 from discord_bot.training_logger import training_logger
 from discord_bot.task_manager import TaskManager
 from discord_bot.task_queue import when_level, after_level_up, when_inventory_full, when_health_below, immediately
+from discord_bot.agentic_loop import AgenticLoopWithRecovery
+from discord_bot.recovery import RecoveryManager
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -32,6 +34,9 @@ logger = logging.getLogger("discord_bot")
 # Accounts that the Discord bot is NOT allowed to control
 # This protects important accounts from accidental or unauthorized access
 BLOCKED_ACCOUNTS = {"main"}
+
+# Agentic mode toggle - set USE_AGENTIC_MODE=false to use old architecture
+USE_AGENTIC_MODE = os.environ.get("USE_AGENTIC_MODE", "true").lower() == "true"
 
 
 class OSRSBot(commands.Bot):
@@ -67,6 +72,10 @@ class OSRSBot(commands.Bot):
 
         # Intent planner for complex tasks (plan-and-execute pattern)
         self._intent_planner = None
+
+        # Agentic loop for new architecture (replaces agent_brain when enabled)
+        self._agentic_loop: Optional[AgenticLoopWithRecovery] = None
+        self._recovery_manager: Optional[RecoveryManager] = None
 
         # Task manager for queued/conditional tasks
         self._task_manager: Optional[TaskManager] = None
@@ -173,6 +182,19 @@ class OSRSBot(commands.Bot):
         # Track if task manager queue has been started
         self._task_manager_started = False
 
+        # Initialize agentic loop if enabled
+        if USE_AGENTIC_MODE:
+            self._recovery_manager = RecoveryManager(self._execute_tool_with_logging)
+            self._agentic_loop = AgenticLoopWithRecovery(
+                llm_client=self.llm,
+                tool_executor=self._execute_tool_with_logging,
+                fallback_handler=self._agentic_fallback_handler,
+                max_iterations=10
+            )
+            logger.info("Agentic mode ENABLED - using OBSERVE-ACT-VERIFY loop")
+        else:
+            logger.info("Agentic mode DISABLED - using legacy agent_brain")
+
         logger.info("MCP tools, agent brain, and task manager loaded")
 
     async def _ensure_task_manager_started(self):
@@ -252,6 +274,19 @@ class OSRSBot(commands.Bot):
                 logger.error(f"Failed to send task notification: {e}")
         else:
             logger.info(f"Task notification (no DM channel): {message}")
+
+    async def _agentic_fallback_handler(self, message: str) -> str:
+        """Fallback handler when agentic loop fails - uses legacy agent_brain."""
+        logger.info("Agentic fallback: using legacy agent_brain")
+        try:
+            response = await self._brain.process_request(
+                message=message,
+                conversation_history=[]
+            )
+            return response or "Done (fallback)."
+        except Exception as e:
+            logger.error(f"Agentic fallback also failed: {e}")
+            return f"Error: {e}"
 
     async def on_ready(self):
         logger.info(f"Bot ready: {self.user.name} ({self.user.id})")
@@ -463,34 +498,65 @@ class OSRSBot(commands.Bot):
             try:
                 response = None
 
-                # USE INTENT PLANNER for complex tasks (LOOP_COMMAND, MULTI_STEP)
-                # This extracts intent, generates a plan, and executes directly
-                if task_type in [TaskType.LOOP_COMMAND, TaskType.MULTI_STEP] and self._intent_planner:
-                    logger.info(f"Using intent planner for {task_type.value}")
+                # NEW AGENTIC LOOP - replaces intent planner and agent brain
+                if USE_AGENTIC_MODE and self._agentic_loop:
+                    logger.info(f"Using agentic loop for '{content[:50]}'")
                     try:
-                        plan_result = await self._intent_planner.process(content)
+                        result = await self._agentic_loop.process(
+                            message=content,
+                            history=history
+                        )
 
-                        if not plan_result.get("fallback_to_llm"):
-                            # Plan executed successfully - use the summary as response
-                            response = plan_result.get("summary", "Done.")
-                            # Track the tool calls from execution
-                            execution = plan_result.get("execution", {})
-                            for step_result in execution.get("results", []):
-                                if step_result.get("success") and not step_result.get("skipped"):
-                                    self._current_tool_calls.append(f"PLANNED: {step_result.get('step', 'step')}")
-                            logger.info(f"Intent planner completed: {plan_result.get('intent').intent.value if plan_result.get('intent') else 'unknown'}")
-                        else:
-                            logger.info("Intent planner returned fallback_to_llm, using agent brain")
+                        response = result.response
+
+                        # Track the actions taken
+                        for action in result.actions:
+                            tool = action.get("tool", "unknown")
+                            if tool == "send_command":
+                                cmd = action.get("args", {}).get("command", "")
+                                self._current_tool_calls.append(f"EXECUTED: {cmd[:50]}")
+                            elif "fallback" in action:
+                                self._current_tool_calls.append("FALLBACK")
+                            else:
+                                self._current_tool_calls.append(f"CALLED: {tool}")
+
+                        logger.info(f"Agentic loop completed: {result.iterations} iterations, {len(result.actions)} actions, observed={result.observed}")
+
+                        if result.error:
+                            logger.warning(f"Agentic loop had error: {result.error}")
 
                     except Exception as e:
-                        logger.warning(f"Intent planner failed, falling back to agent brain: {e}")
+                        logger.error(f"Agentic loop failed: {e}", exc_info=True)
+                        # Fall through to legacy path
+                        response = None
 
-                # FALLBACK to agent brain if planner didn't handle it
+                # LEGACY PATH - used when agentic mode disabled or fails
                 if response is None:
-                    response = await self._brain.process_request(
-                        message=content,
-                        conversation_history=history
-                    )
+                    # USE INTENT PLANNER for complex tasks (LOOP_COMMAND, MULTI_STEP)
+                    if task_type in [TaskType.LOOP_COMMAND, TaskType.MULTI_STEP] and self._intent_planner:
+                        logger.info(f"Using intent planner for {task_type.value}")
+                        try:
+                            plan_result = await self._intent_planner.process(content)
+
+                            if not plan_result.get("fallback_to_llm"):
+                                response = plan_result.get("summary", "Done.")
+                                execution = plan_result.get("execution", {})
+                                for step_result in execution.get("results", []):
+                                    if step_result.get("success") and not step_result.get("skipped"):
+                                        self._current_tool_calls.append(f"PLANNED: {step_result.get('step', 'step')}")
+                                logger.info(f"Intent planner completed: {plan_result.get('intent').intent.value if plan_result.get('intent') else 'unknown'}")
+                            else:
+                                logger.info("Intent planner returned fallback_to_llm, using agent brain")
+
+                        except Exception as e:
+                            logger.warning(f"Intent planner failed, falling back to agent brain: {e}")
+
+                    # FALLBACK to agent brain if planner didn't handle it
+                    if response is None:
+                        response = await self._brain.process_request(
+                            message=content,
+                            conversation_history=history
+                        )
 
                 # Handle empty responses - LLM sometimes returns just whitespace after tool calls
                 if not response or not response.strip():

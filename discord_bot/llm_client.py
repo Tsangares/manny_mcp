@@ -4,6 +4,7 @@ Ollama with qwen2.5:14b-multi is the primary provider for local inference.
 Falls back to Gemini if Ollama is unavailable.
 
 Supports function calling for tool execution.
+Supports structured output via Pydantic schemas for the agentic loop.
 """
 import os
 import json
@@ -11,9 +12,14 @@ import asyncio
 import logging
 import httpx
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional, Dict, Any, List, Callable
+from typing import Optional, Dict, Any, List, Callable, Type, TypeVar
+
+from pydantic import BaseModel
 
 logger = logging.getLogger("llm_client")
+
+# Type variable for structured output
+T = TypeVar('T', bound=BaseModel)
 
 # Thread pool for running blocking API calls
 _executor = ThreadPoolExecutor(max_workers=2)
@@ -365,6 +371,149 @@ class LLMClient:
         The executor should accept (tool_name: str, arguments: dict) and return a result dict.
         """
         self.tool_executor = executor
+
+    async def chat_structured(
+        self,
+        messages: List[Dict],
+        response_model: Type[T],
+        temperature: float = 0.3
+    ) -> T:
+        """
+        Chat with Pydantic-validated structured output.
+
+        Uses Ollama's JSON mode with Pydantic schema to constrain output.
+        Falls back to regular chat + parsing if structured output fails.
+
+        Args:
+            messages: List of message dicts with role and content
+            response_model: Pydantic model class for the response
+            temperature: LLM temperature (lower = more deterministic)
+
+        Returns:
+            Validated instance of response_model
+        """
+        if self.provider == "ollama":
+            return await self._chat_structured_ollama(messages, response_model, temperature)
+        elif self.provider == "gemini":
+            return await self._chat_structured_gemini(messages, response_model, temperature)
+        else:
+            # For other providers, use regular chat + parse
+            return await self._chat_structured_fallback(messages, response_model)
+
+    async def _chat_structured_ollama(
+        self,
+        messages: List[Dict],
+        response_model: Type[T],
+        temperature: float
+    ) -> T:
+        """Ollama-specific structured output using format parameter."""
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            # Use Ollama's JSON mode with the Pydantic schema
+            request_body = {
+                "model": self.ollama_model,
+                "messages": messages,
+                "stream": False,
+                "format": response_model.model_json_schema(),
+                "options": {
+                    "temperature": temperature
+                }
+            }
+
+            response = await client.post(
+                f"{self.ollama_host}/api/chat",
+                json=request_body
+            )
+            response.raise_for_status()
+            result = response.json()
+
+            content = result.get("message", {}).get("content", "{}")
+
+            # Validate with Pydantic
+            return response_model.model_validate_json(content)
+
+    async def _chat_structured_gemini(
+        self,
+        messages: List[Dict],
+        response_model: Type[T],
+        temperature: float
+    ) -> T:
+        """Gemini structured output - uses response_schema config."""
+        types = self._genai_types
+
+        # Build contents from messages
+        contents = []
+        system_content = ""
+
+        for msg in messages:
+            if msg["role"] == "system":
+                system_content = msg["content"]
+            elif msg["role"] == "user":
+                contents.append(types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(msg["content"])]
+                ))
+            else:
+                contents.append(types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(msg["content"])]
+                ))
+
+        # Prepend system message to first user message if present
+        if system_content and contents:
+            first_content = contents[0]
+            if first_content.role == "user":
+                combined = f"{system_content}\n\n---\n\n{first_content.parts[0].text}"
+                contents[0] = types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(combined)]
+                )
+
+        # Configure with JSON response schema
+        config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=response_model.model_json_schema(),
+            temperature=temperature
+        )
+
+        loop = asyncio.get_event_loop()
+        response = await loop.run_in_executor(
+            _executor,
+            lambda: self._genai_client.models.generate_content(
+                model=self._gemini_model,
+                contents=contents,
+                config=config
+            )
+        )
+
+        if response.candidates and response.candidates[0].content.parts:
+            content = response.candidates[0].content.parts[0].text
+            return response_model.model_validate_json(content)
+
+        raise ValueError("No response from Gemini")
+
+    async def _chat_structured_fallback(
+        self,
+        messages: List[Dict],
+        response_model: Type[T]
+    ) -> T:
+        """Fallback: regular chat + parse response as JSON."""
+        # Add schema instruction to the last message
+        schema_hint = f"\n\nRespond with JSON matching this schema:\n{json.dumps(response_model.model_json_schema(), indent=2)}"
+
+        modified_messages = messages.copy()
+        if modified_messages:
+            last_msg = modified_messages[-1].copy()
+            last_msg["content"] = last_msg.get("content", "") + schema_hint
+            modified_messages[-1] = last_msg
+
+        # Use regular chat
+        response = await self.chat(
+            message=modified_messages[-1]["content"] if modified_messages else "",
+            conversation_history=modified_messages[:-1] if len(modified_messages) > 1 else []
+        )
+
+        # Try to parse as JSON
+        return response_model.model_validate_json(response)
 
     def get_system_prompt(self, available_routines: List[str]) -> str:
         """Generate system prompt from CONTEXT.md and available routines."""

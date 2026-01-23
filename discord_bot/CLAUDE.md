@@ -6,7 +6,43 @@ This file provides guidance for Claude Code when working on the Discord bot code
 
 The Discord bot provides remote OSRS client control via natural language. Users send messages, an LLM interprets them, and MCP tools execute actions.
 
-## Architecture
+## Architecture (Agentic Mode - Default)
+
+```
+User (Discord DM)
+       │
+       ▼
+   bot.py (message handler)
+       │
+       ├──► Direct Command Bypass (raw commands like KILL_LOOP)
+       │    → Executes immediately, no LLM
+       │
+       ▼
+   AgenticLoop (agentic_loop.py)
+       │
+       ├──► OBSERVE: get_game_state, check_health, lookup_location
+       ├──► ACT: send_command, start_runelite, run_routine
+       └──► VERIFY: get_game_state, get_logs
+       │
+       │   (Structured JSON output via Pydantic schema)
+       │
+       ▼
+   LLMClient.chat_structured (llm_client.py)
+   ├─ Primary: Ollama (hermes3:8b or qwen2.5:14b)
+   └─ Fallback: Gemini (gemini-2.0-flash-lite)
+       │
+       ▼
+   Tool Execution (_execute_tool in bot.py)
+       │
+       ▼
+   MCP Tools → RuneLite Plugin
+```
+
+### Agentic Mode Toggle
+
+Set `USE_AGENTIC_MODE=false` to use legacy architecture (TaskClassifier → IntentPlanner → AgentBrain).
+
+## Architecture (Legacy Mode)
 
 ```
 User (Discord DM)
@@ -37,64 +73,88 @@ User (Discord DM)
 | File | Purpose |
 |------|---------|
 | `bot.py` | Main Discord bot, slash commands, tool execution |
-| `llm_client.py` | LLM abstraction with tool calling support |
-| `agent_brain.py` | Task classification, context enrichment |
-| `CONTEXT.md` | System prompt for the LLM |
+| `llm_client.py` | LLM abstraction with tool calling + structured output |
+| `agentic_loop.py` | **NEW** OBSERVE-ACT-VERIFY execution loop |
+| `models.py` | **NEW** Pydantic models for structured LLM output |
+| `recovery.py` | **NEW** JSON rescue, regex fallback, circuit breaker |
+| `agent_brain.py` | Legacy task classification, context enrichment |
+| `intent_planner.py` | Legacy intent extraction and plan generation |
+| `CONTEXT.md` | System prompt for the LLM (rewritten for agentic mode) |
 | `task_queue.py` | Conditional task execution (level triggers, etc.) |
 | `conversation_logger.py` | Logs all interactions to `logs/conversations/` |
 | `training_logger.py` | Collects fine-tuning data |
 
-## Known Issues (Critical)
+### New Agentic Architecture Files
+
+**`models.py`** - Pydantic models for structured output:
+- `ActionDecision`: LLM decision (thought, action_type, tool_name, tool_args, response_text)
+- `AgentResult`: Loop result (response, actions, iterations, observed, error)
+- `TOOL_CATEGORIES`: Categorizes tools as observation/action/verification
+
+**`agentic_loop.py`** - Core execution loop:
+- `AgenticLoop`: Base OBSERVE-ACT-VERIFY loop
+- `AgenticLoopWithRecovery`: Adds fallback and stuck detection
+- Enforces observation before action
+- Uses Pydantic schema for reliable JSON output
+
+**`recovery.py`** - Fallback strategies:
+- `JSONRescue`: Parses and executes JSON tool calls from text
+- `RegexFallback`: Extracts commands using regex patterns
+- `CircuitBreaker`: Pauses on repeated failures
+- `RecoveryManager`: Coordinates all recovery strategies
+
+## Known Issues (Fixed by Agentic Mode)
+
+The following issues are **FIXED** by the new agentic architecture (`USE_AGENTIC_MODE=true`):
+
+### Issue 1: LLM Outputs JSON Instead of Calling Tools ✅ FIXED
+
+**Was:** LLM outputs `{"name": "send_command", ...}` as text instead of calling tools.
+
+**Fix:** Structured output via Pydantic schema constrains LLM to valid JSON. Recovery module (`JSONRescue`) catches and executes any JSON-as-text that still occurs.
+
+### Issue 2: LLM Claims Actions Without Executing ("Faking") ✅ FIXED
+
+**Was:** LLM says "Started killing frogs" without calling `send_command`.
+
+**Fix:** Agentic loop enforces OBSERVE-ACT-VERIFY pattern:
+- Must call observation tool before action
+- Actions tracked and logged
+- Response only generated after tool execution
+
+### Issue 3: Misclassification ✅ FIXED
+
+**Was:** "Scan for fishing net" triggers fishing because "fish" is in the message.
+
+**Fix:** No regex classification in agentic mode. LLM decides what to do based on context, not keywords.
+
+### Issue 4: Context Enricher Confusion ✅ FIXED
+
+**Was:** Pre-fetched game state confuses LLM into thinking action already taken.
+
+**Fix:** Agentic loop doesn't pre-fetch. LLM explicitly calls observation tools when needed.
+
+## Legacy Issues (Still Present in Legacy Mode)
+
+The following issues still occur when `USE_AGENTIC_MODE=false`:
 
 ### Issue 1: LLM Outputs JSON Instead of Calling Tools
 
-**Symptom:** The LLM outputs tool calls as JSON text in its response instead of actually invoking the function:
+**Symptom:** The LLM outputs tool calls as JSON text in its response instead of actually invoking the function.
 
-```
-User: "Kill loop giant frog 300"
-Response: To kill 300 Giant Frogs:
-{"name": "send_command", "arguments": {"command": "KILL_LOOP Giant_frog none 300"}}
-```
-
-**Why this happens:** The qwen2.5:14b model sometimes "describes" the tool call instead of using the proper function calling mechanism.
-
-**Logs evidence:** Jan 20 - lines 213-222, 257-268, 279-290, 301-312, 323-332
-
-**Current mitigation:** CONTEXT.md has explicit warnings, but they're often ignored.
+**Mitigation:** JSON rescue in bot.py parses and executes the JSON.
 
 ### Issue 2: LLM Claims Actions Without Executing Them ("Faking")
 
-**Symptom:** The LLM says it performed an action, but logs show no corresponding tool call:
+**Symptom:** The LLM says it performed an action, but logs show no corresponding tool call.
 
-| User Message | LLM Response | Actual Tool Calls |
-|--------------|--------------|-------------------|
-| "Just try combat style Slash" | "Switched to Slash" | **None** |
-| "Whatever. Grind Giant frog" | "Started grinding Giant frogs" | **None** |
-| "Open inventory" | "Opened the inventory tab" | get_game_state only |
-| "TAB_OPEN Inventory" | "Opened" | get_game_state only |
-| "Restart the client" | "Client has been restarted" | **None** |
-| "KILL_LOOP Giant_frog Tuna 300" | "Started killing 300 giant frogs" | **None** |
-
-**Why this happens:**
-1. ContextEnricher pre-fetches game state (line 197-201 in agent_brain.py) - LLM sees this as "having checked" and assumes action is done
-2. Model confuses "knowing what to do" with "having done it"
-3. No verification that tool calls actually occurred
-
-**Logs evidence:** Jan 21 - lines 103-108, 127-135, 163-168, 177-179, 187-191, 219-222
+**Mitigation:** Faking detection in bot.py warns user and attempts auto-execution.
 
 ### Issue 3: Empty Responses
 
-**Symptom:** LLM returns empty string, causing Discord "Cannot send an empty message" error.
+**Symptom:** LLM returns empty string, causing Discord error.
 
-**Current mitigation:** bot.py line 304-306 catches empty responses and substitutes "Done."
-
-### Issue 4: Context Enricher May Cause Confusion
-
-The `ContextEnricher.enrich_for_task()` calls `get_game_state` BEFORE the LLM processes the request. This means:
-1. A tool call appears in logs before the LLM even responds
-2. LLM might interpret this as "action already taken"
-
-**Location:** agent_brain.py lines 197-201
+**Mitigation:** bot.py catches empty responses and substitutes "Done."
 
 ## Debugging Workflow
 

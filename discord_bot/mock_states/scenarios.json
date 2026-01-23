@@ -1,0 +1,162 @@
+{
+  "_description": "Pre-built mock states for testing different scenarios",
+
+  "default": {
+    "_description": "Default state - at Lumbridge Castle",
+    "location": {"x": 3222, "y": 3218, "plane": 0},
+    "health": {"current": 25, "max": 30},
+    "inventory": {
+      "used": 5,
+      "capacity": 28,
+      "items": ["Bronze sword", "Wooden shield", "Coins x150", "Bread", "Logs"]
+    },
+    "skills": {
+      "attack": {"level": 10, "xp": 1154},
+      "strength": {"level": 8, "xp": 737},
+      "defence": {"level": 7, "xp": 593},
+      "hitpoints": {"level": 12, "xp": 1358},
+      "fishing": {"level": 5, "xp": 388}
+    },
+    "combat": {"style": "Accurate", "in_combat": false}
+  },
+
+  "low_health": {
+    "_description": "Low health - needs food or escape",
+    "location": {"x": 3197, "y": 3169, "plane": 0},
+    "health": {"current": 5, "max": 30},
+    "inventory": {
+      "used": 3,
+      "capacity": 28,
+      "items": ["Bronze sword", "Wooden shield", "Coins x50"]
+    },
+    "skills": {
+      "attack": {"level": 15, "xp": 2411},
+      "strength": {"level": 12, "xp": 1358},
+      "defence": {"level": 10, "xp": 1154},
+      "hitpoints": {"level": 15, "xp": 2411}
+    },
+    "combat": {"style": "Aggressive", "in_combat": true},
+    "nearby": {"npcs": ["Giant frog", "Giant frog"], "objects": []}
+  },
+
+  "full_inventory": {
+    "_description": "Full inventory - needs to bank",
+    "location": {"x": 3087, "y": 3227, "plane": 0},
+    "health": {"current": 20, "max": 25},
+    "inventory": {
+      "used": 28,
+      "capacity": 28,
+      "items": [
+        "Raw shrimps", "Raw shrimps", "Raw shrimps", "Raw shrimps",
+        "Raw shrimps", "Raw shrimps", "Raw shrimps", "Raw shrimps",
+        "Raw shrimps", "Raw shrimps", "Raw shrimps", "Raw shrimps",
+        "Raw shrimps", "Raw shrimps", "Raw shrimps", "Raw shrimps",
+        "Raw shrimps", "Raw shrimps", "Raw shrimps", "Raw shrimps",
+        "Raw shrimps", "Raw shrimps", "Raw shrimps", "Raw shrimps",
+        "Raw shrimps", "Raw shrimps", "Raw shrimps", "Small fishing net"
+      ]
+    },
+    "skills": {"fishing": {"level": 15, "xp": 2411}},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {"npcs": ["Fishing spot"], "objects": []}
+  },
+
+  "at_bank": {
+    "_description": "Standing at Draynor bank",
+    "location": {"x": 3093, "y": 3244, "plane": 0},
+    "health": {"current": 25, "max": 30},
+    "inventory": {
+      "used": 10,
+      "capacity": 28,
+      "items": [
+        "Raw shrimps x100", "Small fishing net", "Coins x500",
+        "Bronze axe", "Tinderbox", "Logs x5"
+      ]
+    },
+    "skills": {
+      "fishing": {"level": 20, "xp": 4470},
+      "woodcutting": {"level": 15, "xp": 2411}
+    },
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {"npcs": ["Banker"], "objects": ["Bank booth"]}
+  },
+
+  "in_combat": {
+    "_description": "Currently fighting giant frog",
+    "location": {"x": 3199, "y": 3171, "plane": 0},
+    "health": {"current": 18, "max": 30},
+    "inventory": {
+      "used": 8,
+      "capacity": 28,
+      "items": [
+        "Iron scimitar", "Wooden shield", "Cooked meat x5", "Coins x200"
+      ]
+    },
+    "skills": {
+      "attack": {"level": 20, "xp": 4470},
+      "strength": {"level": 18, "xp": 3258},
+      "defence": {"level": 15, "xp": 2411},
+      "hitpoints": {"level": 22, "xp": 5902}
+    },
+    "combat": {"style": "Aggressive", "in_combat": true},
+    "nearby": {"npcs": ["Giant frog", "Giant frog"], "objects": []}
+  },
+
+  "has_fishing_net": {
+    "_description": "Player has fishing net, at lumbridge",
+    "location": {"x": 3222, "y": 3218, "plane": 0},
+    "health": {"current": 25, "max": 25},
+    "inventory": {
+      "used": 2,
+      "capacity": 28,
+      "items": ["Small fishing net", "Coins x100"]
+    },
+    "skills": {"fishing": {"level": 1, "xp": 0}},
+    "combat": {"style": "Accurate", "in_combat": false}
+  },
+
+  "no_fishing_net": {
+    "_description": "Player needs fishing net",
+    "location": {"x": 3087, "y": 3227, "plane": 0},
+    "health": {"current": 20, "max": 25},
+    "inventory": {
+      "used": 3,
+      "capacity": 28,
+      "items": ["Bronze sword", "Wooden shield", "Coins x50"]
+    },
+    "skills": {"fishing": {"level": 1, "xp": 0}},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {"npcs": ["Fishing spot"], "objects": []}
+  },
+
+  "high_level_combat": {
+    "_description": "Higher level player for combat testing",
+    "location": {"x": 3253, "y": 3420, "plane": 0},
+    "health": {"current": 45, "max": 50},
+    "inventory": {
+      "used": 15,
+      "capacity": 28,
+      "items": [
+        "Rune scimitar", "Rune chainbody", "Rune platelegs",
+        "Lobster x10", "Coins x5000", "Strength potion(4)"
+      ]
+    },
+    "skills": {
+      "attack": {"level": 40, "xp": 37224},
+      "strength": {"level": 45, "xp": 61512},
+      "defence": {"level": 40, "xp": 37224},
+      "hitpoints": {"level": 45, "xp": 61512},
+      "ranged": {"level": 30, "xp": 13363},
+      "magic": {"level": 25, "xp": 8740},
+      "prayer": {"level": 31, "xp": 14833}
+    },
+    "equipment": {
+      "head": "Iron full helm",
+      "body": "Rune chainbody",
+      "legs": "Rune platelegs",
+      "weapon": "Rune scimitar",
+      "shield": null
+    },
+    "combat": {"style": "Aggressive", "in_combat": false}
+  }
+}
