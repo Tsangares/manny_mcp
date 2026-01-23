@@ -547,7 +547,8 @@ Commands:
                 continue
 
         # Run test
-        result = await run_test(message, mock_state=mock_state, verbose=verbose, history=history, model=model)
+        result = await run_test(message, mock_state=mock_state, verbose=verbose, history=history, model=model,
+                                provider=provider, gemini_model=gemini_model)
 
         # Update history
         history.append({"role": "user", "content": message})
