@@ -105,9 +105,25 @@
 ### `CAST_SPELL_NPC`
 
 **Handler**: `handleCastSpellNPC`
-**Location**: PlayerHelpers.java:9067
+**Location**: PlayerHelpers.java:12090
+**Format**: `CAST_SPELL_NPC <spell_name> <npc_name>`
+**Example**: `CAST_SPELL_NPC Wind_Strike Chicken`
 
-*No usage examples found yet*
+Casts a spell on an NPC. Opens magic tab, clicks the spell, then clicks the NPC.
+
+### `CLICK_NPC`
+
+**Handler**: `handleClickNPC`
+**Location**: PlayerHelpers.java:12360
+**Format**: `CLICK_NPC <npc_name>`
+**Example**: `CLICK_NPC Chicken`
+
+Clicks on an NPC's convex hull without action filtering. Useful after selecting a spell to complete the cast. Unlike INTERACT_NPC which requires a specific action (like "Attack" or "Talk-to"), this command just clicks the NPC directly.
+
+**Use cases:**
+- After selecting a spell (click_widget on spell), use CLICK_NPC to cast on target
+- When you need to click an NPC but don't know/care about the specific action
+- For spell casting on NPCs as an alternative to CAST_SPELL_NPC
 
 ### `CAST_SPELL_ON_GROUND_ITEM`
 

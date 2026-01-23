@@ -1,5 +1,5 @@
 # Tutorial Island - Part 10: Prayer & Magic
-# STATUS: VALIDATED (2026-01-18)
+# STATUS: VALIDATED (2026-01-20) - CAST_SPELL_NPC fixed, CLICK_NPC added
 #
 # This routine handles the Prayer and Magic sections:
 # 1. Account Guide section (account management explanation)
@@ -203,13 +203,36 @@ steps:
     status: "VALIDATED"
     notes: "Instructor explains Wind Strike"
 
+  # Cast Wind Strike on Chicken - TWO APPROACHES:
+  #
+  # APPROACH A (Recommended): Use CAST_SPELL_NPC (fixed 2026-01-20)
+  # - Single command, handles magic tab, spell selection, and NPC clicking
+  #
+  # APPROACH B (Alternative): Step-by-step with CLICK_NPC
+  # - More control, useful if CAST_SPELL_NPC still has issues
+  # - Step 23a: click_widget(widget_id=14286856) to select Wind Strike
+  # - Step 23b: CLICK_NPC Chicken to cast on target
+
   - id: 23
     description: "Cast Wind Strike on chicken"
     action: CAST_SPELL_NPC
     args: "Wind_Strike Chicken"
-    status: "BROKEN"
-    notes: "CAST_SPELL_NPC command causes client issues. MANUAL INTERVENTION REQUIRED."
-    manual_workaround: "Click Wind Strike spell, then click on a chicken"
+    status: "FIXED"
+    notes: "Fixed 2026-01-20 - threading deadlock resolved. Opens magic tab, clicks spell, clicks NPC."
+
+  # Alternative step-by-step approach (use if CAST_SPELL_NPC fails):
+  # - id: 23a
+  #   description: "Click Wind Strike spell"
+  #   mcp_tool: "click_widget"
+  #   args:
+  #     widget_id: 14286856  # Wind Strike spell widget
+  #   notes: "Selects the spell, cursor changes to targeting mode"
+  #
+  # - id: 23b
+  #   description: "Click on chicken to cast spell"
+  #   action: CLICK_NPC
+  #   args: "Chicken"
+  #   notes: "CLICK_NPC finds nearest chicken and clicks its convex hull"
 
   # Phase 6: Final Dialogue and Teleport
   - id: 24
@@ -259,8 +282,9 @@ steps:
 # 3. Prayer tab widget ID: 35913797
 # 4. Magic tab widget ID: 35913798
 # 5. Multiple dialogue sections require many space/continue presses
-# 6. CAST_SPELL_NPC command is BROKEN - causes client issues
-#    Must cast spell manually: click spell, then click NPC
+# 6. CAST_SPELL_NPC command was BROKEN - FIXED 2026-01-20
+#    Root cause: Threading deadlock calling gameHelpers.getNPC() inside invokeLater
+#    Fix: Now uses interactionSystem.findNPCByNamePublic() which is thread-safe
 # 7. Ironman question dialogue sequence:
 #    - First "Yes" to continue talking
 #    - Then "No" to decline Ironman mode
@@ -274,6 +298,12 @@ steps:
 # - Dialogue advancement: click_text("continue") preferred over KEY_PRESS space
 # - Door interaction: GOTO to door position + INTERACT_OBJECT Door Open
 # - Ironman decline: click_text("Yes") then click_text("No")
+# - Spell casting: CAST_SPELL_NPC Wind_Strike Chicken (FIXED)
+# - Alternative spell casting: click_widget(14286856) + CLICK_NPC Chicken
+
+# KEY SPELL WIDGET IDs:
+# - Wind Strike: 14286856
+# - Home Teleport: 14286848
 
 # ITEMS RECEIVED:
 # - Air rune x4 (from Magic Instructor)
