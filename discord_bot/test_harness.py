@@ -422,6 +422,9 @@ async def run_test(
             llm._gemini_model = gemini_model
         if not json_output:
             print(f"Using Gemini model: {llm._gemini_model}")
+    elif provider == "claude-code":
+        if not json_output:
+            print(f"Using Claude Code CLI with model: {llm._claude_code_model}")
 
     # Create agentic loop with mock executor
     loop = AgenticLoopWithRecovery(
@@ -684,7 +687,7 @@ Examples:
     parser.add_argument("--record", action="store_true", help="Record live game state")
     parser.add_argument("--json", action="store_true", help="Output results as JSON for analysis")
     parser.add_argument("--model", "-m", help="Ollama model to use (e.g., qwen2.5:14b, qwen3:14b)")
-    parser.add_argument("--provider", "-p", choices=["ollama", "gemini", "claude"], default="ollama",
+    parser.add_argument("--provider", "-p", choices=["ollama", "gemini", "claude", "claude-code"], default="ollama",
                         help="LLM provider (default: ollama)")
     parser.add_argument("--gemini-model", help="Gemini model (e.g., gemini-2.0-flash, gemini-2.5-flash)")
 
