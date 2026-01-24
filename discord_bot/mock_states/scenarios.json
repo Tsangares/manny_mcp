@@ -130,7 +130,7 @@
   },
 
   "near_ground_items": {
-    "_description": "Near Draynor fishing spot with ground items nearby",
+    "_description": "Near Draynor fishing spot with DROPPED items nearby (TileItems)",
     "location": {"x": 3087, "y": 3230, "plane": 0},
     "health": {"current": 20, "max": 25},
     "inventory": {
@@ -143,7 +143,30 @@
     "nearby": {
       "npcs": ["Fishing spot"],
       "objects": ["Tree"],
-      "ground_items": ["Small fishing net", "Bones", "Raw shrimps"]
+      "ground_items": ["Bones", "Raw shrimps"]
+    }
+  },
+
+  "at_fishing_net_spawn": {
+    "_description": "At Lumbridge Swamp fishing net SPAWN location (GameObjects, not TileItems)",
+    "_note": "Static spawns don't appear in query_nearby - use scan_tile_objects",
+    "location": {"x": 3244, "y": 3158, "plane": 0},
+    "health": {"current": 25, "max": 25},
+    "inventory": {
+      "used": 2,
+      "capacity": 28,
+      "items": ["Raw beef", "Cowhide"]
+    },
+    "skills": {"fishing": {"level": 1, "xp": 0}},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {
+      "npcs": [{"name": "Fishing tutor", "distance": 1}],
+      "objects": [],
+      "ground_items": [],
+      "static_spawns": [
+        {"name": "Small fishing net", "distance": 1, "x": 3244, "y": 3159, "actions": ["Take"]},
+        {"name": "Small fishing net", "distance": 2, "x": 3245, "y": 3156, "actions": ["Take"]}
+      ]
     }
   },
 
@@ -194,5 +217,91 @@
       "shield": null
     },
     "combat": {"style": "Aggressive", "in_combat": false}
+  },
+
+  "at_fishing_spot": {
+    "_description": "At Draynor fishing spot with net - ready to fish",
+    "_test": "Test: 'Start fishing' should use FISH or INTERACT_NPC, not scan for net",
+    "location": {"x": 3087, "y": 3227, "plane": 0},
+    "health": {"current": 25, "max": 25},
+    "inventory": {
+      "used": 2,
+      "capacity": 28,
+      "items": ["Small fishing net", "Coins x100"]
+    },
+    "skills": {"fishing": {"level": 10, "xp": 1154}},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {
+      "npcs": [{"name": "Fishing spot", "distance": 1}],
+      "objects": [],
+      "ground_items": []
+    }
+  },
+
+  "need_equipment": {
+    "_description": "No fishing net, near Fishing Tutor spawn - tests equipment discovery",
+    "_test": "Test: 'Start fishing' should check inventory, find no net, then scan for spawn",
+    "location": {"x": 3244, "y": 3158, "plane": 0},
+    "health": {"current": 25, "max": 25},
+    "inventory": {
+      "used": 1,
+      "capacity": 28,
+      "items": ["Coins x100"]
+    },
+    "skills": {"fishing": {"level": 1, "xp": 0}},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {
+      "npcs": [{"name": "Fishing tutor", "distance": 1}],
+      "objects": [],
+      "ground_items": [],
+      "static_spawns": [
+        {"name": "Small fishing net", "distance": 1, "x": 3244, "y": 3159, "actions": ["Take"]}
+      ]
+    }
+  },
+
+  "want_to_bank": {
+    "_description": "Full inventory at Draynor - needs to bank",
+    "_test": "Test: 'Bank my stuff' should GOTO bank then BANK_DEPOSIT_ALL",
+    "location": {"x": 3087, "y": 3227, "plane": 0},
+    "health": {"current": 25, "max": 25},
+    "inventory": {
+      "used": 28,
+      "capacity": 28,
+      "items": ["Raw shrimps x27", "Small fishing net"]
+    },
+    "skills": {"fishing": {"level": 20, "xp": 4470}},
+    "combat": {"style": "Accurate", "in_combat": false},
+    "nearby": {
+      "npcs": [{"name": "Fishing spot", "distance": 1}],
+      "objects": [],
+      "ground_items": []
+    }
+  },
+
+  "combat_training": {
+    "_description": "Near frogs, ready for combat training",
+    "_test": "Test: 'Kill frogs' or 'Train strength' should use KILL_LOOP",
+    "location": {"x": 3197, "y": 3169, "plane": 0},
+    "health": {"current": 30, "max": 30},
+    "inventory": {
+      "used": 5,
+      "capacity": 28,
+      "items": ["Iron scimitar", "Wooden shield", "Bread x3"]
+    },
+    "skills": {
+      "attack": {"level": 20, "xp": 4470},
+      "strength": {"level": 15, "xp": 2411},
+      "defence": {"level": 15, "xp": 2411}
+    },
+    "combat": {"style": "Aggressive", "in_combat": false},
+    "nearby": {
+      "npcs": [
+        {"name": "Giant frog", "distance": 3},
+        {"name": "Giant frog", "distance": 5}
+      ],
+      "objects": [],
+      "ground_items": []
+    }
   }
 }

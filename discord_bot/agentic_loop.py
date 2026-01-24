@@ -9,6 +9,7 @@ Key differences from the old architecture:
 2. Structured output via Pydantic schema
 3. Observation-first enforcement
 4. Two-phase execution (LLM decides, code executes)
+5. Smart context injection based on activity classification
 """
 import json
 import logging
@@ -22,6 +23,7 @@ from discord_bot.models import (
     is_observation_tool,
     requires_observation,
 )
+from discord_bot.activity_classifier import classify_activity, get_context_fragment
 
 logger = logging.getLogger("agentic_loop")
 
@@ -201,8 +203,16 @@ class AgenticLoop:
         )
 
     def _build_messages(self, message: str, history: List[Dict]) -> List[Dict]:
-        """Build the messages list for the LLM."""
+        """Build the messages list for the LLM with smart context injection."""
         system_prompt = get_agentic_system_prompt()
+
+        # Smart context injection based on activity classification
+        domain = classify_activity(message)
+        if domain:
+            fragment = get_context_fragment(domain)
+            if fragment:
+                system_prompt += f"\n\n{fragment}"
+                logger.debug(f"Injected {domain} context fragment")
 
         # Add JSON schema instruction
         schema_instruction = f"""

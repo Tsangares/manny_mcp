@@ -886,6 +886,68 @@ class OSRSBot(commands.Bot):
                         "hint": "Try common names like: lumbridge, draynor, varrock, ge, cows, frogs"
                     }
 
+            elif tool_name == "query_nearby":
+                # Scan nearby NPCs, objects, and ground items
+                from mcptools.tools.routine import handle_query_nearby
+                result = await handle_query_nearby({
+                    "account_id": self.account_id,
+                    "include_npcs": arguments.get("include_npcs", True),
+                    "include_objects": arguments.get("include_objects", True),
+                    "include_ground_items": arguments.get("include_ground_items", True),
+                    "name_filter": arguments.get("name_filter"),
+                    "timeout_ms": arguments.get("timeout_ms", 3000)
+                })
+
+                # Add contextual hints to guide LLM reasoning
+                hints = []
+                npcs = result.get("npcs", [])
+                for npc in npcs:
+                    npc_name = npc.get("name", "") if isinstance(npc, dict) else str(npc)
+                    if "Fishing" in npc_name:
+                        hints.append("Fishing spots are NPCs. Use FISH or INTERACT_NPC Fishing_spot Net/Bait")
+                    if "Banker" in npc_name or "Bank" in npc_name:
+                        hints.append("Banker nearby. Use BANK_OPEN to access bank.")
+
+                objects = result.get("objects", [])
+                for obj in objects:
+                    obj_name = obj.get("name", "") if isinstance(obj, dict) else str(obj)
+                    if "Bank" in obj_name:
+                        hints.append("Bank booth nearby. Use BANK_OPEN to access bank.")
+
+                if hints:
+                    result["_hints"] = hints
+
+                return result
+
+            elif tool_name == "scan_tile_objects":
+                # Scan for specific tile objects (doors, walls, ground items)
+                from mcptools.tools.routine import handle_scan_tile_objects
+                result = await handle_scan_tile_objects({
+                    "account_id": self.account_id,
+                    "object_name": arguments.get("object_name", ""),
+                    "max_distance": arguments.get("max_distance", 15),
+                    "timeout_ms": arguments.get("timeout_ms", 3000)
+                })
+
+                # Add contextual hints for static spawns
+                hints = []
+                objects = result.get("objects", [])
+                for obj in objects:
+                    obj_name = obj.get("name", "").lower() if isinstance(obj, dict) else str(obj).lower()
+                    obj_actions = obj.get("actions", []) if isinstance(obj, dict) else []
+
+                    if "fishing net" in obj_name or "net" in obj_name:
+                        hints.append("Static spawn found. Use INTERACT_OBJECT small_fishing_net Take (NOT PICK_UP_ITEM)")
+                    if "bucket" in obj_name:
+                        hints.append("Static spawn found. Use INTERACT_OBJECT Bucket Take (NOT PICK_UP_ITEM)")
+                    if "Take" in obj_actions:
+                        hints.append(f"Use INTERACT_OBJECT <name> Take to pick up static spawns")
+
+                if hints:
+                    result["_hints"] = list(set(hints))  # Dedupe hints
+
+                return result
+
             elif tool_name == "list_plugin_commands":
                 # Use manny-cli to list commands
                 import subprocess

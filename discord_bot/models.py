@@ -161,6 +161,18 @@ TOOL_CATEGORIES = {
         description="List available OSRS accounts",
         requires_observation=False
     ),
+    "query_nearby": ToolCategory(
+        name="query_nearby",
+        category="observation",
+        description="Scan nearby NPCs, objects, and ground items",
+        requires_observation=False
+    ),
+    "scan_tile_objects": ToolCategory(
+        name="scan_tile_objects",
+        category="observation",
+        description="Scan for specific tile objects (doors, gates, ground items)",
+        requires_observation=False
+    ),
 
     # Action tools - require observation first (for most cases)
     "send_command": ToolCategory(

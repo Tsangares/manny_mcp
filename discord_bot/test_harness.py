@@ -158,6 +158,8 @@ class MockToolExecutor:
             "list_accounts": self._mock_list_accounts,
             "list_plugin_commands": self._mock_list_plugin_commands,
             "get_command_help": self._mock_get_command_help,
+            "query_nearby": self._mock_query_nearby,
+            "scan_tile_objects": self._mock_scan_tile_objects,
         }
 
         handler = handlers.get(tool_name)
@@ -314,6 +316,103 @@ SKILLING: FISH, FISH_DRAYNOR_LOOP, CHOP_TREE, COOK_ALL
 INTERACTION: INTERACT_NPC, INTERACT_OBJECT, PICK_UP_ITEM"""
         }
 
+    async def _mock_query_nearby(self, args: Dict) -> Dict:
+        """Mock query nearby - returns NPCs, objects, and optionally ground items.
+
+        NOTE: This only returns DROPPED items (TileItems), not static spawns (GameObjects).
+        For static item spawns, use scan_tile_objects instead.
+        """
+        include_ground_items = args.get("include_ground_items", False)
+        nearby = self.mock_state.get("nearby", {})
+
+        result = {
+            "npcs": nearby.get("npcs", []),
+            "objects": nearby.get("objects", []),
+        }
+
+        if include_ground_items:
+            # Only return dropped items, not static spawns
+            result["ground_items"] = nearby.get("ground_items", [])
+
+        # Add contextual hints (matching bot.py behavior)
+        hints = []
+        for npc in result.get("npcs", []):
+            npc_name = npc.get("name", "") if isinstance(npc, dict) else str(npc)
+            if "Fishing" in npc_name:
+                hints.append("Fishing spots are NPCs. Use FISH or INTERACT_NPC Fishing_spot Net/Bait")
+            if "Banker" in npc_name or "Bank" in npc_name:
+                hints.append("Banker nearby. Use BANK_OPEN to access bank.")
+
+        for obj in result.get("objects", []):
+            obj_name = obj.get("name", "") if isinstance(obj, dict) else str(obj)
+            if "Bank" in obj_name:
+                hints.append("Bank booth nearby. Use BANK_OPEN to access bank.")
+
+        if hints:
+            result["_hints"] = hints
+
+        return result
+
+    async def _mock_scan_tile_objects(self, args: Dict) -> Dict:
+        """Mock scan tile objects - finds GameObjects including static item spawns.
+
+        Use this for permanent item spawns (fishing nets, buckets on tables, etc.)
+        that don't appear in query_nearby ground_items.
+        """
+        object_name = args.get("object_name", "").lower().replace("_", " ")
+        nearby = self.mock_state.get("nearby", {})
+
+        # Check for static spawns in the scenario
+        static_spawns = nearby.get("static_spawns", [])
+        objects = nearby.get("objects", [])
+
+        results = []
+        for spawn in static_spawns:
+            spawn_name = spawn.get("name", "").lower()
+            if object_name in spawn_name or spawn_name in object_name:
+                results.append({
+                    "name": spawn.get("name"),
+                    "distance": spawn.get("distance", 1),
+                    "x": spawn.get("x", self.mock_state.get("location", {}).get("x", 0)),
+                    "y": spawn.get("y", self.mock_state.get("location", {}).get("y", 0)),
+                    "type": "GameObject",
+                    "actions": spawn.get("actions", ["Take"])
+                })
+
+        # Also check regular objects
+        for obj in objects:
+            obj_name = obj if isinstance(obj, str) else obj.get("name", "")
+            if object_name in obj_name.lower():
+                results.append({
+                    "name": obj_name,
+                    "distance": 2,
+                    "type": "GameObject"
+                })
+
+        result = {
+            "success": True,
+            "count": len(results),
+            "objects": results
+        }
+
+        # Add contextual hints for static spawns (matching bot.py behavior)
+        hints = []
+        for obj in results:
+            obj_name = obj.get("name", "").lower()
+            obj_actions = obj.get("actions", [])
+
+            if "fishing net" in obj_name or "net" in obj_name:
+                hints.append("Static spawn found. Use INTERACT_OBJECT small_fishing_net Take (NOT PICK_UP_ITEM)")
+            if "bucket" in obj_name:
+                hints.append("Static spawn found. Use INTERACT_OBJECT Bucket Take (NOT PICK_UP_ITEM)")
+            if "Take" in obj_actions:
+                hints.append("Use INTERACT_OBJECT <name> Take to pick up static spawns")
+
+        if hints:
+            result["_hints"] = list(set(hints))  # Dedupe hints
+
+        return result
+
     async def _mock_get_command_help(self, args: Dict) -> Dict:
         """Mock command help."""
         command = args.get("command", "").upper()
@@ -340,7 +439,8 @@ INTERACTION: INTERACT_NPC, INTERACT_OBJECT, PICK_UP_ITEM"""
 
             if tool in ["get_game_state", "check_health", "lookup_location",
                        "get_screenshot", "get_logs", "list_routines",
-                       "list_accounts", "list_plugin_commands", "get_command_help"]:
+                       "list_accounts", "list_plugin_commands", "get_command_help",
+                       "query_nearby", "scan_tile_objects"]:
                 observe_calls.append((tool, args))
             else:
                 action_calls.append((tool, args))
@@ -368,10 +468,13 @@ INTERACTION: INTERACT_NPC, INTERACT_OBJECT, PICK_UP_ITEM"""
         )
 
         # Check if first call was observation
+        observation_tools = ["get_game_state", "check_health", "lookup_location",
+                             "get_screenshot", "get_logs", "list_routines",
+                             "list_accounts", "list_plugin_commands", "get_command_help",
+                             "query_nearby", "scan_tile_objects"]
         if self.call_log:
             first_tool = self.call_log[0]["tool"]
-            observed_first = first_tool in ["get_game_state", "check_health", "lookup_location",
-                                            "get_screenshot", "get_logs"]
+            observed_first = first_tool in observation_tools
         else:
             observed_first = False
 

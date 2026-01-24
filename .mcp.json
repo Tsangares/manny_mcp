@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "runelite-debug": {
+      "command": "/home/wil/manny-mcp/venv/bin/python",
+      "args": ["/home/wil/manny-mcp/server.py"],
+      "cwd": "/home/wil/manny-mcp"
+    }
+  }
+}

@@ -72,14 +72,16 @@ User (Discord DM)
 
 | File | Purpose |
 |------|---------|
-| `bot.py` | Main Discord bot, slash commands, tool execution |
+| `bot.py` | Main Discord bot, slash commands, tool execution, hint injection |
 | `llm_client.py` | LLM abstraction with tool calling + structured output |
-| `agentic_loop.py` | **NEW** OBSERVE-ACT-VERIFY execution loop |
-| `models.py` | **NEW** Pydantic models for structured LLM output |
-| `recovery.py` | **NEW** JSON rescue, regex fallback, circuit breaker |
+| `agentic_loop.py` | OBSERVE-ACT-VERIFY execution loop + smart context injection |
+| `activity_classifier.py` | Fast keyword-based activity classification |
+| `context_fragments/` | Domain-specific context files (skilling, combat, etc.) |
+| `models.py` | Pydantic models for structured LLM output |
+| `recovery.py` | JSON rescue, regex fallback, circuit breaker |
+| `CONTEXT.md` | Slim reasoning framework (~400 tokens base) |
 | `agent_brain.py` | Legacy task classification, context enrichment |
 | `intent_planner.py` | Legacy intent extraction and plan generation |
-| `CONTEXT.md` | System prompt for the LLM (rewritten for agentic mode) |
 | `task_queue.py` | Conditional task execution (level triggers, etc.) |
 | `conversation_logger.py` | Logs all interactions to `logs/conversations/` |
 | `training_logger.py` | Collects fine-tuning data |
@@ -96,6 +98,43 @@ User (Discord DM)
 - `AgenticLoopWithRecovery`: Adds fallback and stuck detection
 - Enforces observation before action
 - Uses Pydantic schema for reliable JSON output
+- **Smart context injection** based on activity classification
+
+**`activity_classifier.py`** - Fast keyword-based activity classification:
+- Classifies messages into domains: skilling, combat, navigation, banking, interaction
+- <1ms classification time
+- Triggers dynamic context fragment injection
+
+**`context_fragments/`** - Domain-specific context (loaded on-demand):
+- `skilling.md` - Fishing spots are NPCs, equipment requirements, FISH command
+- `combat.md` - KILL_LOOP syntax, food management, combat styles
+- `navigation.md` - GOTO command, coordinate system, location lookup
+- `banking.md` - BANK_OPEN workflow, deposit vs drop distinction
+- `interaction.md` - Entity types, NPC vs Object vs Item interaction
+
+### Smart Context Architecture
+
+The LLM receives **only relevant context** based on the user's request:
+
+```
+User: "Start fishing"
+       │
+       ├─ activity_classifier.py → "skilling"
+       │
+       ├─ Load context_fragments/skilling.md (~300 tokens)
+       │
+       └─ CONTEXT.md + skilling.md → LLM
+           (Total: ~700 tokens vs 2000+ without optimization)
+```
+
+**Why this matters:**
+1. Reduces token usage by ~60-70%
+2. Gives LLM focused, relevant knowledge
+3. Prevents confusion from unrelated context
+4. Enables teaching game mechanics without exhaustive documentation
+
+**Tool response hints:** Tools like `query_nearby` and `scan_tile_objects` include
+`_hints` in their responses (e.g., "Fishing spots are NPCs. Use FISH or INTERACT_NPC")
 
 **`recovery.py`** - Fallback strategies:
 - `JSONRescue`: Parses and executes JSON tool calls from text

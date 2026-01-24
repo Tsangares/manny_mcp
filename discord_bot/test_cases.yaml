@@ -40,33 +40,48 @@ test_cases:
 
   # === NEW REAL-WORLD FAILURE CASES (2026-01-23) ===
 
-  - id: pickup_ground_item
-    status: FAIL
-    message: "Pick up the small fishing net off the ground"
-    scenario: near_ground_items  # Has ground items: Small fishing net, Bones, Raw shrimps
+  - id: pickup_ground_item_dropped
+    status: PASS
+    message: "Pick up the bones on the ground"
+    scenario: near_ground_items  # Has DROPPED items: Bones, Raw shrimps (TileItems)
     expected_behavior:
       - Use query_nearby(include_ground_items=True) to scan ground
-      - See "Small fishing net" in ground items
-      - Send PICK_UP_ITEM Small fishing net command
+      - See "Bones" in ground items
+      - Send PICK_UP_ITEM Bones command
     actual_behavior: |
-      Used get_game_state(fields=["inventory", "ground_items"]) - BUT ground_items is NOT a valid field!
-      Model couldn't see ground items, yet still tried PICK_UP_ITEM blindly.
-      Sent command twice.
-    issue: "HALLUCINATED_API - Invents non-existent API field 'ground_items', should use query_nearby"
+      Used query_nearby(include_ground_items=True).
+      Found: ["Bones", "Raw shrimps"]
+      Sent: PICK_UP_ITEM Bones
+      Response: "Started picking up the bones on the ground."
+    issue: null
+
+  - id: pickup_ground_item_static_spawn
+    status: PASS
+    message: "Pick up the small fishing net off the ground"
+    scenario: at_fishing_net_spawn  # Has STATIC SPAWNS (GameObjects, not TileItems!)
+    expected_behavior:
+      - Use scan_tile_objects(object_name="fishing net") for static spawns
+      - See fishing net as GameObject
+      - Send INTERACT_OBJECT Small_fishing_net Take (NOT PICK_UP_ITEM!)
+    actual_behavior: |
+      Used scan_tile_objects(object_name="small fishing net").
+      Found: 2 objects with type "GameObject"
+      Sent: INTERACT_OBJECT Small_fishing_net Take (with underscores - correct!)
+      Response: "Picked up the small fishing net."
+    issue: null
 
   - id: scan_ground_items
-    status: FAIL
+    status: PASS
     message: "Scan the ground tile items for a small fishing net"
-    scenario: near_ground_items
+    scenario: near_ground_items  # Has DROPPED items only, no fishing net spawn here
     expected_behavior:
-      - Use query_nearby(include_ground_items=True) to scan ground
-      - Report ground items found
-      - NOT take a screenshot and ask user to look
+      - Use query_nearby(include_ground_items=True) to scan for dropped items
+      - Report what ground items were found
+      - For static spawns, should use scan_tile_objects instead
     actual_behavior: |
-      Used get_game_state(fields=["inventory", "ground_items"]) - invalid field.
-      Returned empty, so reported "There is no small fishing net on the ground tile."
-      FALSE - there IS a net in the scenario, model just can't see it.
-    issue: "HALLUCINATED_API - Invents non-existent API field, gives false negative"
+      With CONTEXT.md update, model now correctly uses query_nearby.
+      Reports: "Bones, Raw shrimps found on ground. No fishing net."
+    issue: null
 
   - id: goto_fishing_spot
     status: FAIL
@@ -83,19 +98,19 @@ test_cases:
     issue: "NO_LOOKUP - Doesn't use lookup_location, guesses wrong coordinates"
 
   - id: go_south_direction
-    status: FAIL
+    status: PASS
     message: "Go south"
     scenario: near_lumbridge_south  # At 3242, 3165
     expected_behavior:
       - Observe current location
-      - Move a reasonable distance south (10-30 tiles)
+      - Move a reasonable distance south (15-25 tiles)
       - GOTO 3242 3145 0 (or similar, 20 tiles south)
     actual_behavior: |
+      With CONTEXT.md update documenting directional movement guidelines:
       Player at 3242, 3165.
-      Sent GOTO 3242 3164 0 - only 1 tile south!
-      Compare: "Go south a bit" → 5 tiles. "Go south" → 1 tile.
-      Logic is inverted - unqualified should be MORE, not LESS.
-    issue: "TINY_MOVEMENT - 'Go south' moves only 1 tile. Inverted from human expectation."
+      Sent GOTO 3242 3145 0 - 20 tiles south (correct!)
+      Response: "Moving south."
+    issue: null
 
   - id: drop_inventory_naive
     status: PARTIAL
@@ -194,6 +209,22 @@ batch_tests:
 #    - "I'm dying" interpreted as "keep me alive while grinding"
 #    - Should interpret as "STOP and save me"
 #    - Fix: Use qwen2.5:14b which stops and advises fleeing
+#
+# 3. HALLUCINATED_API ✅ FIXED
+#    - LLM invents non-existent API fields (get_game_state fields=["ground_items"])
+#    - Fix: Added query_nearby and scan_tile_objects to CONTEXT.md + bot.py
+#    - Now correctly uses query_nearby for dropped items
+#
+# 4. WRONG_TOOL_FOR_SPAWNS ✅ FIXED
+#    - Used query_nearby for static item spawns (fishing net near tutor)
+#    - Static spawns are GameObjects, not TileItems!
+#    - Fix: Added scan_tile_objects tool + documented distinction in CONTEXT.md
+#    - Now correctly uses scan_tile_objects + INTERACT_OBJECT for spawns
+#
+# 5. TINY_MOVEMENT ✅ FIXED
+#    - "Go south" moved only 1 tile
+#    - Fix: Added directional movement guidelines to CONTEXT.md
+#    - Now moves 15-25 tiles for unqualified direction commands
 
 # === MODEL COMPARISON (2026-01-23) ===
 #
