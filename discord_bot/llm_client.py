@@ -333,6 +333,11 @@ class LLMClient:
             self.client = OpenAI()  # Uses OPENAI_API_KEY env var
             self.model_name = "gpt-4o-mini"
 
+        elif provider == "claude-code":
+            # Uses Claude Code CLI with your subscription
+            self._claude_code_model = os.environ.get("CLAUDE_CODE_MODEL", "sonnet")
+            logger.info(f"Claude Code CLI provider initialized with model {self._claude_code_model}")
+
         else:
             raise ValueError(f"Unknown provider: {provider}")
 
@@ -396,6 +401,8 @@ class LLMClient:
             return await self._chat_structured_ollama(messages, response_model, temperature)
         elif self.provider == "gemini":
             return await self._chat_structured_gemini(messages, response_model, temperature)
+        elif self.provider == "claude-code":
+            return await self._chat_structured_claude_code(messages, response_model, temperature)
         else:
             # For other providers, use regular chat + parse
             return await self._chat_structured_fallback(messages, response_model)
@@ -431,6 +438,46 @@ class LLMClient:
             # Validate with Pydantic
             return response_model.model_validate_json(content)
 
+    def _clean_schema_for_gemini(self, schema: dict) -> dict:
+        """Remove unsupported properties from JSON schema for Gemini API.
+
+        Gemini doesn't support: additionalProperties, anyOf, $defs, etc.
+        Gemini requires object types to have non-empty properties.
+        """
+        if not isinstance(schema, dict):
+            return schema
+
+        # Remove unsupported keys
+        unsupported_keys = ['additionalProperties', '$defs', 'definitions', 'title', 'description']
+        cleaned = {k: v for k, v in schema.items() if k not in unsupported_keys}
+
+        # Handle anyOf by taking the first non-null type
+        if 'anyOf' in schema:
+            for option in schema['anyOf']:
+                if option.get('type') != 'null':
+                    cleaned = {**cleaned, **option}
+                    break
+            cleaned.pop('anyOf', None)
+
+        # Gemini requires object types to have properties
+        # For generic dict/object types without properties, convert to string
+        if cleaned.get('type') == 'object' and 'properties' not in cleaned:
+            # Convert empty object to string (Gemini will parse as JSON string)
+            cleaned = {'type': 'string'}
+
+        # Recursively clean nested properties
+        if 'properties' in cleaned:
+            cleaned['properties'] = {
+                k: self._clean_schema_for_gemini(v)
+                for k, v in cleaned['properties'].items()
+            }
+
+        # Clean items in arrays
+        if 'items' in cleaned:
+            cleaned['items'] = self._clean_schema_for_gemini(cleaned['items'])
+
+        return cleaned
+
     async def _chat_structured_gemini(
         self,
         messages: List[Dict],
@@ -450,12 +497,12 @@ class LLMClient:
             elif msg["role"] == "user":
                 contents.append(types.Content(
                     role="user",
-                    parts=[types.Part.from_text(msg["content"])]
+                    parts=[types.Part.from_text(text=msg["content"])]
                 ))
             else:
                 contents.append(types.Content(
                     role="model",
-                    parts=[types.Part.from_text(msg["content"])]
+                    parts=[types.Part.from_text(text=msg["content"])]
                 ))
 
         # Prepend system message to first user message if present
@@ -465,13 +512,29 @@ class LLMClient:
                 combined = f"{system_content}\n\n---\n\n{first_content.parts[0].text}"
                 contents[0] = types.Content(
                     role="user",
-                    parts=[types.Part.from_text(combined)]
+                    parts=[types.Part.from_text(text=combined)]
                 )
 
-        # Configure with JSON response schema
+        # Use prompt-based JSON output (more compatible than response_schema)
+        schema_json = json.dumps(response_model.model_json_schema(), indent=2)
+        json_instruction = f"""
+You MUST respond with valid JSON matching this schema:
+{schema_json}
+
+Output ONLY the JSON object, no markdown, no explanation.
+"""
+        # Append instruction to the last user message
+        if contents:
+            last_content = contents[-1]
+            if last_content.role == "user":
+                original_text = last_content.parts[0].text
+                contents[-1] = types.Content(
+                    role="user",
+                    parts=[types.Part.from_text(text=f"{original_text}\n\n{json_instruction}")]
+                )
+
         config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=response_model.model_json_schema(),
             temperature=temperature
         )
 
@@ -490,6 +553,88 @@ class LLMClient:
             return response_model.model_validate_json(content)
 
         raise ValueError("No response from Gemini")
+
+    async def _chat_structured_claude_code(
+        self,
+        messages: List[Dict],
+        response_model: Type[T],
+        temperature: float
+    ) -> T:
+        """Claude Code CLI structured output using --json-schema flag.
+
+        Uses your Claude subscription via the CLI tool.
+        """
+        import subprocess
+
+        # Build the prompt from messages
+        prompt_parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            if role == "system":
+                prompt_parts.insert(0, f"[System Instructions]\n{content}\n")
+            elif role == "user":
+                prompt_parts.append(f"User: {content}")
+            elif role == "assistant":
+                prompt_parts.append(f"Assistant: {content}")
+
+        full_prompt = "\n\n".join(prompt_parts)
+
+        # Get JSON schema from Pydantic model
+        schema = response_model.model_json_schema()
+        schema_str = json.dumps(schema)
+
+        # Build command
+        cmd = [
+            "claude",
+            "--print",
+            "--output-format", "json",
+            "--json-schema", schema_str,
+            "--model", self._claude_code_model,
+            "-p", full_prompt
+        ]
+
+        logger.info(f"Claude Code CLI call with model {self._claude_code_model}")
+
+        # Run claude CLI
+        loop = asyncio.get_event_loop()
+        try:
+            result = await loop.run_in_executor(
+                _executor,
+                lambda: subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=180
+                )
+            )
+
+            if result.returncode != 0:
+                logger.error(f"Claude Code CLI error: {result.stderr}")
+                raise ValueError(f"Claude Code CLI failed: {result.stderr}")
+
+            # Parse the JSON output
+            output = json.loads(result.stdout)
+
+            # Extract structured_output from the response
+            if "structured_output" in output:
+                structured = output["structured_output"]
+                # Validate with Pydantic
+                if isinstance(structured, str):
+                    return response_model.model_validate_json(structured)
+                else:
+                    return response_model.model_validate(structured)
+            elif "result" in output and output["result"]:
+                # Fallback to result field
+                return response_model.model_validate_json(output["result"])
+            else:
+                raise ValueError(f"No structured_output in Claude Code response: {output}")
+
+        except subprocess.TimeoutExpired:
+            raise ValueError("Claude Code CLI timed out")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse Claude Code output: {e}")
+            raise ValueError(f"Invalid JSON from Claude Code: {e}")
 
     async def _chat_structured_fallback(
         self,
@@ -728,7 +873,7 @@ class LLMClient:
             role = "user" if msg["role"] == "user" else "model"
             contents.append(types.Content(
                 role=role,
-                parts=[types.Part.from_text(msg["content"])]
+                parts=[types.Part.from_text(text=msg["content"])]
             ))
 
         # Add current message with system context on first message
@@ -739,7 +884,7 @@ class LLMClient:
 
         contents.append(types.Content(
             role="user",
-            parts=[types.Part.from_text(full_message)]
+            parts=[types.Part.from_text(text=full_message)]
         ))
 
         # Configure with tools
