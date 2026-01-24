@@ -11,7 +11,7 @@ runelite_jar: /home/wil/runelite.jar
 
 # Use mvn exec:java to run (requires runelite source)
 # Set to false to use JAR directly (portable mode)
-use_exec_java: false
+use_exec_java: true
 
 # Java executable
 java_path: java
@@ -40,8 +40,8 @@ log_buffer_size: 10000
 plugin_logger_prefix: "manny"
 
 # Command interface (manny plugin bi-directional control)
-command_file: /tmp/manny_aux_command.txt
-state_file: /tmp/manny_aux_state.json
+command_file: /tmp/manny_command.txt
+state_file: /tmp/manny_state.json
 
 # Session persistence
 session_file: /home/wil/manny-mcp/debug-session.json

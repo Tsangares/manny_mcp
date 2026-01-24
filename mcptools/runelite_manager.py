@@ -430,6 +430,9 @@ class MultiRuneLiteManager:
         Returns:
             Dict with startup result and credential status.
         """
+        # Reload config to pick up any changes (e.g., use_exec_java toggle)
+        self.config = ServerConfig.load()
+
         # Resolve account_id: credential_manager.default -> config.default_account -> "default"
         if account_id is None:
             if credential_manager.default and credential_manager.default != "default":
