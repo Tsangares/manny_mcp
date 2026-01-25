@@ -77,7 +77,39 @@ send_command("MOUSE_CLICK left")    # Click lands elsewhere
 
 ## Widget Discovery ⚡
 
-Use lightweight tools first: `find_widget(text="...")` and `click_text("...")` are fast (~100ms). Only use `scan_widgets` as a last resort via Haiku subagent (returns ~35k tokens). **Never use `--deep` flag** - times out.
+**`find_widget` is clearly superior to `scan_widgets`:**
+
+| Tool | Tokens | Speed | Use Case |
+|------|--------|-------|----------|
+| `find_widget(text="...")` | ~50-200 | ~100ms | **Primary choice** - search by text/name/item |
+| `click_text("...")` | ~20 | ~100ms | Click widget by text (combines find + click) |
+| `click_widget_by_action(action="...")` | ~30 | ~100ms | Click by action (e.g., "Deposit inventory") |
+| `scan_widgets(group=N)` | ~500-2k | ~200ms | Scan specific widget group only |
+| `scan_widgets()` | ~35k+ | ~500ms | **Last resort** - delegate to Haiku subagent |
+
+**Best practices:**
+```python
+# ✅ GOOD - Use find_widget for targeted searches
+find_widget(text="Raw shrimps")  # Returns ~5 results with actions, bounds, itemId
+
+# ✅ GOOD - Use specific group when you know the interface
+scan_widgets(group=15)  # Bank inventory only (~500 tokens)
+scan_widgets(group=465)  # GE interface only
+
+# ✅ GOOD - Click by action text (most reliable)
+click_widget_by_action(action="Deposit inventory")
+
+# ⚠️ LAST RESORT - When find_widget can't locate what you need
+scan_widgets(group=N)  # Try specific group first
+scan_widgets()  # Full scan via Haiku subagent only (35k+ tokens)
+```
+
+**When to escalate to scan_widgets:**
+- `find_widget` returns empty but you know the widget exists
+- Need to discover widget group IDs for a new interface
+- Debugging widget structure issues
+
+**Never use `--deep` flag** - times out.
 
 ## Working with Manny Plugin Code
 

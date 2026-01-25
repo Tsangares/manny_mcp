@@ -43,6 +43,7 @@ steps:
     phase: "preparation"
     action: BANK_DEPOSIT_ALL
     description: "Deposit all items to make space"
+    delay_before_ms: 500
     expected_result: "Empty inventory"
 
   - id: 4

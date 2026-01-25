@@ -18,9 +18,9 @@ Context fragments provide domain-specific knowledge to the Discord bot LLM. Inst
 | `magic.md` | ✅ Complete | cast, spell, teleport, telegrab |
 | `cooking.md` | ✅ Complete | cook, raw, range, fire |
 | `prayer.md` | ✅ Complete | pray, bury, bones, altar |
-| `smithing.md` | ⚠️ Needs Testing | smith, smelt, furnace, anvil |
-| `grand_exchange.md` | ⚠️ Needs Testing | ge, grand exchange, buy ge |
-| `shops.md` | ⚠️ Needs Testing | shop, store, buy from |
+| `smithing.md` | ✅ Complete | smith, smelt, furnace, anvil |
+| `grand_exchange.md` | ✅ Complete | ge, grand exchange, buy ge, sell ge |
+| `shops.md` | ✅ Complete | shop, store, buy from |
 | `camera.md` | ✅ Complete | camera, zoom, rotate, pitch |
 
 ## Development Workflow
