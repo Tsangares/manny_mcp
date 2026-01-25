@@ -738,7 +738,7 @@ class DashboardBackgroundTasks:
         self.ffmpeg_encoder = None
         self.ffmpeg_restart_count = 0
         self.mp4_buffer = bytearray()
-        self.frame_queue = deque(maxlen=30)  # Buffer for frames to broadcast
+        self.frame_queue = deque(maxlen=60)  # Buffer for frames to broadcast (2s at 30fps)
 
     def _detect_h264_encoder(self) -> str:
         """Test encoders in priority order, return first working one."""
@@ -790,11 +790,8 @@ class DashboardBackgroundTasks:
             '-video_size', '1020x666',
         ]
 
-        # Use lower framerate for hardware encoding (less load)
-        if self.ffmpeg_encoder == 'h264_vaapi':
-            framerate = '15'  # 15fps for low CPU usage
-        else:
-            framerate = '20'  # 20fps for software
+        # Use 30fps for smooth video
+        framerate = '30'
 
         base_cmd.extend(['-framerate', framerate])
         base_cmd.extend(['-i', f'{display}+{x},{y}'])
@@ -806,10 +803,10 @@ class DashboardBackgroundTasks:
                 '-vf', 'format=nv12,hwupload',  # Upload to GPU
                 '-c:v', 'h264_vaapi',
                 '-qp', '24',  # Quality (lower = better, 18-28 is good range)
-                '-g', '30',  # Keyframe every 2s at 15fps
-                '-b:v', '1.5M',  # Lower bitrate for 15fps
-                '-maxrate', '2M',
-                '-bufsize', '1M',
+                '-g', '60',  # Keyframe every 2s at 30fps
+                '-b:v', '3M',  # Higher bitrate for 30fps
+                '-maxrate', '4M',
+                '-bufsize', '2M',
             ])
         # Software encoding fallback
         else:
@@ -817,10 +814,10 @@ class DashboardBackgroundTasks:
                 '-c:v', self.ffmpeg_encoder,
                 '-preset', 'veryfast',
                 '-tune', 'zerolatency',
-                '-g', '40',  # Keyframe every 2s at 20fps
-                '-b:v', '1.5M',
-                '-maxrate', '2M',
-                '-bufsize', '1M',
+                '-g', '60',  # Keyframe every 2s at 30fps
+                '-b:v', '3M',
+                '-maxrate', '4M',
+                '-bufsize', '2M',
             ])
 
         # Common final settings
