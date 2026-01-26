@@ -1,20 +1,33 @@
 #!/bin/bash
 # Start a nested display for RuneLite with GPU support
 #
-# Primary: Gamescope (Valve's gaming compositor)
-# Fallback: Rootful Xwayland
-#
-# Usage: ./start_screen.sh [display_num]
-#   ./start_screen.sh       - Start primary display (kills existing, uses gamescope)
-#   ./start_screen.sh 3     - Start display :3 (adds to existing, uses Xwayland)
-#   ./start_screen.sh 4     - Start display :4 (adds to existing, uses Xwayland)
+# Usage: ./start_screen.sh [options] [display_num]
+#   ./start_screen.sh              - Headless mode (Xvfb, no mouse capture)
+#   ./start_screen.sh --gamescope  - Interactive mode (Gamescope, GPU accelerated)
+#   ./start_screen.sh --headless   - Explicit headless mode (Xvfb)
+#   ./start_screen.sh 3            - Start display :3 (adds to existing, uses Xvfb)
 #
 # Then run RuneLite with: DISPLAY=:2 <command>
 
 set -e
 
 # Parse arguments
-TARGET_DISPLAY="${1:-}"
+MODE="headless"  # Default to headless (no mouse capture)
+TARGET_DISPLAY=""
+
+for arg in "$@"; do
+    case "$arg" in
+        --gamescope)
+            MODE="gamescope"
+            ;;
+        --headless|--xvfb)
+            MODE="headless"
+            ;;
+        [0-9]*)
+            TARGET_DISPLAY="$arg"
+            ;;
+    esac
+done
 
 if [ -n "$TARGET_DISPLAY" ]; then
     # Starting additional display - don't kill existing ones
@@ -46,7 +59,7 @@ if [ -n "$TARGET_DISPLAY" ]; then
     exit 1
 fi
 
-# Primary display startup (original behavior)
+# Primary display startup
 
 # Kill any existing virtual displays
 pkill -f "gamescope" 2>/dev/null || true
@@ -59,6 +72,44 @@ sleep 1
 # Remove stale X socket if present
 rm -f /tmp/.X11-unix/X2 2>/dev/null || true
 
+# Headless mode (default) - no mouse capture, good for server/autonomous use
+start_headless() {
+    echo "Starting headless display (Xvfb)..."
+
+    Xvfb :2 -screen 0 1920x1080x24 &
+    XVFB_PID=$!
+
+    for i in {1..10}; do
+        sleep 0.5
+        if [ -S /tmp/.X11-unix/X2 ]; then
+            if kill -0 $XVFB_PID 2>/dev/null; then
+                echo "Xvfb started successfully!"
+                echo "Display: :2"
+                echo "PID: $XVFB_PID"
+                echo ":2" > /tmp/manny_display
+                return 0
+            fi
+        fi
+    done
+
+    echo "Xvfb failed to start"
+    kill $XVFB_PID 2>/dev/null || true
+    return 1
+}
+
+if [ "$MODE" = "headless" ]; then
+    echo "Mode: Headless (no mouse capture)"
+    if start_headless; then
+        echo ""
+        echo "Display ready! Use get_screenshot() to view."
+        exit 0
+    else
+        echo "ERROR: Could not start headless display"
+        exit 1
+    fi
+fi
+
+echo "Mode: Interactive (Gamescope)"
 echo "Starting nested display with GPU acceleration..."
 
 # Try Gamescope first
@@ -119,8 +170,7 @@ start_xwayland() {
 
     # Rootful Xwayland runs as a Wayland client with its own X server
     # -decorate: window decorations
-    # -host-grab: allows grabbing input
-    Xwayland -geometry 1920x1080 -decorate -host-grab :2 &
+    Xwayland -geometry 1920x1080 -decorate :2 &
 
     XWAYLAND_PID=$!
 

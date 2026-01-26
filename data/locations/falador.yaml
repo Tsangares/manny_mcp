@@ -1,0 +1,113 @@
+# Falador Location Knowledge
+# Used by scan_environment() for room identification and navigation hints
+
+falador_mining:
+  # Dwarven Mine entrance (building in northeast Falador)
+  mine_entrance:
+    center: [3061, 3374, 0]
+    bounds: [3058, 3371, 3064, 3377]
+    plane: 0
+    validated: true
+    keywords:
+      - "dwarven mine"
+      - "falador mine"
+      - "iron mining"
+      - "mining entrance"
+      - "dwarf mine"
+    key_objects:
+      - "Door"
+      - "Staircase"
+    nearby_npcs:
+      - "Dwarf"
+      - "Guard"
+    connections:
+      - to: "dwarven_mine"
+        via: "Staircase"
+        direction: "down"
+        action: "Climb-down"
+    tips:
+      - "Door may need to be opened first"
+      - "Staircase leads down to Dwarven Mine"
+      - "Building is in northeast Falador"
+      - "Dwarves spawn near the entrance"
+
+  # Inside the Dwarven Mine
+  dwarven_mine:
+    # Main area with iron rocks
+    iron_area:
+      center: [3033, 9737, 0]  # Underground coordinates
+      bounds: [3028, 9732, 3038, 9742]
+      plane: 0
+      keywords:
+        - "iron rocks"
+        - "power mining"
+        - "dwarven mine iron"
+      key_objects:
+        - "Iron rocks"
+        - "Rocks"
+      nearby_npcs:
+        - "Dwarf"
+        - "King Scorpion"
+      tips:
+        - "3 iron rocks clustered together for efficient mining"
+        - "Watch for King Scorpions (aggressive)"
+        - "Bank at Falador east bank"
+
+    # Coal/mithril area (deeper in mine)
+    coal_area:
+      center: [3035, 9720, 0]
+      bounds: [3030, 9715, 3040, 9725]
+      plane: 0
+      keywords:
+        - "coal rocks"
+        - "mithril rocks"
+      key_objects:
+        - "Coal rocks"
+        - "Mithril rocks"
+      tips:
+        - "Deeper area with better ores"
+        - "More dangerous - scorpions"
+
+# Falador banks
+falador_banks:
+  east_bank:
+    center: [3013, 3355, 0]
+    bounds: [3009, 3352, 3018, 3358]
+    plane: 0
+    keywords:
+      - "falador east bank"
+      - "mining bank"
+    key_objects:
+      - "Bank booth"
+    tips:
+      - "Closest bank to Dwarven Mine entrance"
+      - "Short walk west from mine entrance"
+
+  west_bank:
+    center: [2946, 3368, 0]
+    bounds: [2943, 3365, 2949, 3371]
+    plane: 0
+    keywords:
+      - "falador west bank"
+    key_objects:
+      - "Bank booth"
+    tips:
+      - "West side of Falador"
+      - "Near agility shortcut (requires 5 agility)"
+
+# Common routes
+common_routes:
+  mine_entrance_to_east_bank:
+    description: "From Dwarven Mine entrance to Falador east bank"
+    steps:
+      - "Exit building if inside"
+      - "Walk west to (3013, 3355)"
+      - "Bank is inside building"
+
+  east_bank_to_mine:
+    description: "From Falador east bank to mine iron rocks"
+    steps:
+      - "Exit bank, walk east to mine entrance (3030, 3355)"
+      - "Open door if closed"
+      - "Climb-down staircase"
+      - "Walk to iron rocks area"

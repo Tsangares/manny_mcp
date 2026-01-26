@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Callable, Any, Union
 from enum import Enum
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 logger = logging.getLogger("task_queue")
@@ -210,6 +210,23 @@ class StateMonitor:
             elif condition.type == ConditionType.IDLE:
                 scenario = player.get("scenario", {})
                 return scenario.get("currentTask") == "Idle"
+
+            elif condition.type == ConditionType.TIME_ELAPSED:
+                # Check if deadline has passed
+                deadline = condition.params.get("deadline")
+                if deadline:
+                    deadline_dt = datetime.fromisoformat(deadline)
+                    return datetime.now() >= deadline_dt
+
+                # Alternative: seconds from a start time
+                seconds = condition.params.get("seconds", 0)
+                start_time = condition.params.get("start_time")
+                if start_time and seconds > 0:
+                    start_dt = datetime.fromisoformat(start_time)
+                    elapsed = (datetime.now() - start_dt).total_seconds()
+                    return elapsed >= seconds
+
+                return False
 
             return False
 
@@ -541,3 +558,27 @@ def after_task(task_id: str) -> Condition:
 def immediately() -> Condition:
     """Create an immediate condition (no waiting)."""
     return Condition(ConditionType.IMMEDIATE)
+
+
+def after_duration(hours: float = 0, minutes: float = 0, seconds: float = 0) -> Condition:
+    """
+    Create a time-elapsed condition that triggers after a duration.
+
+    Examples:
+        after_duration(hours=4)           # 4 hours from now
+        after_duration(minutes=30)        # 30 minutes from now
+        after_duration(hours=2, minutes=30)  # 2.5 hours from now
+    """
+    total_seconds = hours * 3600 + minutes * 60 + seconds
+    deadline = datetime.now() + timedelta(seconds=total_seconds)
+    return Condition(ConditionType.TIME_ELAPSED, {"deadline": deadline.isoformat()})
+
+
+def at_time(deadline: datetime) -> Condition:
+    """
+    Create a time-elapsed condition that triggers at a specific time.
+
+    Examples:
+        at_time(datetime(2026, 1, 24, 18, 0))  # At 6 PM today
+    """
+    return Condition(ConditionType.TIME_ELAPSED, {"deadline": deadline.isoformat()})

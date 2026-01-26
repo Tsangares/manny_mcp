@@ -8,12 +8,14 @@ Extract and prepare training data for fine-tuning a specialized LLM controller f
 # 1. Extract data from all sources
 python3 parsers/journal_parser.py --training -o data/extracted/journal_training.jsonl
 python3 parsers/claude_session_parser.py -o data/extracted/claude_sessions.jsonl
+python3 parsers/discord_parser.py --all  # Parse all Discord logs
 
 # 2. Combine and export to training formats
 python3 schemas/training_schema.py --format all
 
 # 3. View statistics
 python3 schemas/training_schema.py --stats
+python3 parsers/discord_parser.py --status  # Discord-specific stats
 ```
 
 ## Data Sources
@@ -22,7 +24,7 @@ python3 schemas/training_schema.py --stats
 |--------|----------|------|----------|
 | **Journals** | `journals/*.md` | 268KB (39 files) | ~223 |
 | **Claude Code Sessions** | `~/.claude/projects/-home-wil-manny-mcp/` | 7.9GB (~450 files) | ~162 |
-| **Discord Logs** | `logs/conversations/` | Growing daily | ~16+ |
+| **Discord Logs** | `logs/conversations/` | Growing daily | ~249 |
 
 ### Journals (Most Valuable)
 
@@ -43,7 +45,13 @@ Complex multi-turn conversations with tool calls. We filter for MCP-related inte
 
 ### Discord Logs
 
-Direct user commands from mobile via Discord bot. Clean format with explicit tool calls and responses. Best for simple command training.
+Direct user commands from mobile via Discord bot. Clean format with explicit tool calls and responses.
+
+**Two-stage extraction:**
+1. **Stage 1 (automated):** `discord_parser.py` extracts basic structure with neutral quality scores
+2. **Stage 2 (Claude enrichment):** Manual review identifies negative examples, adds reasoning chains, adjusts quality
+
+See `CLAUDE.md` in this directory for enrichment instructions.
 
 ## Example Types
 

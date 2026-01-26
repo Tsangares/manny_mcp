@@ -6,13 +6,13 @@ This is the main interface for complex task execution.
 import asyncio
 import logging
 from typing import Dict, List, Optional, Any, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from .capability_registry import CapabilityRegistry, registry, CommandCategory, AbstractionLevel
 from .task_queue import (
     TaskQueue, Task, Condition, ConditionType, TaskStatus,
     when_level, after_level_up, when_inventory_full, when_health_below,
-    after_task, immediately
+    after_task, immediately, after_duration, at_time
 )
 
 logger = logging.getLogger("task_manager")
@@ -50,6 +50,13 @@ class TaskManager:
         # Event callbacks for bot notifications
         self._notify_callback: Optional[Callable] = None
 
+        # System command callbacks (for STOP_CLIENT, etc.)
+        self._stop_client_func: Optional[Callable] = None
+        self._account_id: Optional[str] = None
+
+        # Active timers tracking
+        self._active_timers: Dict[str, Dict] = {}  # task_id -> {deadline, description}
+
         # Track state for smart decisions
         self._last_state: Optional[Dict] = None
         self._state_history: List[Dict] = []
@@ -57,6 +64,17 @@ class TaskManager:
     def set_notify_callback(self, callback: Callable):
         """Set callback for notifications (e.g., Discord messages)."""
         self._notify_callback = callback
+
+    def set_stop_client_func(self, func: Callable, account_id: str):
+        """
+        Set the function to call for STOP_CLIENT command.
+
+        Args:
+            func: Async function that stops the RuneLite client
+            account_id: Account ID to pass to the stop function
+        """
+        self._stop_client_func = func
+        self._account_id = account_id
 
     async def initialize(self):
         """Initialize the task manager."""
@@ -151,6 +169,167 @@ class TaskManager:
         )
 
     # =========================================================================
+    # Timer / Kill-Switch Methods
+    # =========================================================================
+
+    def set_timer(self,
+                  hours: float = 0,
+                  minutes: float = 0,
+                  seconds: float = 0,
+                  description: str = None) -> Dict[str, Any]:
+        """
+        Set a timer to stop the client after a duration.
+
+        Examples:
+            set_timer(hours=4)                    # Stop in 4 hours
+            set_timer(hours=2, minutes=30)        # Stop in 2.5 hours
+            set_timer(minutes=30, description="Quick session")
+
+        Returns:
+            {
+                "task_id": "timer_1",
+                "deadline": "2026-01-24T18:00:00",
+                "description": "Stop client in 4 hours"
+            }
+        """
+        total_seconds = hours * 3600 + minutes * 60 + seconds
+        deadline = datetime.now() + timedelta(seconds=total_seconds)
+
+        # Format duration for display
+        parts = []
+        if hours >= 1:
+            parts.append(f"{int(hours)}h")
+        if minutes >= 1 or (hours > 0 and minutes > 0):
+            parts.append(f"{int(minutes)}m")
+        if seconds > 0 and hours == 0:
+            parts.append(f"{int(seconds)}s")
+        duration_str = " ".join(parts) if parts else "0s"
+
+        desc = description or f"Stop client after {duration_str}"
+
+        # Queue the stop command with time condition
+        task_id = self.queue.add(
+            command="STOP_CLIENT",
+            params={},
+            condition=after_duration(hours=hours, minutes=minutes, seconds=seconds),
+            priority=-1,  # Low priority - doesn't interrupt other tasks
+            task_id=f"timer_{len(self._active_timers) + 1}"
+        )
+
+        # Track the timer
+        self._active_timers[task_id] = {
+            "deadline": deadline.isoformat(),
+            "deadline_dt": deadline,
+            "description": desc,
+            "created": datetime.now().isoformat()
+        }
+
+        # Add 5-minute warning notification (if timer is > 5 minutes)
+        warning_task_id = None
+        if total_seconds > 300:  # Only add warning if timer > 5 minutes
+            warning_deadline = deadline - timedelta(minutes=5)
+            warning_task_id = self.queue.add(
+                command="TIMER_WARNING",  # Special command handled in _execute_command
+                params={"minutes_remaining": 5},
+                condition=at_time(warning_deadline),
+                priority=-2,  # Even lower than timer itself
+                task_id=f"{task_id}_warning"
+            )
+
+        logger.info(f"Timer set: {task_id} - {desc} (deadline: {deadline})")
+
+        return {
+            "task_id": task_id,
+            "deadline": deadline.isoformat(),
+            "deadline_human": deadline.strftime("%I:%M %p"),
+            "duration": duration_str,
+            "description": desc
+        }
+
+    def cancel_timer(self, task_id: str = None) -> Dict[str, Any]:
+        """
+        Cancel an active timer.
+
+        Args:
+            task_id: Specific timer to cancel. If None, cancels all timers.
+
+        Returns:
+            {"cancelled": ["timer_1"], "remaining": []}
+        """
+        cancelled = []
+
+        if task_id:
+            # Cancel specific timer and its warning
+            if task_id in self._active_timers:
+                self.queue.remove(task_id)
+                self.queue.remove(f"{task_id}_warning")  # Also remove warning
+                del self._active_timers[task_id]
+                cancelled.append(task_id)
+                logger.info(f"Cancelled timer: {task_id}")
+        else:
+            # Cancel all timers and warnings
+            for tid in list(self._active_timers.keys()):
+                self.queue.remove(tid)
+                self.queue.remove(f"{tid}_warning")  # Also remove warning
+                cancelled.append(tid)
+            self._active_timers.clear()
+            logger.info(f"Cancelled all timers: {cancelled}")
+
+        return {
+            "cancelled": cancelled,
+            "remaining": list(self._active_timers.keys())
+        }
+
+    def get_active_timers(self) -> List[Dict[str, Any]]:
+        """
+        Get all active timers with time remaining.
+
+        Returns:
+            [
+                {
+                    "task_id": "timer_1",
+                    "deadline": "2026-01-24T18:00:00",
+                    "remaining": "3h 45m",
+                    "description": "Stop client after 4h"
+                }
+            ]
+        """
+        now = datetime.now()
+        timers = []
+
+        for task_id, info in self._active_timers.items():
+            deadline = datetime.fromisoformat(info["deadline"])
+            remaining = deadline - now
+
+            if remaining.total_seconds() <= 0:
+                remaining_str = "expired"
+            else:
+                hours, remainder = divmod(int(remaining.total_seconds()), 3600)
+                minutes, seconds = divmod(remainder, 60)
+                parts = []
+                if hours > 0:
+                    parts.append(f"{hours}h")
+                if minutes > 0:
+                    parts.append(f"{minutes}m")
+                if seconds > 0 and hours == 0:
+                    parts.append(f"{seconds}s")
+                remaining_str = " ".join(parts) if parts else "<1s"
+
+            timers.append({
+                "task_id": task_id,
+                "deadline": info["deadline"],
+                "deadline_human": deadline.strftime("%I:%M %p"),
+                "remaining": remaining_str,
+                "description": info["description"]
+            })
+
+        return timers
+
+    def has_active_timer(self) -> bool:
+        """Check if there's an active timer."""
+        return len(self._active_timers) > 0
+
+    # =========================================================================
     # Complex Task Patterns
     # =========================================================================
 
@@ -241,10 +420,67 @@ class TaskManager:
     # =========================================================================
 
     async def _execute_command(self, command: str) -> Dict:
-        """Execute a command via send_command."""
+        """Execute a command - handles both game commands and system commands."""
         logger.info(f"Executing: {command}")
+
+        # Handle special system commands
+        if command.startswith("STOP_CLIENT"):
+            return await self._handle_stop_client(command)
+
+        if command.startswith("TIMER_WARNING"):
+            return await self._handle_timer_warning(command)
+
+        # Regular game command
         result = await self._send_command(command)
         return result
+
+    async def _handle_stop_client(self, command: str) -> Dict:
+        """Handle the STOP_CLIENT system command."""
+        if not self._stop_client_func:
+            logger.error("STOP_CLIENT called but no stop function configured")
+            return {"success": False, "error": "Stop function not configured"}
+
+        try:
+            logger.info(f"⏰ Timer expired! Stopping client for account: {self._account_id}")
+
+            # Notify user before stopping
+            if self._notify_callback:
+                await self._notify_callback(
+                    f"⏰ **Timer expired!** Stopping RuneLite client..."
+                )
+
+            # Call the stop function
+            result = await self._stop_client_func(self._account_id)
+
+            if self._notify_callback:
+                await self._notify_callback(
+                    f"✅ Client stopped. Session ended."
+                )
+
+            return {"success": True, "result": result}
+
+        except Exception as e:
+            logger.error(f"Failed to stop client: {e}")
+            if self._notify_callback:
+                await self._notify_callback(f"❌ Failed to stop client: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _handle_timer_warning(self, command: str) -> Dict:
+        """Handle the TIMER_WARNING notification command."""
+        try:
+            logger.info("⚠️ Timer warning: 5 minutes remaining!")
+
+            if self._notify_callback:
+                await self._notify_callback(
+                    f"⚠️ **5 minutes remaining!** Client will stop soon.\n"
+                    f"Use `cancel timer` to abort."
+                )
+
+            return {"success": True, "warning_sent": True}
+
+        except Exception as e:
+            logger.error(f"Failed to send timer warning: {e}")
+            return {"success": False, "error": str(e)}
 
     async def execute_now(self, command: str, params: Dict = None) -> Dict:
         """Execute a command immediately (bypass queue)."""

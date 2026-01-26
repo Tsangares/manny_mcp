@@ -55,12 +55,78 @@ class RuneLiteInstance:
         except Exception:
             pass
 
-    def start(self, developer_mode: bool = True, display: str = None) -> Dict[str, Any]:
+    def _setup_proxychains(self, proxy_url: str) -> Optional[str]:
+        """
+        Set up proxychains config for the given proxy URL.
+
+        Proxychains intercepts all network calls and routes them through the proxy,
+        handling authentication transparently (unlike Java's built-in proxy support).
+
+        Returns path to config file, or None if setup fails.
+        """
+        try:
+            from urllib.parse import urlparse
+            import shutil
+            import socket
+
+            # Check if proxychains is installed
+            if not shutil.which("proxychains4"):
+                return None
+
+            parsed = urlparse(proxy_url)
+            if not parsed.hostname or not parsed.port:
+                return None
+
+            # Resolve hostname to IP (proxychains needs IP for first proxy in strict chain)
+            try:
+                proxy_ip = socket.gethostbyname(parsed.hostname)
+            except socket.gaierror:
+                proxy_ip = parsed.hostname  # Fall back to hostname if resolution fails
+
+            # Determine proxy type for proxychains config
+            if parsed.scheme in ("socks5", "socks"):
+                proxy_type = "socks5"
+            elif parsed.scheme == "socks4":
+                proxy_type = "socks4"
+            elif parsed.scheme in ("http", "https"):
+                proxy_type = "http"
+            else:
+                return None
+
+            # Build proxy line: type ip port [user pass]
+            if parsed.username and parsed.password:
+                proxy_line = f"{proxy_type} {proxy_ip} {parsed.port} {parsed.username} {parsed.password}"
+            else:
+                proxy_line = f"{proxy_type} {proxy_ip} {parsed.port}"
+
+            # Write config file
+            config_path = Path.home() / ".manny" / "proxychains.conf"
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+
+            config_content = f"""# Proxychains config for manny RuneLite
+# Auto-generated - do not edit manually
+
+strict_chain
+proxy_dns
+tcp_read_time_out 15000
+tcp_connect_time_out 8000
+
+[ProxyList]
+{proxy_line}
+"""
+            config_path.write_text(config_content)
+            return str(config_path)
+
+        except Exception:
+            return None
+
+    def start(self, developer_mode: bool = True, display: str = None, proxy: str = None) -> Dict[str, Any]:
         """Start RuneLite process for this account.
 
         Args:
             developer_mode: Enable RuneLite developer mode
             display: Display to run on (e.g., ":2"). If None, uses config default.
+            proxy: Optional proxy URL (e.g., "socks5://user:pass@host:port")
         """
         if self.process and self.process.poll() is None:
             self.stop()
@@ -126,10 +192,17 @@ class RuneLiteInstance:
         else:
             cmd = base_cmd
 
+        # Set up proxychains if proxy is specified
+        proxychains_config = None
+        if proxy:
+            proxychains_config = self._setup_proxychains(proxy)
+            if proxychains_config:
+                # Prepend proxychains to command - intercepts all network calls
+                cmd = ["proxychains4", "-q", "-f", proxychains_config] + cmd
+
         env = os.environ.copy()
 
         # Java heap size - reduced for VPS with limited RAM
-        # _JAVA_OPTIONS has higher priority and can override Maven's -Xmx512m
         env["_JAVA_OPTIONS"] = "-Xmx768m -XX:MaxMetaspaceSize=128m"
 
         # Use allocated display
@@ -179,7 +252,7 @@ class RuneLiteInstance:
         except Exception:
             pass
 
-        return {
+        result = {
             "account_id": self.account_id,
             "pid": self.process.pid,
             "status": status,
@@ -188,6 +261,21 @@ class RuneLiteInstance:
             "log_file": self.log_file_path,
             "command": " ".join(cmd)
         }
+
+        # Add proxy info if used
+        if proxy:
+            from urllib.parse import urlparse
+            parsed = urlparse(proxy)
+            result["proxy"] = {
+                "enabled": True,
+                "method": "proxychains" if proxychains_config else "jvm_opts",
+                "config_file": proxychains_config,
+                "scheme": parsed.scheme,
+                "host": parsed.hostname,
+                "port": parsed.port
+            }
+
+        return result
 
     def stop(self) -> Dict[str, Any]:
         """Stop this RuneLite instance."""
@@ -410,7 +498,7 @@ class MultiRuneLiteManager:
                 "credentials_written": False
             }
 
-    def start_instance(self, account_id: str = None, developer_mode: bool = True, display: str = None) -> Dict[str, Any]:
+    def start_instance(self, account_id: str = None, developer_mode: bool = True, display: str = None, proxy: str = None) -> Dict[str, Any]:
         """
         Start a RuneLite instance for the given account.
 
@@ -426,6 +514,7 @@ class MultiRuneLiteManager:
             account_id: Account alias from credentials.yaml, or None for default
             developer_mode: Enable RuneLite developer mode
             display: Optional specific display to use (e.g., ":2")
+            proxy: Optional proxy URL (e.g., "socks5://user:pass@host:port")
 
         Returns:
             Dict with startup result and credential status.
@@ -439,6 +528,12 @@ class MultiRuneLiteManager:
                 account_id = credential_manager.default
             else:
                 account_id = self.config.default_account
+
+        # Use stored proxy if none provided
+        if not proxy:
+            creds = credential_manager.get_account(account_id)
+            if creds and creds.get("proxy"):
+                proxy = creds["proxy"]
 
         # Step 0: Check playtime limit (warning only, doesn't block)
         playtime_warning = None
@@ -477,7 +572,7 @@ class MultiRuneLiteManager:
         # Override display with allocated one
         instance.config = self.config  # Keep config reference
         self.instances[account_id] = instance
-        start_result = instance.start(developer_mode, display=allocated_display)
+        start_result = instance.start(developer_mode, display=allocated_display, proxy=proxy)
 
         # Step 5: Record session start
         if start_result.get("pid"):

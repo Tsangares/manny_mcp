@@ -179,6 +179,13 @@ class OSRSBot(commands.Bot):
         # Set up notification callback for task manager events
         self._task_manager.set_notify_callback(self._task_notification)
 
+        # Set up stop client callback for timer/kill-switch functionality
+        async def stop_client_func(account_id: str):
+            """Stop the RuneLite client - called by timer system."""
+            return self._manager.stop_instance(account_id)
+
+        self._task_manager.set_stop_client_func(stop_client_func, self.account_id)
+
         # Track if task manager queue has been started
         self._task_manager_started = False
 
@@ -287,6 +294,67 @@ class OSRSBot(commands.Bot):
         except Exception as e:
             logger.error(f"Agentic fallback also failed: {e}")
             return f"Error: {e}"
+
+    async def setup_hook(self):
+        """Register slash commands when bot starts."""
+        # /timer command
+        @app_commands.command(name="timer", description="Set a kill-switch timer to stop the client")
+        @app_commands.describe(
+            action="What to do: set, cancel, or status",
+            hours="Hours until shutdown (for 'set' action)",
+            minutes="Minutes until shutdown (for 'set' action)"
+        )
+        @app_commands.choices(action=[
+            app_commands.Choice(name="set", value="set"),
+            app_commands.Choice(name="cancel", value="cancel"),
+            app_commands.Choice(name="status", value="status"),
+        ])
+        async def timer_command(
+            interaction: discord.Interaction,
+            action: str,
+            hours: int = 0,
+            minutes: int = 0
+        ):
+            self._load_tools()
+            await self._ensure_task_manager_started()
+
+            if action == "set":
+                if hours == 0 and minutes == 0:
+                    await interaction.response.send_message(
+                        "⚠️ Please specify a duration (e.g., `/timer set hours:4`)",
+                        ephemeral=True
+                    )
+                    return
+
+                result = self._task_manager.set_timer(hours=hours, minutes=minutes)
+                await interaction.response.send_message(
+                    f"⏰ **Timer set!**\n"
+                    f"• Duration: {result['duration']}\n"
+                    f"• Deadline: {result['deadline_human']}\n"
+                    f"• Client will stop automatically when timer expires."
+                )
+
+            elif action == "cancel":
+                result = self._task_manager.cancel_timer()
+                if result["cancelled"]:
+                    await interaction.response.send_message(
+                        f"✅ Cancelled {len(result['cancelled'])} timer(s)"
+                    )
+                else:
+                    await interaction.response.send_message("ℹ️ No active timers to cancel")
+
+            elif action == "status":
+                timers = self._task_manager.get_active_timers()
+                if timers:
+                    lines = ["**Active Timers:**"]
+                    for t in timers:
+                        lines.append(f"• {t['remaining']} remaining (until {t['deadline_human']})")
+                    await interaction.response.send_message("\n".join(lines))
+                else:
+                    await interaction.response.send_message("ℹ️ No active timers")
+
+        self.tree.add_command(timer_command)
+        logger.info("Registered /timer slash command")
 
     async def on_ready(self):
         logger.info(f"Bot ready: {self.user.name} ({self.user.id})")
@@ -441,6 +509,122 @@ class OSRSBot(commands.Bot):
 
         return None
 
+    def _parse_timer_command(self, content: str) -> Optional[Dict]:
+        """
+        Parse timer/kill-switch commands from natural language.
+
+        Patterns:
+        - "set timer 4 hours" / "timer 4h"
+        - "quit in 8 hours" / "stop in 2h 30m"
+        - "logout after 4 hours"
+        - "cancel timer" / "clear timer"
+        - "show timers" / "timer status"
+
+        Returns:
+            {"action": "set", "hours": 4, "minutes": 0} or
+            {"action": "cancel"} or
+            {"action": "status"} or
+            None if not a timer command
+        """
+        import re
+        content_lower = content.lower().strip()
+
+        # Cancel timer patterns
+        if re.search(r'cancel\s+(?:all\s+)?timer', content_lower):
+            return {"action": "cancel"}
+        if re.search(r'clear\s+(?:all\s+)?timer', content_lower):
+            return {"action": "cancel"}
+
+        # Status patterns
+        if re.search(r'(?:show|list|check|get)\s+timer', content_lower):
+            return {"action": "status"}
+        if content_lower in ["timer", "timers", "timer status", "timer?"]:
+            return {"action": "status"}
+
+        # Set timer patterns
+        # "set timer 4 hours" / "timer 4h" / "set timer for 2h 30m"
+        set_match = re.search(
+            r'(?:set\s+)?timer\s+(?:for\s+)?(\d+)\s*(?:h(?:ours?)?|hr?)(?:\s+(\d+)\s*(?:m(?:in(?:ute)?s?)?)?)?',
+            content_lower
+        )
+        if set_match:
+            hours = int(set_match.group(1))
+            minutes = int(set_match.group(2)) if set_match.group(2) else 0
+            return {"action": "set", "hours": hours, "minutes": minutes}
+
+        # "timer 30m" / "timer 30 minutes"
+        min_match = re.search(r'(?:set\s+)?timer\s+(?:for\s+)?(\d+)\s*(?:m(?:in(?:ute)?s?)?)', content_lower)
+        if min_match:
+            minutes = int(min_match.group(1))
+            return {"action": "set", "hours": 0, "minutes": minutes}
+
+        # "quit/stop/logout in X hours" patterns
+        quit_match = re.search(
+            r'(?:quit|stop|logout|log\s*out|exit|kill)\s+(?:in|after)\s+(\d+)\s*(?:h(?:ours?)?|hr?)(?:\s+(\d+)\s*(?:m(?:in(?:ute)?s?)?)?)?',
+            content_lower
+        )
+        if quit_match:
+            hours = int(quit_match.group(1))
+            minutes = int(quit_match.group(2)) if quit_match.group(2) else 0
+            return {"action": "set", "hours": hours, "minutes": minutes}
+
+        # "quit/stop in X minutes"
+        quit_min_match = re.search(
+            r'(?:quit|stop|logout|log\s*out|exit|kill)\s+(?:in|after)\s+(\d+)\s*(?:m(?:in(?:ute)?s?)?)',
+            content_lower
+        )
+        if quit_min_match:
+            minutes = int(quit_min_match.group(1))
+            return {"action": "set", "hours": 0, "minutes": minutes}
+
+        return None
+
+    async def _handle_timer_command(self, message: discord.Message, timer_cmd: Dict) -> bool:
+        """
+        Handle a timer command and send response.
+
+        Returns True if handled, False otherwise.
+        """
+        action = timer_cmd.get("action")
+
+        if action == "set":
+            hours = timer_cmd.get("hours", 0)
+            minutes = timer_cmd.get("minutes", 0)
+
+            if hours == 0 and minutes == 0:
+                await message.channel.send("⚠️ Please specify a duration (e.g., `set timer 4 hours`)")
+                return True
+
+            result = self._task_manager.set_timer(hours=hours, minutes=minutes)
+            await message.channel.send(
+                f"⏰ **Timer set!**\n"
+                f"• Duration: {result['duration']}\n"
+                f"• Deadline: {result['deadline_human']}\n"
+                f"• Client will stop automatically when timer expires."
+            )
+            return True
+
+        elif action == "cancel":
+            result = self._task_manager.cancel_timer()
+            if result["cancelled"]:
+                await message.channel.send(f"✅ Cancelled {len(result['cancelled'])} timer(s)")
+            else:
+                await message.channel.send("ℹ️ No active timers to cancel")
+            return True
+
+        elif action == "status":
+            timers = self._task_manager.get_active_timers()
+            if timers:
+                lines = ["**Active Timers:**"]
+                for t in timers:
+                    lines.append(f"• {t['remaining']} remaining (until {t['deadline_human']})")
+                await message.channel.send("\n".join(lines))
+            else:
+                await message.channel.send("ℹ️ No active timers")
+            return True
+
+        return False
+
     async def handle_natural_language(self, message: discord.Message):
         """Handle natural language messages via LLM with intelligent routing."""
         self._load_tools()
@@ -449,6 +633,13 @@ class OSRSBot(commands.Bot):
         user_id = message.author.id
         username = str(message.author)
         content = message.content.strip()
+
+        # TIMER COMMAND HANDLING: Check for timer/kill-switch commands first
+        timer_cmd = self._parse_timer_command(content)
+        if timer_cmd:
+            logger.info(f"Timer command detected: {timer_cmd}")
+            await self._handle_timer_command(message, timer_cmd)
+            return
 
         # DIRECT COMMAND BYPASS: If user types a raw command, execute it directly
         # This avoids the LLM "faking" issue entirely for explicit commands

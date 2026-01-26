@@ -1,0 +1,158 @@
+# Power Mining Iron at Falador Dwarven Mine
+# Starting location: Outside mine entrance building (3030, 3355)
+
+name: "Power Mining Iron - Falador Dwarven Mine"
+type: skilling
+skill: mining
+description: |
+  Power mine iron ore for fast XP. Drops all ore instead of banking.
+  Good for levels 15-41 (until you can mine gold).
+
+  XP rates: ~25-35k/hr depending on level and competition
+
+# Requirements
+requirements:
+  mining_level: 15
+  items:
+    - "Any pickaxe (adamant+ recommended)"
+
+# Starting location
+start_location:
+  name: "Falador Dwarven Mine entrance"
+  x: 3061
+  y: 3374
+  plane: 0
+  validated: true
+  keywords:
+    - "falador mine"
+    - "dwarven mine entrance"
+
+# Key locations
+locations:
+  mine_entrance:
+    x: 3061
+    y: 3374
+    plane: 0
+    description: "Outside building with stairs down to Dwarven Mine"
+    validated: true
+
+  inside_building:
+    x: 3019
+    y: 9739
+    plane: 0
+    description: "Inside the building, near staircase"
+
+  iron_rocks:
+    x: 3033
+    y: 9737
+    plane: 0
+    description: "Iron rock cluster in Dwarven Mine"
+    notes: "3 iron rocks close together"
+
+  falador_east_bank:
+    x: 3013
+    y: 3355
+    plane: 0
+    description: "Closest bank for depositing if needed"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: ENTER THE MINE ==========
+  - id: 1
+    phase: "enter_mine"
+    action: GOTO
+    args: "3061 3374 0"
+    description: "Walk to mine entrance building"
+    notes: "Starting position - validated location outside the door"
+
+  - id: 2
+    phase: "enter_mine"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    description: "Open door to enter building"
+    delay_after_ms: 1000
+    notes: "Door may already be open - command will fail gracefully"
+
+  - id: 3
+    phase: "enter_mine"
+    action: GOTO
+    args: "3019 3450 0"
+    description: "Walk inside the building"
+    delay_after_ms: 500
+
+  - id: 4
+    phase: "enter_mine"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Climb down stairs to Dwarven Mine"
+    await_condition: "plane:0"
+    delay_after_ms: 2000
+    notes: "Underground uses different Y coordinates"
+
+  # ========== PHASE 2: WALK TO IRON ROCKS ==========
+  - id: 5
+    phase: "navigate_to_iron"
+    action: GOTO
+    args: "3033 9737 0"
+    description: "Walk to iron rock cluster"
+    notes: "Underground coordinates"
+
+  # ========== PHASE 3: POWER MINE ==========
+  - id: 6
+    phase: "mining"
+    action: POWER_MINE
+    args: "iron"
+    description: "Power mine iron ore (mines and drops automatically)"
+    notes: |
+      This command will:
+      - Find nearest iron rock
+      - Mine until inventory full
+      - Drop all iron ore
+      - Repeat indefinitely
+
+      Stop with KILL command when done
+
+# Loop configuration
+loop:
+  enabled: false
+  notes: "POWER_MINE already loops internally"
+
+# Execution notes
+notes: |
+  IMPORTANT: POWER_MINE command handles the mining loop internally.
+  It will continuously:
+  1. Find and mine iron rocks
+  2. Drop all ore when inventory fills
+  3. Repeat until interrupted
+
+  To stop: Send KILL command
+
+  Tips:
+  - Use adamant pickaxe at 31+ mining for best speed before rune
+  - At level 41, can use rune pickaxe
+  - Watch for King Scorpions (level 32, aggressive)
+  - If crowded, try different worlds
+
+  Banking alternative:
+  If you want to bank ore instead of dropping:
+  1. Use MINE_ORE instead of POWER_MINE
+  2. Add banking steps after inventory fills
+  3. Falador east bank is at (3013, 3355)
+
+# Troubleshooting
+troubleshooting:
+  - issue: "No minable rocks found"
+    solutions:
+      - "Make sure you're in the correct location (underground)"
+      - "Check if rocks are depleted (wait for respawn)"
+      - "Move closer to the iron rock cluster"
+
+  - issue: "Stuck in building"
+    solutions:
+      - "Door may have closed - use INTERACT_OBJECT Door Open"
+      - "Check plane - should be 0 after climbing down"
+
+  - issue: "Getting attacked"
+    solutions:
+      - "King Scorpions are aggressive to lower levels"
+      - "Stay near the entrance iron rocks, fewer scorpions"

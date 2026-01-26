@@ -94,6 +94,10 @@ async def handle_build_plugin(arguments: dict) -> dict:
             "display": {
                 "type": "string",
                 "description": "Optional: Specific display to use (e.g., ':2'). If omitted, auto-allocates from pool."
+            },
+            "proxy": {
+                "type": "string",
+                "description": "Optional: SOCKS5 proxy URL (e.g., 'socks5://user:pass@host:port'). Supports socks5:// and http:// schemes."
             }
         }
     }
@@ -113,7 +117,8 @@ async def handle_start_runelite(arguments: dict) -> dict:
     developer_mode = arguments.get("developer_mode", True)
     account_id = arguments.get("account_id")
     display = arguments.get("display")
-    return runelite_manager.start_instance(account_id=account_id, developer_mode=developer_mode, display=display)
+    proxy = arguments.get("proxy")
+    return runelite_manager.start_instance(account_id=account_id, developer_mode=developer_mode, display=display, proxy=proxy)
 
 
 @registry.register({
@@ -234,6 +239,11 @@ async def handle_list_accounts(arguments: dict) -> dict:
                 "description": "Optional: JX_SESSION_ID (from Bolt's ~/.local/share/bolt-launcher/creds file)",
                 "default": ""
             },
+            "proxy": {
+                "type": "string",
+                "description": "Optional: Proxy URL (e.g., 'socks5://user:pass@host:port'). Used automatically when starting this account.",
+                "default": ""
+            },
             "set_default": {
                 "type": "boolean",
                 "description": "Make this the default account",
@@ -251,7 +261,8 @@ async def handle_add_account(arguments: dict) -> dict:
         refresh_token=arguments["jx_refresh_token"],
         access_token=arguments["jx_access_token"],
         character_id=arguments.get("jx_character_id", ""),
-        session_id=arguments.get("jx_session_id", "")
+        session_id=arguments.get("jx_session_id", ""),
+        proxy=arguments.get("proxy", "")
     )
 
     if arguments.get("set_default") and result.get("success"):
@@ -278,6 +289,29 @@ async def handle_add_account(arguments: dict) -> dict:
 async def handle_remove_account(arguments: dict) -> dict:
     """Remove an account from the credential store."""
     return credential_manager.remove_account(arguments["alias"])
+
+
+@registry.register({
+    "name": "set_account_proxy",
+    "description": "[Credentials] Set or remove proxy for an existing account. The proxy will be used automatically when starting this account.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "alias": {
+                "type": "string",
+                "description": "Account alias to update"
+            },
+            "proxy": {
+                "type": "string",
+                "description": "Proxy URL (e.g., 'socks5://user:pass@host:port'). Leave empty to remove proxy."
+            }
+        },
+        "required": ["alias", "proxy"]
+    }
+})
+async def handle_set_account_proxy(arguments: dict) -> dict:
+    """Set or remove proxy for an existing account."""
+    return credential_manager.set_proxy(arguments["alias"], arguments["proxy"])
 
 
 @registry.register({

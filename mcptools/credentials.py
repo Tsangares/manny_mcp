@@ -106,7 +106,7 @@ class CredentialManager:
         Get info about all accounts (without exposing secrets).
 
         Returns:
-            List of dicts with alias, display_name, has_tokens, is_default.
+            List of dicts with alias, display_name, has_tokens, is_default, has_proxy.
         """
         result = []
         for alias, creds in self.accounts.items():
@@ -116,6 +116,7 @@ class CredentialManager:
                 "has_refresh_token": bool(creds.get("jx_refresh_token")),
                 "has_access_token": bool(creds.get("jx_access_token")),
                 "has_character_id": bool(creds.get("jx_character_id")),
+                "has_proxy": bool(creds.get("proxy")),
                 "is_default": alias == self.default
             })
         return result
@@ -127,7 +128,8 @@ class CredentialManager:
         refresh_token: str,
         access_token: str,
         character_id: str = "",
-        session_id: str = ""
+        session_id: str = "",
+        proxy: str = ""
     ) -> Dict[str, Any]:
         """
         Add or update an account's credentials.
@@ -139,6 +141,7 @@ class CredentialManager:
             access_token: JX_ACCESS_TOKEN from credentials.properties
             character_id: Optional JX_CHARACTER_ID
             session_id: Optional JX_SESSION_ID (from Bolt's creds file)
+            proxy: Optional proxy URL (e.g., "socks5://user:pass@host:port")
 
         Returns:
             Result dict with success status.
@@ -157,13 +160,47 @@ class CredentialManager:
         if session_id:
             self.accounts[alias]["jx_session_id"] = session_id
 
+        if proxy:
+            self.accounts[alias]["proxy"] = proxy
+
         self._save()
 
         return {
             "success": True,
             "action": "updated" if is_update else "added",
             "alias": alias,
-            "display_name": display_name
+            "display_name": display_name,
+            "has_proxy": bool(proxy)
+        }
+
+    def set_proxy(self, alias: str, proxy: str) -> Dict[str, Any]:
+        """
+        Set or update proxy for an existing account.
+
+        Args:
+            alias: Account alias
+            proxy: Proxy URL (e.g., "socks5://user:pass@host:port") or empty to remove
+
+        Returns:
+            Result dict with success status.
+        """
+        if alias not in self.accounts:
+            return {
+                "success": False,
+                "error": f"Account '{alias}' not found"
+            }
+
+        if proxy:
+            self.accounts[alias]["proxy"] = proxy
+        elif "proxy" in self.accounts[alias]:
+            del self.accounts[alias]["proxy"]
+
+        self._save()
+
+        return {
+            "success": True,
+            "alias": alias,
+            "proxy_set": bool(proxy)
         }
 
     def remove_account(self, alias: str) -> Dict[str, Any]:

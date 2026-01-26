@@ -634,10 +634,11 @@ The MCP supports multiple OSRS accounts with automatic credential management, di
 
 ### Configured Accounts
 
-| Alias | Display Name | Role |
-|-------|--------------|------|
-| `aux` | LOSTimposter | Secondary account |
-| `main` | ArmAndALegs | Primary account (default) |
+| Alias | Role |
+|-------|------|
+| `main` | Primary account (default) |
+| `alt1` | Alt account |
+| `alt2` | Alt account |
 
 ### Credentials
 
@@ -686,9 +687,66 @@ stop_runelite(account_id="aux")  # Stops only the specified account
 
 If an account exceeds the limit, `start_runelite` will refuse to start until playtime resets.
 
+### Proxy Support
+
+Route traffic through a SOCKS5 or HTTP proxy using **proxychains**. Useful for running alt accounts through different IPs.
+
+**Usage:**
+```python
+# Pass proxy URL when starting
+start_runelite(
+    account_id="ape",
+    proxy="socks5://user:pass@host:port"
+)
+
+# Or use stored proxy (see below)
+start_runelite(account_id="ape")  # Uses proxy from credentials if configured
+```
+
+**Supported formats:**
+- `socks5://user:pass@host:port` (recommended)
+- `http://user:pass@host:port`
+
+**How it works:**
+- Uses `proxychains4` to intercept all network calls transparently
+- Handles authentication properly (unlike Java's built-in proxy support which fails with OkHttp)
+- Config auto-generated at `~/.manny/proxychains.conf`
+- Hostname automatically resolved to IP (proxychains requirement)
+
+**Store proxy per-account:**
+```python
+# Set proxy on existing account (easiest)
+set_account_proxy(alias="myalt", proxy="socks5://user:pass@host:port")
+
+# Or include when adding new account
+add_account(
+    alias="myalt",
+    display_name="MyAltName",
+    jx_access_token="...",
+    jx_refresh_token="...",
+    proxy="socks5://user:pass@host:port"
+)
+
+# Remove proxy from account
+set_account_proxy(alias="myalt", proxy="")
+```
+
+**Requirements:**
+- Install proxychains: `sudo pacman -S proxychains-ng` (Arch) or `apt install proxychains4` (Debian)
+
 ## Prerequisites
 
-Run `./start_screen.sh` first to start a virtual display on `:2`. RuneLite runs on this display to avoid blocking the laptop's main screen.
+Start a virtual display first. RuneLite runs on this display to avoid blocking the main screen.
+
+**On a PC (interactive use):**
+```bash
+./start_screen.sh --gamescope   # GPU accelerated, you can watch/interact
+```
+
+**Headless server (Discord bot):**
+```bash
+./start_screen.sh               # Xvfb, no mouse capture, use get_screenshot() to view
+```
 
 **CRITICAL: ALWAYS use MCP `start_runelite` to launch RuneLite!**
 
