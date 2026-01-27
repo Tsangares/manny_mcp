@@ -95,20 +95,17 @@ class SessionManager:
 
     def _is_display_running(self, display: str) -> bool:
         """Check if a display server is running."""
-        # Check for X11 socket first (faster than xdpyinfo)
+        # Check for X11 socket
         display_num = display.lstrip(":")
         socket_path = f"/tmp/.X11-unix/X{display_num}"
         if not os.path.exists(socket_path):
             return False
 
-        # Verify with xdpyinfo that it's actually responsive
+        # Verify socket is a valid socket file (not stale)
+        import stat
         try:
-            result = subprocess.run(
-                ["xdpyinfo", "-display", display],
-                capture_output=True,
-                timeout=2
-            )
-            return result.returncode == 0
+            mode = os.stat(socket_path).st_mode
+            return stat.S_ISSOCK(mode)
         except Exception:
             return False
 

@@ -995,7 +995,8 @@ class OSRSBot(commands.Bot):
                 })
 
             elif tool_name == "start_runelite":
-                result = self._manager.start_instance(self.account_id)
+                # Run in thread to avoid blocking event loop (start_instance can take 30s)
+                result = await asyncio.to_thread(self._manager.start_instance, self.account_id)
                 return result
 
             elif tool_name == "stop_runelite":
@@ -1003,10 +1004,10 @@ class OSRSBot(commands.Bot):
                 return result
 
             elif tool_name == "restart_runelite":
-                self._manager.stop_instance(self.account_id)
-                import asyncio
+                await asyncio.to_thread(self._manager.stop_instance, self.account_id)
                 await asyncio.sleep(2)
-                result = self._manager.start_instance(self.account_id)
+                # Run in thread to avoid blocking event loop (start_instance can take 30s)
+                result = await asyncio.to_thread(self._manager.start_instance, self.account_id)
                 return {"restarted": True, "start_result": result}
 
             elif tool_name == "auto_reconnect":
@@ -1349,15 +1350,15 @@ Inventory: {inv.get('used', '?')}/{inv.get('capacity', 28)} slots"""
         try:
             # Kill all RuneLite/java processes
             await interaction.followup.send("Killing all RuneLite instances...")
-            subprocess.run(["pkill", "-9", "-f", "runelite"], capture_output=True)
-            subprocess.run(["pkill", "-9", "-f", "RuneLite"], capture_output=True)
+            await asyncio.to_thread(subprocess.run, ["pkill", "-9", "-f", "runelite"], capture_output=True)
+            await asyncio.to_thread(subprocess.run, ["pkill", "-9", "-f", "RuneLite"], capture_output=True)
 
             # Wait for processes to die
             await asyncio.sleep(2)
 
-            # Start RuneLite
+            # Start RuneLite (run in thread to avoid blocking heartbeat)
             await interaction.followup.send("Starting RuneLite...")
-            result = bot._manager.start_instance(bot.account_id)
+            result = await asyncio.to_thread(bot._manager.start_instance, bot.account_id)
 
             if result.get("success") or result.get("pid"):
                 await interaction.followup.send(f"RuneLite started (PID: {result.get('pid', 'unknown')})")

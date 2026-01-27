@@ -35,8 +35,8 @@ locations:
     description: "Cow pen east of Lumbridge (for milk)"
 
   chicken_coop:
-    x: 3236
-    y: 3295
+    x: 3180
+    y: 3288
     plane: 0
     description: "Chicken coop north of Lumbridge (for egg)"
 
@@ -126,7 +126,7 @@ steps:
   - id: 9
     phase: "get_egg"
     action: GOTO
-    args: "3236 3295 0"
+    args: "3180 3288 0"
     description: "Walk to chicken coop north of Lumbridge"
     location: chicken_coop
 

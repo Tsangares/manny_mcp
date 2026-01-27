@@ -14,7 +14,7 @@ LOCATIONS: Dict[str, Dict] = {
     "lumbridge_swamp": {"x": 3197, "y": 3169, "plane": 0, "aliases": ["lumb swamp", "swamp"]},
     "lumbridge_cows": {"x": 3253, "y": 3270, "plane": 0, "aliases": ["cows", "cow field", "lumbridge cows"]},
     "lumbridge_goblins": {"x": 3244, "y": 3245, "plane": 0, "aliases": ["goblins"]},
-    "lumbridge_chickens": {"x": 3235, "y": 3295, "plane": 0, "aliases": ["chickens", "chicken coop"]},
+    "lumbridge_chickens": {"x": 3180, "y": 3288, "plane": 0, "aliases": ["chickens", "chicken coop"]},
     "lumbridge_bank": {"x": 3208, "y": 3220, "plane": 2, "aliases": ["lumb bank"]},
     "lumbridge_furnace": {"x": 3226, "y": 3256, "plane": 0, "aliases": []},
 

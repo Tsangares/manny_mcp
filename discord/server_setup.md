@@ -27,12 +27,40 @@ Required files:
 ## Step 1: Install System Dependencies
 
 ```bash
-# Arch Linux
+# Arch Linux - Core packages
 sudo pacman -S jdk17-openjdk python python-pip xorg-server-xvfb x11vnc
 
+# Required for screenshots, window control, and VNC
+sudo pacman -S xdotool scrot xorg-xdpyinfo x11vnc
+
+# Required for SOCKS5/HTTP proxy support (routing game traffic)
+sudo pacman -S proxychains-ng
+
+# GPU-accelerated display with VNC (recommended if GPU available)
+sudo pacman -S weston
+
+# Alternative: GPU without VNC
+sudo pacman -S gamescope
+
 # Ubuntu/Debian equivalent
-# sudo apt install openjdk-17-jdk python3 python3-pip xvfb x11vnc
+# sudo apt install openjdk-17-jdk python3 python3-pip xvfb x11vnc xdotool scrot x11-utils
 ```
+
+### Required Packages Summary
+
+| Package | Purpose |
+|---------|---------|
+| `jdk17-openjdk` | Java runtime for RuneLite |
+| `python`, `python-pip` | Python for MCP server |
+| `xorg-server-xvfb` | Virtual framebuffer (software rendering) |
+| `x11vnc` | VNC server for remote viewing |
+| `xdotool` | Window control, mouse clicks, screenshots |
+| `scrot` | Screenshot capture |
+| `xorg-xdpyinfo` | Display info (optional, improves display detection) |
+| `x11vnc` | VNC server for Xvfb (not needed with weston) |
+| `weston` | GPU compositor with built-in VNC (recommended) |
+| `gamescope` | GPU headless display, no VNC (alternative) |
+| `proxychains-ng` | SOCKS5/HTTP proxy support for game traffic |
 
 ---
 
@@ -87,7 +115,9 @@ Create directory:
 mkdir -p ~/.config/systemd/user
 ```
 
-### xvfb.service
+### Option A: xvfb.service (Software Rendering)
+Use this if no GPU available.
+
 `~/.config/systemd/user/xvfb.service`:
 ```ini
 [Unit]
@@ -103,17 +133,70 @@ RestartSec=5
 WantedBy=default.target
 ```
 
-### x11vnc.service
-`~/.config/systemd/user/x11vnc.service`:
+### Option B: weston.service (GPU + VNC - Recommended)
+Use this if GPU available. GPU-accelerated rendering with built-in VNC server.
+
+`~/.config/systemd/user/weston.service`:
 ```ini
 [Unit]
-Description=x11vnc VNC Server for Display :2
-After=xvfb.service
-Requires=xvfb.service
+Description=Weston Compositor with VNC (GPU accelerated, 30fps)
+Documentation=https://wayland.freedesktop.org
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/x11vnc -display :2 -forever -viewonly -passwd manny123 -rfbport 5902
+# GPU-accelerated Wayland compositor with built-in VNC
+# -i 0 = disable idle timeout (prevents "falling asleep")
+# --xwayland = X11 compatibility for RuneLite
+# --renderer=gl = Use GPU
+ExecStart=/usr/bin/weston --backend=vnc --port=5902 --width=1920 --height=1080 --xwayland -i 0 --renderer=gl --disable-transport-layer-security
+Restart=always
+RestartSec=5
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+
+[Install]
+WantedBy=default.target
+```
+
+**Note:** Weston includes VNC - no separate x11vnc service needed!
+
+### Option C: gamescope.service (GPU only, no VNC)
+Use for GPU rendering when VNC not needed (e.g., screenshots only).
+
+`~/.config/systemd/user/gamescope.service`:
+```ini
+[Unit]
+Description=Gamescope GPU Headless Display :2
+
+[Service]
+Type=simple
+Environment=_JAVA_AWT_WM_NONREPARENTING=1
+ExecStart=/usr/bin/gamescope --backend headless -W 1920 -H 1080 -w 1920 -h 1080 -- sleep infinity
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+**Note:** Choose ONE display service (xvfb, weston, OR gamescope).
+
+### x11vnc.service (30fps, high quality)
+`~/.config/systemd/user/x11vnc.service`:
+```ini
+[Unit]
+Description=x11vnc VNC Server for Display :2 (30fps, high quality)
+After=gamescope.service
+Wants=gamescope.service
+
+[Service]
+Type=simple
+# High quality 30fps streaming settings:
+#   -defer 33     = 33ms = ~30fps max update rate
+#   -wait 10      = 10ms poll interval for responsiveness
+#   -threads      = threading for better performance
+#   -ncache 10    = client-side caching for smoothness
+#   -noxdamage    = better compatibility with gamescope
+ExecStart=/usr/bin/x11vnc -display :2 -forever -shared -passwd manny123 -rfbport 5902 -noxdamage -defer 33 -wait 10 -threads -ncache 10 -pointer_mode 4
 Restart=on-failure
 RestartSec=5
 
@@ -142,6 +225,26 @@ RestartSec=10
 WantedBy=default.target
 ```
 
+### discord-bot.service
+`~/.config/systemd/user/discord-bot.service`:
+```ini
+[Unit]
+Description=OSRS Discord Bot
+After=gamescope.service
+Wants=gamescope.service
+
+[Service]
+Type=simple
+EnvironmentFile=/home/wil/manny-mcp/.env
+WorkingDirectory=/home/wil/manny-mcp
+ExecStart=/home/wil/manny-mcp/venv/bin/python /home/wil/manny-mcp/run_discord.py --account aux --provider ollama
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+```
+
 ---
 
 ## Step 4: Enable and Start Services
@@ -150,16 +253,17 @@ WantedBy=default.target
 # Reload systemd
 systemctl --user daemon-reload
 
-# Enable services (auto-start on boot)
-systemctl --user enable xvfb x11vnc runelite
+# Option A: Software rendering (Xvfb)
+systemctl --user enable xvfb x11vnc runelite discord-bot
+systemctl --user start xvfb x11vnc runelite discord-bot
 
-# Start services
-systemctl --user start xvfb
-systemctl --user start x11vnc
-systemctl --user start runelite
+# Option B: GPU accelerated (Gamescope) - Recommended
+systemctl --user enable gamescope discord-bot
+systemctl --user start gamescope discord-bot
+# Note: RuneLite is started via Discord bot, not as a service
 
 # Check status
-systemctl --user status xvfb x11vnc runelite
+systemctl --user status gamescope discord-bot
 ```
 
 ---

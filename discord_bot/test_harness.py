@@ -104,7 +104,7 @@ MOCK_LOCATIONS = {
     "giant frogs": {"x": 3197, "y": 3169, "plane": 0, "name": "Lumbridge Swamp Frogs"},
     "frogs": {"x": 3197, "y": 3169, "plane": 0, "name": "Lumbridge Swamp Frogs"},
     "cows": {"x": 3253, "y": 3270, "plane": 0, "name": "Lumbridge Cow Field"},
-    "chickens": {"x": 3235, "y": 3295, "plane": 0, "name": "Lumbridge Chicken Coop"},
+    "chickens": {"x": 3180, "y": 3288, "plane": 0, "name": "Lumbridge Chicken Coop"},
     "goblins": {"x": 3244, "y": 3245, "plane": 0, "name": "Lumbridge Goblins"},
     "al kharid": {"x": 3293, "y": 3174, "plane": 0, "name": "Al Kharid"},
     "falador": {"x": 2964, "y": 3378, "plane": 0, "name": "Falador"},

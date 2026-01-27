@@ -15,8 +15,8 @@ equipment_needed:
 # Locations
 locations:
   lumbridge_chicken_coop:
-    x: 3232
-    y: 3295
+    x: 3180
+    y: 3288
     plane: 0
     description: "Chicken coop north of Lumbridge Castle"
 
@@ -32,7 +32,7 @@ steps:
   - id: 1
     phase: "travel"
     action: GOTO
-    args: "3232 3295 0"
+    args: "3180 3288 0"
     description: "Walk to chicken coop north of Lumbridge"
     location: lumbridge_chicken_coop
 
