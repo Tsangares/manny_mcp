@@ -82,15 +82,35 @@ async def handle_get_available_accounts(arguments: dict) -> dict:
 
 @registry.register({
     "name": "cleanup_stale_sessions",
-    "description": "[Sessions] Clean up sessions where the RuneLite process has crashed or been killed. Frees up displays.",
+    "description": "[Sessions] Clean up sessions where the RuneLite process has crashed or been killed. Also cleans up stale Xvfb processes and sockets.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "cleanup_displays": {
+                "type": "boolean",
+                "description": "Also clean up stale Xvfb processes and sockets (default: true)",
+                "default": True
+            }
+        }
+    }
+})
+async def handle_cleanup_stale_sessions(arguments: dict) -> dict:
+    """Clean up stale sessions."""
+    cleanup_displays = arguments.get("cleanup_displays", True)
+    return session_manager.cleanup_stale_sessions(cleanup_displays=cleanup_displays)
+
+
+@registry.register({
+    "name": "get_display_status",
+    "description": "[Sessions] Get detailed status of all displays in the pool. Shows which displays are running, assigned, and responsive. Useful for debugging display allocation issues.",
     "inputSchema": {
         "type": "object",
         "properties": {}
     }
 })
-async def handle_cleanup_stale_sessions(arguments: dict) -> dict:
-    """Clean up stale sessions."""
-    return session_manager.cleanup_stale_sessions()
+async def handle_get_display_status(arguments: dict) -> dict:
+    """Get detailed display status."""
+    return session_manager.get_display_status()
 
 
 @registry.register({
@@ -145,4 +165,49 @@ async def handle_end_session(arguments: dict) -> dict:
     return session_manager.end_session(
         account_id=arguments.get("account_id"),
         display=arguments.get("display")
+    )
+
+
+@registry.register({
+    "name": "reset_account_display",
+    "description": "[Sessions] Reset an account's display assignment. Use when an account's assigned display is persistently failing. The next start_runelite will assign a new display.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "account_id": {
+                "type": "string",
+                "description": "Account to reset display assignment for"
+            }
+        },
+        "required": ["account_id"]
+    }
+})
+async def handle_reset_account_display(arguments: dict) -> dict:
+    """Reset an account's display assignment."""
+    return session_manager.reset_account_display(arguments["account_id"])
+
+
+@registry.register({
+    "name": "reassign_account_display",
+    "description": "[Sessions] Manually reassign an account to a specific display. Use for troubleshooting display allocation issues.",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "account_id": {
+                "type": "string",
+                "description": "Account to reassign"
+            },
+            "display": {
+                "type": "string",
+                "description": "Display to assign (e.g., ':2')"
+            }
+        },
+        "required": ["account_id", "display"]
+    }
+})
+async def handle_reassign_account_display(arguments: dict) -> dict:
+    """Reassign an account to a specific display."""
+    return session_manager.reassign_account_display(
+        arguments["account_id"],
+        arguments["display"]
     )

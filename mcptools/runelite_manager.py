@@ -548,13 +548,29 @@ class MultiRuneLiteManager:
         # Step 1: Allocate display (or use specified)
         if display:
             allocated_display = display
+            # Verify the specified display works
+            if not session_manager._is_display_running(display):
+                start_result = session_manager._start_display(display)
+                if not start_result.get("success"):
+                    return {
+                        "success": False,
+                        "error": f"Specified display {display} is not running and failed to start",
+                        "start_result": start_result,
+                        "hint": "Run cleanup_stale_sessions() or check if Xvfb is installed"
+                    }
+                allocated_display = start_result.get("actual_display", display)
         else:
             alloc_result = session_manager.allocate_display(account_id)
             if not alloc_result.get("success"):
+                # Provide more context about what went wrong
+                display_status = session_manager.get_display_status()
                 return {
                     "success": False,
                     "error": alloc_result.get("error", "Failed to allocate display"),
-                    "active_sessions": alloc_result.get("active_sessions", [])
+                    "hint": alloc_result.get("hint", "Try running cleanup_stale_sessions() first"),
+                    "start_result": alloc_result.get("start_result"),
+                    "display_status": display_status["summary"],
+                    "account_assignments": display_status.get("account_assignments", {})
                 }
             allocated_display = alloc_result["display"]
 

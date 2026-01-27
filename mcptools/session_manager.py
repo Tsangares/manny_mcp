@@ -94,10 +94,11 @@ class SessionManager:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
 
     def _is_display_running(self, display: str) -> bool:
-        """Check if a display server is running."""
-        # Check for X11 socket
+        """Check if a display server is running and responsive."""
         display_num = display.lstrip(":")
         socket_path = f"/tmp/.X11-unix/X{display_num}"
+
+        # Check for X11 socket
         if not os.path.exists(socket_path):
             return False
 
@@ -105,7 +106,23 @@ class SessionManager:
         import stat
         try:
             mode = os.stat(socket_path).st_mode
-            return stat.S_ISSOCK(mode)
+            if not stat.S_ISSOCK(mode):
+                return False
+        except Exception:
+            return False
+
+        # Verify the display is actually responsive using xdpyinfo
+        try:
+            result = subprocess.run(
+                ["xdpyinfo", "-display", display],
+                capture_output=True,
+                timeout=5,
+                env={**os.environ, "DISPLAY": display}
+            )
+            return result.returncode == 0
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            # xdpyinfo not installed or timed out - fall back to socket check
+            return True
         except Exception:
             return False
 
@@ -134,9 +151,50 @@ class SessionManager:
 
         return sorted(running)
 
-    def _start_display(self, display: str) -> Dict[str, Any]:
+    def _cleanup_stale_display(self, display: str) -> bool:
         """
-        Start a new display server using start_screen.sh.
+        Clean up stale socket and processes for a display.
+        Returns True if cleanup was performed.
+        """
+        display_num = display.lstrip(":")
+        socket_path = f"/tmp/.X11-unix/X{display_num}"
+        cleaned = False
+
+        # Kill any Xvfb processes for this specific display
+        try:
+            result = subprocess.run(
+                ["pkill", "-f", f"Xvfb :{display_num}\\b"],
+                capture_output=True,
+                timeout=5
+            )
+            if result.returncode == 0:
+                cleaned = True
+                time.sleep(0.5)  # Give process time to die
+        except Exception:
+            pass
+
+        # Remove stale socket if it exists but no server is running
+        if os.path.exists(socket_path):
+            try:
+                os.unlink(socket_path)
+                cleaned = True
+            except PermissionError:
+                pass  # Socket is in use by running server
+            except Exception:
+                pass
+
+        return cleaned
+
+    def _start_display(self, display: str, max_retries: int = 3) -> Dict[str, Any]:
+        """
+        Start a new display server with retry logic.
+
+        For headless instances, uses Xvfb directly for reliability.
+        Falls back to start_screen.sh for primary display (:2).
+
+        Args:
+            display: Display to start (e.g., ":3")
+            max_retries: Number of retry attempts
 
         Note: Gamescope picks its own display number, so we track displays
         before and after to find which one was actually created.
@@ -152,70 +210,136 @@ class SessionManager:
                 "status": "already_running"
             }
 
-        # Record displays before starting
-        displays_before = set(self._get_running_displays())
+        last_error = None
 
-        try:
-            script_path = Path(__file__).parent.parent / "start_screen.sh"
+        for attempt in range(max_retries):
+            # Clean up any stale state before attempting
+            self._cleanup_stale_display(display)
 
-            if display_num == "2":
-                # Primary display - run without argument (uses gamescope)
-                cmd = [str(script_path)]
-            else:
-                # Additional display - pass display number (uses gamescope)
-                cmd = [str(script_path), display_num]
+            # Record displays before starting
+            displays_before = set(self._get_running_displays())
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+            try:
+                if display_num == "2":
+                    # Primary display - use start_screen.sh for gamescope support
+                    script_path = Path(__file__).parent.parent / "start_screen.sh"
+                    cmd = [str(script_path)]
+                    result = subprocess.run(
+                        cmd,
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    stdout = result.stdout.strip()
+                    stderr = result.stderr.strip()
+                else:
+                    # Additional displays - start Xvfb directly for reliability
+                    # This avoids issues with start_screen.sh interaction
+                    xvfb_proc = subprocess.Popen(
+                        ["Xvfb", f":{display_num}", "-screen", "0", "1920x1080x24"],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        start_new_session=True  # Detach from parent
+                    )
 
-            # Find what display was actually created
-            displays_after = set(self._get_running_displays())
-            new_displays = displays_after - displays_before
+                    # Wait for Xvfb to initialize
+                    socket_path = f"/tmp/.X11-unix/X{display_num}"
+                    for _ in range(20):  # Wait up to 10 seconds
+                        time.sleep(0.5)
+                        if os.path.exists(socket_path):
+                            # Verify process is still running
+                            if xvfb_proc.poll() is None:
+                                return {
+                                    "success": True,
+                                    "display": display,
+                                    "actual_display": display,
+                                    "status": "started",
+                                    "pid": xvfb_proc.pid,
+                                    "output": f"Xvfb started on :{display_num} (PID: {xvfb_proc.pid})"
+                                }
+                            break
 
-            if new_displays:
-                # Use the first new display (should only be one)
-                actual_display = sorted(new_displays)[0]
+                    # Xvfb failed - capture error
+                    try:
+                        stdout_bytes, stderr_bytes = xvfb_proc.communicate(timeout=2)
+                        stdout = stdout_bytes.decode() if stdout_bytes else ""
+                        stderr = stderr_bytes.decode() if stderr_bytes else ""
+                    except subprocess.TimeoutExpired:
+                        xvfb_proc.kill()
+                        stdout, stderr = "", "Xvfb startup timed out"
+
+                    last_error = stderr or "Xvfb did not create socket"
+                    if attempt < max_retries - 1:
+                        time.sleep(1)  # Wait before retry
+                        continue
+                    else:
+                        return {
+                            "success": False,
+                            "display": display,
+                            "error": last_error,
+                            "attempts": attempt + 1
+                        }
+
+                # For primary display (start_screen.sh path)
+                displays_after = set(self._get_running_displays())
+                new_displays = displays_after - displays_before
+
+                if new_displays:
+                    actual_display = sorted(new_displays)[0]
+                    return {
+                        "success": True,
+                        "display": display,
+                        "actual_display": actual_display,
+                        "status": "started",
+                        "output": stdout
+                    }
+
+                if self._is_display_running(display):
+                    return {
+                        "success": True,
+                        "display": display,
+                        "actual_display": display,
+                        "status": "started",
+                        "output": stdout
+                    }
+
+                last_error = stderr or "Display did not start"
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+
                 return {
-                    "success": True,
+                    "success": False,
                     "display": display,
-                    "actual_display": actual_display,
-                    "status": "started",
-                    "output": result.stdout.strip()
+                    "error": last_error,
+                    "output": stdout,
+                    "attempts": attempt + 1
                 }
 
-            # Check if requested display is now running (might have been created)
-            if self._is_display_running(display):
+            except subprocess.TimeoutExpired:
+                last_error = "start_screen.sh timed out after 30s"
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
+            except FileNotFoundError as e:
                 return {
-                    "success": True,
+                    "success": False,
                     "display": display,
-                    "actual_display": display,
-                    "status": "started",
-                    "output": result.stdout.strip()
+                    "error": f"Required command not found: {e.filename}",
+                    "attempts": attempt + 1
                 }
+            except Exception as e:
+                last_error = str(e)
+                if attempt < max_retries - 1:
+                    time.sleep(1)
+                    continue
 
-            return {
-                "success": False,
-                "display": display,
-                "error": result.stderr.strip() or "Display did not start",
-                "output": result.stdout.strip()
-            }
-
-        except subprocess.TimeoutExpired:
-            return {
-                "success": False,
-                "display": display,
-                "error": "start_screen.sh timed out after 30s"
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "display": display,
-                "error": str(e)
-            }
+        return {
+            "success": False,
+            "display": display,
+            "error": last_error or "Unknown error after retries",
+            "attempts": max_retries
+        }
 
     def get_available_display(self) -> Optional[str]:
         """Get the first available (unused) display."""
@@ -231,16 +355,19 @@ class SessionManager:
                 return display
         return None
 
-    def allocate_display(self, account_id: str) -> Dict[str, Any]:
+    def allocate_display(self, account_id: str, allow_reassign: bool = True) -> Dict[str, Any]:
         """
         Allocate a display for an account.
 
-        Simple approach:
+        Robust approach:
         1. Check if account has a persistent display assignment
-        2. If yes, use that display (start display server if needed)
-        3. If no, assign the next available display number permanently
+        2. If yes, try to start that display (with retries)
+        3. If display fails and allow_reassign=True, try an alternate display
+        4. If no assignment, assign the next available display number
 
-        Each account gets one display, forever. No reassignment.
+        Args:
+            account_id: Account to allocate display for
+            allow_reassign: If True, reassign to different display on failure
         """
         # Reload to prevent conflicts
         self._load()
@@ -252,13 +379,24 @@ class SessionManager:
             # Ensure display server is running
             if not self._is_display_running(display):
                 start_result = self._start_display(display)
+
                 if not start_result.get("success"):
+                    # Display failed to start - try fallback if allowed
+                    if allow_reassign:
+                        fallback_result = self._try_fallback_display(account_id, exclude=[display])
+                        if fallback_result.get("success"):
+                            fallback_result["original_display"] = display
+                            fallback_result["fallback_reason"] = start_result.get("error", "Display failed to start")
+                            return fallback_result
+
                     return {
                         "success": False,
                         "display": display,
                         "error": f"Failed to start assigned display {display}",
-                        "start_result": start_result
+                        "start_result": start_result,
+                        "hint": "Try running cleanup_stale_sessions() or manually check Xvfb processes"
                     }
+
                 # Use actual display if gamescope picked a different one
                 display = start_result.get("actual_display", display)
                 self.account_displays[account_id] = display
@@ -272,35 +410,88 @@ class SessionManager:
             }
 
         # Account has no display yet - assign the next available one
+        return self._assign_new_display(account_id)
+
+    def _try_fallback_display(self, account_id: str, exclude: List[str]) -> Dict[str, Any]:
+        """
+        Try to start a fallback display when the primary fails.
+
+        Args:
+            account_id: Account to allocate for
+            exclude: List of displays to skip (already failed)
+        """
         assigned_displays = set(self.account_displays.values())
 
         for i in range(self.MIN_DISPLAY, self.MIN_DISPLAY + self.MAX_DISPLAYS):
             display = f":{i}"
-            if display not in assigned_displays:
-                # Assign this display to the account permanently
+            if display in exclude:
+                continue
+
+            # Try this display
+            if self._is_display_running(display):
+                # Display is running - check if it's assigned to someone else
+                if display in assigned_displays:
+                    continue  # Skip, already assigned
+
+                # Unassigned running display - use it
                 self.account_displays[account_id] = display
                 self._save()
-
-                # Start display server if not running
-                if not self._is_display_running(display):
-                    start_result = self._start_display(display)
-                    if start_result.get("success"):
-                        actual_display = start_result.get("actual_display", display)
-                        if actual_display != display:
-                            self.account_displays[account_id] = actual_display
-                            self._save()
-                        display = actual_display
-
                 return {
                     "success": True,
                     "display": display,
-                    "status": "newly_assigned",
-                    "note": f"Account {account_id} permanently assigned to {display}"
+                    "status": "fallback_assigned",
+                    "note": f"Account {account_id} reassigned to available display {display}"
                 }
+            else:
+                # Try to start this display
+                start_result = self._start_display(display)
+                if start_result.get("success"):
+                    actual_display = start_result.get("actual_display", display)
+                    self.account_displays[account_id] = actual_display
+                    self._save()
+                    return {
+                        "success": True,
+                        "display": actual_display,
+                        "status": "fallback_started",
+                        "note": f"Account {account_id} reassigned to new display {actual_display}"
+                    }
 
         return {
             "success": False,
-            "error": f"No available displays. All {self.MAX_DISPLAYS} slots assigned.",
+            "error": "No fallback displays available"
+        }
+
+    def _assign_new_display(self, account_id: str) -> Dict[str, Any]:
+        """Assign a new display to an account that doesn't have one."""
+        assigned_displays = set(self.account_displays.values())
+
+        for i in range(self.MIN_DISPLAY, self.MIN_DISPLAY + self.MAX_DISPLAYS):
+            display = f":{i}"
+            if display in assigned_displays:
+                continue
+
+            # Try to start this display
+            if not self._is_display_running(display):
+                start_result = self._start_display(display)
+                if not start_result.get("success"):
+                    # This display failed, try next one
+                    continue
+                display = start_result.get("actual_display", display)
+
+            # Assign this display to the account
+            self.account_displays[account_id] = display
+            self._save()
+
+            return {
+                "success": True,
+                "display": display,
+                "status": "newly_assigned",
+                "note": f"Account {account_id} permanently assigned to {display}"
+            }
+
+        return {
+            "success": False,
+            "error": f"No available displays. All {self.MAX_DISPLAYS} slots assigned or failed to start.",
             "account_displays": self.account_displays
         }
 
@@ -448,13 +639,18 @@ class SessionManager:
             "total_displays": len(self.displays)
         }
 
-    def cleanup_stale_sessions(self) -> Dict[str, Any]:
+    def cleanup_stale_sessions(self, cleanup_displays: bool = True) -> Dict[str, Any]:
         """
         Clean up sessions where the process is no longer running.
         Call this periodically to free up displays from crashed clients.
-        """
-        cleaned = []
 
+        Args:
+            cleanup_displays: Also clean up stale Xvfb processes and sockets
+        """
+        cleaned_sessions = []
+        cleaned_displays = []
+
+        # Clean up stale sessions (processes that died)
         for display, session in list(self.displays.items()):
             if session is None:
                 continue
@@ -467,7 +663,7 @@ class SessionManager:
                 except ProcessLookupError:
                     # Process is dead, clean up
                     self.end_session(display=display)
-                    cleaned.append({
+                    cleaned_sessions.append({
                         "display": display,
                         "account": session.get("account"),
                         "pid": pid
@@ -476,14 +672,160 @@ class SessionManager:
                     # Process exists but we can't signal it (still running)
                     pass
 
+        # Optionally clean up stale display servers
+        if cleanup_displays:
+            for i in range(self.MIN_DISPLAY, self.MIN_DISPLAY + self.MAX_DISPLAYS):
+                display = f":{i}"
+                display_num = str(i)
+
+                # Check if socket exists but display is not responsive
+                socket_path = f"/tmp/.X11-unix/X{display_num}"
+                if os.path.exists(socket_path) and not self._is_display_running(display):
+                    # Stale socket - clean it up
+                    if self._cleanup_stale_display(display):
+                        cleaned_displays.append(display)
+
         return {
-            "cleaned": cleaned,
-            "count": len(cleaned)
+            "cleaned_sessions": cleaned_sessions,
+            "cleaned_displays": cleaned_displays,
+            "session_count": len(cleaned_sessions),
+            "display_count": len(cleaned_displays)
+        }
+
+    def get_display_status(self) -> Dict[str, Any]:
+        """
+        Get detailed status of all displays in the pool.
+        Useful for debugging display allocation issues.
+        """
+        displays_status = {}
+
+        for i in range(self.MIN_DISPLAY, self.MIN_DISPLAY + self.MAX_DISPLAYS):
+            display = f":{i}"
+            display_num = str(i)
+            socket_path = f"/tmp/.X11-unix/X{display_num}"
+
+            status = {
+                "socket_exists": os.path.exists(socket_path),
+                "responsive": self._is_display_running(display),
+                "assigned_to": None,
+                "active_session": None
+            }
+
+            # Check if assigned to an account
+            for account, assigned_display in self.account_displays.items():
+                if assigned_display == display:
+                    status["assigned_to"] = account
+                    break
+
+            # Check if has active session
+            session = self.displays.get(display)
+            if session:
+                status["active_session"] = session
+
+            displays_status[display] = status
+
+        # Count summary
+        running = sum(1 for d in displays_status.values() if d["responsive"])
+        assigned = sum(1 for d in displays_status.values() if d["assigned_to"])
+        active = sum(1 for d in displays_status.values() if d["active_session"])
+
+        return {
+            "displays": displays_status,
+            "summary": {
+                "total": len(displays_status),
+                "running": running,
+                "assigned": assigned,
+                "active_sessions": active,
+                "available": len(displays_status) - assigned
+            },
+            "account_assignments": self.account_displays
         }
 
     def reload(self) -> None:
         """Reload sessions from disk."""
         self._load()
+
+    def reset_account_display(self, account_id: str) -> Dict[str, Any]:
+        """
+        Reset an account's display assignment, allowing it to be reassigned.
+        Use when an account's assigned display is persistently problematic.
+
+        Args:
+            account_id: Account to reset
+        """
+        self._load()
+
+        old_display = self.account_displays.get(account_id)
+        if old_display is None:
+            return {
+                "success": False,
+                "error": f"Account '{account_id}' has no display assignment"
+            }
+
+        # End any active session first
+        if self.displays.get(old_display):
+            self.end_session(display=old_display)
+
+        # Remove the assignment
+        del self.account_displays[account_id]
+        self._save()
+
+        return {
+            "success": True,
+            "account": account_id,
+            "previous_display": old_display,
+            "note": f"Display assignment cleared. Next start_runelite will assign a new display."
+        }
+
+    def reassign_account_display(self, account_id: str, new_display: str) -> Dict[str, Any]:
+        """
+        Manually reassign an account to a specific display.
+
+        Args:
+            account_id: Account to reassign
+            new_display: Display to assign (e.g., ":2")
+        """
+        self._load()
+
+        # Validate display is in pool
+        display_num = new_display.lstrip(":")
+        if not display_num.isdigit():
+            return {
+                "success": False,
+                "error": f"Invalid display format: {new_display}"
+            }
+
+        num = int(display_num)
+        if not (self.MIN_DISPLAY <= num < self.MIN_DISPLAY + self.MAX_DISPLAYS):
+            return {
+                "success": False,
+                "error": f"Display {new_display} not in pool (:{self.MIN_DISPLAY} to :{self.MIN_DISPLAY + self.MAX_DISPLAYS - 1})"
+            }
+
+        # Check if display is already assigned to another account
+        for other_account, assigned_display in self.account_displays.items():
+            if assigned_display == new_display and other_account != account_id:
+                return {
+                    "success": False,
+                    "error": f"Display {new_display} is already assigned to {other_account}"
+                }
+
+        old_display = self.account_displays.get(account_id)
+
+        # End any active session on old display
+        if old_display and self.displays.get(old_display):
+            self.end_session(display=old_display)
+
+        # Assign new display
+        self.account_displays[account_id] = new_display
+        self._save()
+
+        return {
+            "success": True,
+            "account": account_id,
+            "previous_display": old_display,
+            "new_display": new_display
+        }
 
 
 # Global singleton instance
