@@ -38,12 +38,17 @@ widgets:
   continue_button: 12648448
   equipment_tab: 35913771  # Use find_and_click_widget(text="Worn Equipment")
   combat_options_tab: 35913792  # Has action "Combat Options"
-  view_equipment_stats: "find via text 'View equipment stats'"
+  inventory_tab: 35913795  # Action: "Inventory", bounds (626, 168, 33, 36)
   inventory_container: 9764864  # Group 149 << 16
+  # Equipment stats panel (AVOID - blocks inventory):
+  equip_panel_title: 5505027  # Text: "Equip Your Character...", group 84 child 3
+  view_equipment_stats: 25362433  # DON'T USE - just for reference
 
 # PITFALLS DISCOVERED:
-# 1. Equipment stats panel uses DYNAMIC WIDGETS - bounds return -1,-1
-#    FIX: Press ESC to close panel, use regular inventory
+# 1. Equipment stats panel BLOCKS INVENTORY - don't use it!
+#    Use get_game_state(fields=["equipment"]) instead for equipment info.
+#    DETECTION: find_widget("Equip your character") returns 5505027 when panel is open
+#    FIX: Press ESC to close panel, then click inventory_tab (35913795)
 # 2. find_widget for inventory items returned WRONG BOUNDS (slot 0 for all)
 #    FIX: ScanWidgetsCommand.java now calculates grid position from slot index
 # 3. equip_item() clicked first "Wield"-able item instead of specific item

@@ -19,6 +19,16 @@ The linked `manny_src` directory points to the manny RuneLite plugin at `/home/w
 
 For complex architectural decisions, use the `decision-maker` subagent instead of `AskUserQuestion`.
 
+## Session Startup (User Preference) ⚡
+
+**When the user asks to "start a session" or "start RuneLite", default to gamescope:**
+
+1. First, ensure gamescope displays are running: `./start_gamescopes.sh status`
+2. If not running, start them: `./start_gamescopes.sh`
+3. Then start RuneLite on a gamescope display: `start_runelite(account_id="main", display=":2")`
+
+This preference is for interactive Claude Code sessions only. The Discord bot uses headless (Xvfb) mode by default.
+
 ## Command Debugging Workflow ⚡
 
 **When a command doesn't work as expected, follow this pattern:**

@@ -263,6 +263,63 @@ TOOL_DEFINITIONS = [
             },
             "required": ["command"]
         }
+    },
+    {
+        "name": "send_and_await",
+        "description": "Send command and wait for game state condition. More reliable than send_command alone. Conditions: plane:N, has_item:ItemName, no_item:ItemName, location:X,Y, idle, inventory_count:<=N",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "Command to send (e.g., 'GOTO 3200 3200 0', 'BANK_OPEN')"
+                },
+                "await_condition": {
+                    "type": "string",
+                    "description": "Condition to wait for (e.g., 'has_item:Raw shrimps', 'location:3200,3200', 'idle')"
+                },
+                "timeout_ms": {
+                    "type": "integer",
+                    "description": "Timeout in milliseconds (default: 30000)"
+                }
+            },
+            "required": ["command", "await_condition"]
+        }
+    },
+    {
+        "name": "query_nearby",
+        "description": "List nearby NPCs, objects, and ground items with available actions. Use to discover what's interactable.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "name_filter": {
+                    "type": "string",
+                    "description": "Optional filter by name (e.g., 'Fishing', 'Banker', 'Tree')"
+                }
+            }
+        }
+    },
+    {
+        "name": "get_dialogue",
+        "description": "Get current dialogue state - whether dialogue is open, speaker name, text, and clickable options.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "click_text",
+        "description": "Find a widget/button by text and click it. Useful for dialogue options and UI buttons.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "Text to find and click (e.g., 'Yes', 'Continue', 'What is this place?')"
+                }
+            },
+            "required": ["text"]
+        }
     }
 ]
 

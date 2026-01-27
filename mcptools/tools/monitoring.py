@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 from ..registry import registry
 from ..session_manager import session_manager
+from ..utils import maybe_truncate_response
 
 
 # Dependencies injected at startup (MultiRuneLiteManager)
@@ -92,13 +93,16 @@ async def handle_get_logs(arguments: dict) -> dict:
             "error": "No instance running for this account"
         }
 
-    return instance.get_logs(
+    result = instance.get_logs(
         level=arguments.get("level", "WARN"),
         since_seconds=arguments.get("since_seconds", 30),
         grep=arguments.get("grep"),
         max_lines=arguments.get("max_lines", 100),
         plugin_only=arguments.get("plugin_only", True)
     )
+
+    # Truncate large log responses to avoid filling context
+    return maybe_truncate_response(result, prefix="logs_output")
 
 
 @registry.register({

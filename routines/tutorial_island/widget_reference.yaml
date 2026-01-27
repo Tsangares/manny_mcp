@@ -59,12 +59,19 @@ experience_selection:
 # Tutorial Island Widget Groups (add to ScanWidgetsCommand.java for deep scans)
 tutorial_groups:
   - 122   # Experience selection
-  - 263   # Tutorial chatbox hints
+  - 263   # Tutorial hint box (current objective) - USE scan_widgets(group=263) TO READ
   - 303   # Tutorial container
   - 614   # Tutorial hints
   - 651   # Tutorial buttons
   - 678   # Character creation
   - 708   # Tutorial container
+  - 928   # Experience selection popup (actual clickable options)
+
+# HOW TO READ CURRENT TUTORIAL OBJECTIVE:
+# scan_widgets(group=263) returns the hint box text, e.g.:
+# "<col=0000ff>Settings menu</col><br>Talk to the Gielinor Guide to continue."
+# Note: Widget 17235969 contains the full text
+# This is HIDDEN during dialogues - use get_dialogue() instead when dialogue is open
 
 # Commands Reference
 commands:
@@ -84,6 +91,19 @@ commands:
 # - Must use direct widget clicks or find Tutorial Island-specific widgets
 # - Tutorial Island fishing spots use action "Net" not "Small Net"
 # - Coordinate-based clicking causes server disconnections!
+#
+# COMMAND NAMING CONVENTIONS (CRITICAL - 2026-01-25):
+# - NPC names: Use UNDERSCORES in commands (Survival_Expert, Fishing_spot)
+#   Plugin converts underscores to spaces internally for matching
+# - Object names: Use LOWERCASE as shown by scan_tile_objects (tree, gate, door)
+#   Case-sensitive! "Tree" won't match "tree"
+# - Actions can have SPACES: "Chop down", "Climb-up", "Talk-to"
+#   Commands use args.split(" ", 2) to allow spaces in actions
+# - INTERACT_NPC has range limit (~10 tiles) - walk closer with GOTO first!
+#
+# Widget IDs discovered (VALIDATED 2026-01-25):
+# - Skills tab: 35913793 (action "Skills")
+# - Inventory tab: 35913795 (action "Inventory")
 #
 # INVENTORY ITEM INTERACTION (FIXED 2026-01-18):
 # 1. Equipment stats panel uses DYNAMIC WIDGETS - bounds return -1,-1
@@ -107,3 +127,31 @@ commands:
 #   - KEY_PRESS F2 → no effect
 #   - Coordinate clicking → caused disconnections
 # Next step: Deep scan for Tutorial Island skills widget when client available
+
+# NAVIGATION DISCOVERIES (2026-01-25):
+#
+# COOKING TO QUEST GUIDE PATH:
+# The path from cooking area to Quest Guide building is tricky due to invisible fences.
+# CRITICAL: Must go WEST first, then NORTH along western edge.
+#
+# Key doors:
+# - Cooking exit door: (3072, 3090) - leads toward Quest Guide
+#   IMPORTANT: Walk IN FRONT at (3073, 3090) before INTERACT_OBJECT door Open
+# - Quest Guide door: (3086, 3126)
+#
+# Validated waypoints (in order):
+# 1. (3073, 3090) - In front of cooking exit door
+# 2. (3072, 3100) - North along west edge
+# 3. (3072, 3110) - Continue north
+# 4. (3080, 3120) - Toward Quest Guide building
+# 5. (3086, 3125) - At Quest Guide door
+#
+# QUEST GUIDE SECTION:
+# - Quest Journal tab widget: 35913794
+# - Quest Guide NPC location: (3084, 3121)
+# - Ladder to mining: (3088, 3119) with action "Climb-down"
+# - After ladder: Player arrives at approximately (3088, 9520) underground
+#
+# DOOR INTERACTION PATTERN:
+# ALWAYS walk IN FRONT of a door before trying to open it.
+# INTERACT_OBJECT may fail if you're not close enough or at wrong angle.

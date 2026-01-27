@@ -13,6 +13,7 @@ from mcp.types import Tool, TextContent
 from ..config import ServerConfig
 from ..registry import registry
 from ..path_utils import normalize_path, to_symlink_path
+from ..utils import maybe_truncate_response
 
 
 # =============================================================================
@@ -173,6 +174,29 @@ async def run_tests(pattern: Optional[str] = None, timeout: int = 60) -> list[Te
     if "error" in result:
         return [TextContent(type="text", text=f"Error: {result['error']}")]
 
+    # Truncate large results (writes to file, returns summary)
+    truncated = maybe_truncate_response(result, prefix="test_output")
+
+    if truncated.get("truncated"):
+        # Return summary with file path
+        output = "# Test Results\n\n"
+        if result.get('pattern'):
+            output += f"**Pattern:** {result['pattern']}\n\n"
+        output += f"**Summary:**\n"
+        output += f"- Tests run: {result['tests_run']}\n"
+        output += f"- Failures: {result['failures']}\n"
+        output += f"- Errors: {result['errors']}\n"
+        output += f"- Skipped: {result['skipped']}\n"
+        output += f"- Time: {result['time']:.2f}s\n"
+        output += f"- Status: {'✅ PASSED' if result['success'] else '❌ FAILED'}\n\n"
+        output += f"**Full output truncated** - see: `{truncated['full_output_path']}`\n"
+        if result['failed_tests']:
+            output += "\n## Failed Tests Preview (first 3):\n\n"
+            for failed in result['failed_tests'][:3]:
+                output += f"- {failed['test']}\n"
+        return [TextContent(type="text", text=output)]
+
+    # Normal output for small results
     output = "# Test Results\n\n"
 
     if result.get('pattern'):

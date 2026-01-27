@@ -14,6 +14,7 @@ from mcp.types import Tool, TextContent
 from ..config import ServerConfig
 from ..registry import registry
 from ..path_utils import normalize_path, to_symlink_path, list_java_files
+from ..utils import maybe_truncate_response
 
 
 # =============================================================================
@@ -148,6 +149,20 @@ async def find_usages(symbol: str, context_lines: int = 3) -> list[TextContent]:
     if "error" in result:
         return [TextContent(type="text", text=f"Error: {result['error']}")]
 
+    # Truncate large results (writes to file, returns summary)
+    truncated = maybe_truncate_response(result, prefix="find_usages_output")
+
+    if truncated.get("truncated"):
+        # Return summary with file path
+        output = f"# Usages of '{result['symbol']}'\n\n"
+        output += f"Found {result['total']} usage(s) - **response truncated**\n\n"
+        output += f"Full results written to: `{truncated['full_output_path']}`\n\n"
+        output += "## Preview (first 5 usages):\n\n"
+        for usage in result['usages'][:5]:
+            output += f"- {usage['file']}:{usage['line']}\n"
+        return [TextContent(type="text", text=output)]
+
+    # Normal output for small results
     output = f"# Usages of '{result['symbol']}'\n\n"
     output += f"Found {result['total']} usage(s)\n\n"
 

@@ -1171,6 +1171,33 @@ class OSRSBot(commands.Bot):
                 except Exception as e:
                     return {"error": str(e)}
 
+            elif tool_name == "send_and_await":
+                # Send command and wait for game state condition
+                from mcptools.tools.commands import handle_send_and_await
+                return await handle_send_and_await({
+                    "command": arguments.get("command", ""),
+                    "await_condition": arguments.get("await_condition", ""),
+                    "timeout_ms": arguments.get("timeout_ms", 30000),
+                    "account_id": self.account_id
+                })
+
+            elif tool_name == "get_dialogue":
+                # Get current dialogue state
+                from mcptools.tools.routine import handle_get_dialogue
+                return await handle_get_dialogue({
+                    "account_id": self.account_id,
+                    "timeout_ms": 3000
+                })
+
+            elif tool_name == "click_text":
+                # Click widget by text
+                from mcptools.tools.routine import handle_click_text
+                return await handle_click_text({
+                    "text": arguments.get("text", ""),
+                    "account_id": self.account_id,
+                    "timeout_ms": 3000
+                })
+
             elif tool_name == "queue_on_level":
                 # Queue a command to run when a skill reaches a level
                 if not self._task_manager:

@@ -1,9 +1,9 @@
 # Tutorial Island: Character Creation
-# STATUS: IN PROGRESS
+# STATUS: VALIDATED
 #
 # Steps:
-# 1. Randomize character appearance (clicks Confirm when done)
-# 2. Select experience level ("I'm brand new!")
+# 1. Randomize character appearance (30 sec, then clicks Confirm)
+# 2. Select experience level ("I'm an experienced player")
 
 name: "Tutorial Island - Character Creation"
 type: tutorial
@@ -13,18 +13,38 @@ steps:
   - id: 1
     phase: "character_appearance"
     action: RANDOMIZE_CHARACTER
-    description: "Randomize character appearance and click Confirm"
-    # Note: startWithConfirm() runs for 30-90 seconds, then clicks Confirm
-    # Bug: Currently also clicks Confirm when duration arg is passed - to fix later
+    args: "15"
+    description: "Randomize character appearance for 15 sec"
+    # With duration arg = runs that duration but does NOT click Confirm
 
   - id: 2
+    phase: "character_appearance"
+    action: WAIT
+    args: "16000"
+    description: "Wait for randomizer to finish"
+
+  - id: 3
+    phase: "character_appearance"
+    action: CLICK_WIDGET
+    args: "44499018"
+    description: "Click Confirm button on character creation"
+    # Confirm button widget ID from CharacterRandomizer.java
+
+  - id: 4
     phase: "experience_selection"
-    action: CLICK_CHILD_WIDGET
-    args: "7995392 0 static"
-    description: "Click 'I'm brand new!' button"
-    # Widget 7995392 = (122 << 16) | 0, static child index 0 = brand new
+    action: WAIT
+    args: "2000"
+    description: "Wait for experience selection dialog"
+
+  - id: 5
+    phase: "experience_selection"
+    action: CLICK_WIDGET
+    args: "60882951"
+    description: "Click 'I'm an experienced player' button"
+    # Widget 60882951 = group 928, the "Experienced player" option with "Select" action
 
 # PITFALLS DISCOVERED:
-# - Widget scanning (find_widget, scan_widgets) returns 0 widgets for
-#   the "Past Experience" dialogue. Must use coordinate-based clicking.
-# - RANDOMIZE_CHARACTER with duration arg still clicks Confirm (bug)
+# - Experience selection widget is group 928 (ID 60882951), NOT group 122 (7995392)
+# - Use find_widget(text="experienced") to discover the correct widget ID
+# - The "Experienced player" option has action "Select"
+# - For experienced players, use 01_experience_selection.yaml (selects index 2)

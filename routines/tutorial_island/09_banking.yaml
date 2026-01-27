@@ -21,6 +21,8 @@ locations:
   bank_floor: {x: 3123, y: 3127, plane: 0}  # After climbing down
   bank_booth: {x: 3120, y: 3123, plane: 0}  # Bank booth area
   poll_booth: {x: 3119, y: 3121, plane: 0}  # Poll booth location
+  exit_door_position: {x: 3124, y: 3124, plane: 0}  # Walk here before opening door
+  exit_door: {x: 3125, y: 3124, plane: 0}  # Door to Account Guide room
 
 # Key Objects (VALIDATED)
 objects:
@@ -94,13 +96,20 @@ steps:
     args: "Escape"
     status: "VALIDATED"
 
-  # Phase 4: Exit to chapel
+  # Phase 4: Exit to Account Guide room
   - id: 9
-    description: "Exit through door to chapel area"
+    description: "Walk to door in front of Account Guide room"
+    action: GOTO
+    args: "3124 3124 0"
+    status: "VALIDATED"
+    notes: "Must walk to door position before clicking - multiple doors nearby!"
+
+  - id: 10
+    description: "Open door to Account Guide room"
     action: INTERACT_OBJECT
     args: "Door Open"
-    status: "TODO"
-    notes: "Door leads to prayer/chapel section"
+    status: "VALIDATED"
+    notes: "Door at (3125, 3124) leads to Account Guide"
 
 # PITFALLS DISCOVERED:
 # 1. Bank booth is on plane 0, but you arrive on plane 1 after climbing up

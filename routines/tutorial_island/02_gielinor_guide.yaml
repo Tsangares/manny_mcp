@@ -54,10 +54,11 @@ steps:
 
   - id: 6
     description: "Open Settings tab when prompted"
-    action: KEY_PRESS
-    args: "F11"
+    action: CLICK_WIDGET
+    args: "35913780"
     delay_before_ms: 1000
-    # F11 opens settings tab
+    # VALIDATED: Widget 35913780 has actions "Settings", "Controls", "Audio"
+    # Found via: find_widget(text="Settings")
 
   - id: 7
     description: "Talk to Gielinor Guide again"
@@ -88,6 +89,8 @@ steps:
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
+    # VALIDATED: Must use "Door" (capitalized), not "door" lowercase
+    # get_transitions shows correct casing; scan_tile_objects shows lowercase
 
 # After this routine:
 # Player should be outside the building, ready for Survival Expert (03_survival_expert.yaml)

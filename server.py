@@ -21,7 +21,7 @@ from mcptools.registry import registry
 from mcptools.runelite_manager import MultiRuneLiteManager
 
 # Import tool modules (they register themselves on import)
-from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial, session, quests, sessions
+from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial, session, quests, sessions, location_history, routine_generator
 
 # Import code change tools (not yet refactored)
 from request_code_change import (
