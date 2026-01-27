@@ -7,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 from ..registry import registry
-from ..utils import parse_maven_errors, parse_maven_warnings
+from ..utils import parse_maven_errors, parse_maven_warnings, maybe_truncate_response
 
 
 # Note: runelite_manager (MultiRuneLiteManager) will be injected when server starts
@@ -67,13 +67,16 @@ async def handle_build_plugin(arguments: dict) -> dict:
     errors = parse_maven_errors(output)
     warnings = parse_maven_warnings(output)
 
-    return {
+    response = {
         "success": result.returncode == 0,
         "build_time_seconds": round(build_time, 2),
         "errors": errors,
         "warnings": warnings[:10],  # Truncate warnings
         "return_code": result.returncode
     }
+
+    # Write large responses to file to avoid filling context
+    return maybe_truncate_response(response, prefix="build_output")
 
 
 @registry.register({

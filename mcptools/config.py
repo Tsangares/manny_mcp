@@ -99,6 +99,12 @@ class ServerConfig:
         # Default response file path
         return self.state_file.replace("state.json", "response.json")
 
+    def get_location_history_file(self, account_id: str = None) -> str:
+        """Get location history file path for account"""
+        if account_id and account_id != "default":
+            return f"/tmp/manny_{account_id}_location_history.json"
+        return "/tmp/manny_location_history.json"
+
     def get_display(self, account_id: str = None) -> str:
         """Get display for account (e.g., ':2', ':3')"""
         account_config = self.get_account_config(account_id)

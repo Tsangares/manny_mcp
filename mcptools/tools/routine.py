@@ -9,6 +9,7 @@ import asyncio
 import uuid
 import re
 from ..registry import registry
+from ..utils import maybe_truncate_response
 
 
 # Dependencies (send_command_with_response function and config)
@@ -577,7 +578,8 @@ async def handle_query_nearby(arguments: dict) -> dict:
                 ground_items = [i for i in ground_items if filter_lower in (i.get("name") or "").lower()]
             result["ground_items"] = ground_items
 
-    return result
+    # Truncate large responses to avoid filling context
+    return maybe_truncate_response(result, prefix="nearby_output")
 
 
 @registry.register({
@@ -680,7 +682,7 @@ async def handle_scan_tile_objects(arguments: dict) -> dict:
         result = response.get("result", {})
         # Handle single vs multiple objects
         if "objects" in result:
-            return {
+            output = {
                 "success": True,
                 "count": result.get("count", len(result["objects"])),
                 "objects": result["objects"],
@@ -688,12 +690,14 @@ async def handle_scan_tile_objects(arguments: dict) -> dict:
             }
         else:
             # Single object returned directly
-            return {
+            output = {
                 "success": True,
                 "count": 1,
                 "objects": [result],
                 "searched_for": object_name
             }
+        # Truncate large responses to avoid filling context
+        return maybe_truncate_response(output, prefix="tile_objects_output")
     else:
         return {
             "success": False,

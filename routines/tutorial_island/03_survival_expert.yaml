@@ -1,12 +1,13 @@
 # Tutorial Island - Part 3: Survival Expert (Fishing & Skills)
-# STATUS: IN PROGRESS
+# STATUS: VALIDATED 2026-01-25
 #
 # This routine handles the Survival Expert section:
-# 1. Talk to Survival Expert
-# 2. Open inventory tab
-# 3. Fish shrimp
-# 4. Open skills tab
-# 5. Continue to woodcutting/fire-making
+# 1. Walk to Survival Expert (IMPORTANT: range limit on INTERACT_NPC)
+# 2. Talk to Survival Expert
+# 3. Open inventory tab
+# 4. Fish shrimp
+# 5. Open skills tab
+# 6. Continue to woodcutting/fire-making
 
 name: "Tutorial Island - Survival Expert"
 type: tutorial
@@ -25,30 +26,31 @@ npcs:
       - {x: 3101, y: 3092}
       - {x: 3103, y: 3092}
 
-# Key Widgets - VALIDATED
+# Key Widgets - VALIDATED 2026-01-25
 widgets:
   inventory_icon: 35913795   # Action: "Inventory"
-  continue_button: 12648448  # Action: "Continue"
-  skills_tab: 10485808       # Tutorial Island specific! (group 160, child 0/48)
+  skills_tab: 35913793       # Action: "Skills" - VALIDATED via find_widget
   # NOTE: 35913809 (548 << 16 | 0x51) does NOT work on Tutorial Island
 
 steps:
   - id: 1
+    description: "Walk to Survival Expert area"
+    action: GOTO
+    args: "3100 3095 0"
+    # VALIDATED: Must walk closer before INTERACT_NPC works (range limit ~10 tiles)
+
+  - id: 2
     description: "Talk to Survival Expert"
     action: INTERACT_NPC
     args: "Survival_Expert Talk-to"
-
-  - id: 2
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 2000
+    delay_before_ms: 1000
+    # NOTE: Use underscore in command args (plugin converts to space for matching)
 
   - id: 3
     description: "Continue dialogue (space)"
     action: KEY_PRESS
     args: "Space"
-    delay_before_ms: 1000
+    delay_before_ms: 2000
 
   - id: 4
     description: "Continue dialogue (space)"
@@ -57,38 +59,49 @@ steps:
     delay_before_ms: 1000
 
   - id: 5
-    description: "Open inventory tab"
-    action: CLICK_WIDGET
-    args: "35913795"
-    delay_before_ms: 1000
-    notes: "Tutorial says 'click the flashing backpack icon'"
-
-  - id: 6
-    description: "Fish shrimp - click fishing spot"
-    action: INTERACT_NPC
-    args: "Fishing_spot Net"
-    delay_before_ms: 1000
-    notes: |
-      CRITICAL: Tutorial Island fishing spots use action "Net" not "Small Net"!
-      This is different from main game fishing spots.
-
-  - id: 7
-    description: "Wait for fishing to complete and continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 5000
-
-  - id: 8
     description: "Continue dialogue (space)"
     action: KEY_PRESS
     args: "Space"
     delay_before_ms: 1000
 
+  - id: 6
+    description: "Open inventory tab"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 1000
+    # Tutorial says 'click the flashing backpack icon'
+
+  - id: 7
+    description: "Walk to fishing spot"
+    action: GOTO
+    args: "3101 3093 0"
+    # VALIDATED: Must be close to fishing spot before interaction works
+
+  - id: 8
+    description: "Fish shrimp - click fishing spot"
+    action: INTERACT_NPC
+    args: "Fishing_spot Net"
+    delay_before_ms: 1000
+    # NOTE: Use underscore. Tutorial Island uses "Net" not "Small Net"!
+
   - id: 9
+    description: "Wait for fishing and continue dialogue"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 5000
+
+  - id: 10
+    description: "Continue dialogue (space)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 11
     description: "Open skills tab"
     action: CLICK_WIDGET
-    args: "10485808"
+    args: "35913793"
     delay_before_ms: 1000
+    # VALIDATED: Widget 35913793 has action "Skills"
 
 # KEY PRINCIPLE:
 # ALWAYS use widget IDs from this file or widget_reference.yaml
@@ -96,16 +109,16 @@ steps:
 # Widget commands are reliable, coordinate clicks cause disconnections
 
 # PITFALLS DISCOVERED:
-# 1. Tutorial Island fishing spots have action "Net" not "Small Net"
-#    - Fixed by adding NPC actions to QUERY_NPCS command output
-# 2. TAB_OPEN skills command fails - widget not visible on Tutorial Island
-#    - SOLUTION: Use CLICK_WIDGET 10485808 (group 160, not 548!)
-# 3. Tutorial Island uses different widget groups than main game
-#    - Skills tab: 10485808 (group 160) NOT 35913809 (group 548)
-#    - Quest tab: 35913794 (group 548, child 66) - see 06_quest_guide.yaml
-# 4. CLICK_WIDGET only takes widget ID - not action strings!
-#    - Use KEY_PRESS Space for dialogue continue instead
+# 1. INTERACT_NPC has range limit (~10 tiles)
+#    - SOLUTION: Walk closer with GOTO before INTERACT_NPC
+# 2. Tutorial Island fishing spots have action "Net" not "Small Net"
+# 3. Use underscore in NPC names (Survival_Expert, Fishing_spot)
+#    - Plugin converts to spaces internally for matching
+# 4. Skills tab widget is 35913793, NOT 10485808 or 35913809
+#    - Discovered via find_widget(text="Skills")
+# 5. CLICK_WIDGET works with action: CLICK_WIDGET 35913793 "Skills"
 
 # After this routine:
 # Player should have fished shrimp, opened skills tab
+# Tutorial hint says: "Speak to the survival expert to continue"
 # Ready for 04_woodcutting_firemaking.yaml

@@ -2,10 +2,86 @@
 Shared utility functions for MCP server.
 """
 import re
+import json
+import time
 from pathlib import Path
 from typing import List, Dict, Any
 from mcp.types import TextContent
-import json
+
+
+# Threshold for writing large responses to file (in characters)
+LARGE_RESPONSE_THRESHOLD = 4000  # ~1k tokens
+
+
+def large_response_to_file(data: Any, prefix: str = "mcp_response") -> dict:
+    """
+    Write large response to a temp file and return summary with path.
+
+    Use this when a tool response might be too large for context.
+    Claude can then selectively read the file if needed.
+
+    Args:
+        data: The full response data (dict or str)
+        prefix: Filename prefix for the temp file
+
+    Returns:
+        dict with summary and file_path for Claude to read
+    """
+    # Ensure /tmp/manny_mcp exists
+    output_dir = Path("/tmp/manny_mcp")
+    output_dir.mkdir(exist_ok=True)
+
+    # Generate unique filename
+    timestamp = int(time.time() * 1000)
+    file_path = output_dir / f"{prefix}_{timestamp}.json"
+
+    # Write full data to file
+    if isinstance(data, dict):
+        content = json.dumps(data, indent=2)
+    else:
+        content = str(data)
+
+    file_path.write_text(content)
+
+    return {
+        "truncated": True,
+        "full_output_path": str(file_path),
+        "message": f"Response too large ({len(content)} chars). Full output written to {file_path}. Use Read tool to view."
+    }
+
+
+def maybe_truncate_response(data: dict, threshold: int = LARGE_RESPONSE_THRESHOLD, prefix: str = "mcp_response") -> dict:
+    """
+    Check if response is large and optionally write to file.
+
+    Args:
+        data: Response dict
+        threshold: Character threshold for truncation
+        prefix: Filename prefix if truncated
+
+    Returns:
+        Original data if small, or truncated summary with file path
+    """
+    serialized = json.dumps(data, indent=2)
+
+    if len(serialized) <= threshold:
+        return data
+
+    # Write full response to file
+    result = large_response_to_file(data, prefix)
+
+    # Include key summary fields if they exist
+    if isinstance(data, dict):
+        for key in ["success", "return_code", "build_time_seconds"]:
+            if key in data:
+                result[key] = data[key]
+
+        # Include error count/first few errors as preview
+        if "errors" in data and isinstance(data["errors"], list):
+            result["error_count"] = len(data["errors"])
+            result["errors_preview"] = data["errors"][:3]
+
+    return result
 
 
 def parse_maven_errors(output: str) -> List[Dict[str, Any]]:
