@@ -84,21 +84,31 @@ def _take_screenshot(output_path: str = None, mode: str = "viewport", account_id
         if window_result.returncode == 0 and window_result.stdout.strip():
             window_id = window_result.stdout.strip().split('\n')[0]
 
-        # Use scrot for full screen capture (most reliable on Xvfb)
-        # Window-specific capture often fails with BadDrawable on virtual displays
-        try:
-            result = subprocess.run(
-                ["scrot", "-o", output_path],
-                env=env,
-                capture_output=True,
-                text=True,
-                timeout=20
-            )
-        except FileNotFoundError:
-            # scrot not installed, try ImageMagick
+        # Prefer window-specific capture with ImageMagick (works better with gamescope)
+        # Fall back to scrot for full screen only if no window found
+        if window_id:
             try:
                 result = subprocess.run(
-                    ["import", "-window", "root", output_path],
+                    ["import", "-window", window_id, output_path],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=20
+                )
+            except FileNotFoundError:
+                # ImageMagick not installed, try scrot
+                result = subprocess.run(
+                    ["scrot", "-o", output_path],
+                    env=env,
+                    capture_output=True,
+                    text=True,
+                    timeout=20
+                )
+        else:
+            # No window found, capture full screen with scrot
+            try:
+                result = subprocess.run(
+                    ["scrot", "-o", output_path],
                     env=env,
                     capture_output=True,
                     text=True,
@@ -107,7 +117,7 @@ def _take_screenshot(output_path: str = None, mode: str = "viewport", account_id
             except FileNotFoundError:
                 return {
                     "success": False,
-                    "error": "No screenshot tool installed. Install with: sudo pacman -S scrot"
+                    "error": "No screenshot tool installed. Install with: sudo pacman -S scrot imagemagick"
                 }
 
         if result.returncode != 0:

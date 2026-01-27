@@ -271,9 +271,17 @@ steps:
     mcp_tool: "click_text"
     args:
       text: "continue"
-    repeat_until: "teleport"
+    repeat_until: "no_dialogue"
     status: "VALIDATED"
-    notes: "Keep clicking continue until teleported to Lumbridge"
+    notes: "Keep clicking continue until dialogue closes"
+
+  - id: 29
+    description: "Cast Home Teleport to leave Tutorial Island"
+    action: CAST_SPELL
+    args: "Home_Teleport"
+    await_condition: "location:3221,3218"
+    status: "VALIDATED"
+    notes: "Home Teleport takes ~10 seconds. Teleports to Lumbridge courtyard."
 
 # PITFALLS DISCOVERED:
 # 1. Door navigation: Must use GOTO to position directly in front of door,
@@ -282,14 +290,18 @@ steps:
 # 3. Prayer tab widget ID: 35913797
 # 4. Magic tab widget ID: 35913798
 # 5. Multiple dialogue sections require many space/continue presses
-# 6. CAST_SPELL_NPC command was BROKEN - FIXED 2026-01-20
-#    Root cause: Threading deadlock calling gameHelpers.getNPC() inside invokeLater
-#    Fix: Now uses interactionSystem.findNPCByNamePublic() which is thread-safe
+# 6. CAST_SPELL_NPC command - FIXED but requires proximity!
+#    If NPC bounds show negative Y (off-screen), walk closer first using GOTO
+#    Root cause: NPC model coordinates calculated incorrectly when far away
 # 7. Ironman question dialogue sequence:
-#    - First "Yes" to continue talking
-#    - Then "No" to decline Ironman mode
+#    - Click "Yes" to confirm leaving (first question)
+#    - Click "No" to decline Ironman mode (second question)
 # 8. KEY_PRESS space sometimes doesn't work for dialogue - use click_text("continue")
 # 9. get_dialogue hint shows "CLICK_CONTINUE" but actual text is "Click here to continue"
+#    Use click_text("Click here to continue") or click_text("continue") - both work
+# 10. Home Teleport required to leave Tutorial Island - not auto-teleport!
+#     Use CAST_SPELL Home_Teleport after final dialogue
+# 11. Chapel exit door at (3122, 3102) leads west, need to go through it to reach Magic area
 
 # WORKING PATTERNS:
 # - Account Management tab: click_widget(widget_id=35913777)
@@ -298,8 +310,9 @@ steps:
 # - Dialogue advancement: click_text("continue") preferred over KEY_PRESS space
 # - Door interaction: GOTO to door position + INTERACT_OBJECT Door Open
 # - Ironman decline: click_text("Yes") then click_text("No")
-# - Spell casting: CAST_SPELL_NPC Wind_Strike Chicken (FIXED)
+# - Spell casting: CAST_SPELL_NPC Wind_Strike Chicken (walk close first!)
 # - Alternative spell casting: click_widget(14286856) + CLICK_NPC Chicken
+# - Home Teleport: CAST_SPELL Home_Teleport (not click_widget)
 
 # KEY SPELL WIDGET IDs:
 # - Wind Strike: 14286856
