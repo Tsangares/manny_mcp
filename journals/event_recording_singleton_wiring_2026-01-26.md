@@ -119,17 +119,21 @@ if (clickTileObjectSafe(...)) {
 
 ## Interface Gaps Identified
 
-Events NOT currently recorded (discovered during testing):
+Events NOT currently recorded:
 - [ ] Combat style changes (widget clicks)
-- [ ] Dialogue selections (only partial hook exists)
-- [ ] Inventory interactions (use item, drop, equip)
-- [ ] Bank interactions
-- [ ] PICK_UP_ITEM commands
+- [ ] Inventory interactions (drop, equip via widget)
 
-Events that ARE recorded:
+Events that ARE recorded (updated 2026-01-26):
 - [x] INTERACT_NPC (Talk-to, Attack, etc.)
 - [x] INTERACT_OBJECT (GameObjects)
 - [x] INTERACT_OBJECT (TileObjects - doors, gates)
+- [x] CLICK_DIALOGUE (all success paths)
+- [x] USE_ITEM_ON_OBJECT
+- [x] PICK_UP_ITEM
+- [x] BANK_WITHDRAW
+- [x] BANK_DEPOSIT_ITEM
+- [x] BANK_DEPOSIT_ALL
+- [x] BANK_DEPOSIT_EQUIPMENT
 
 ## Files Modified
 
@@ -141,6 +145,13 @@ Events that ARE recorded:
 | `InteractionSystem.java:305-317` | Added event recording for TileObject (door) interactions |
 | `InteractionSystem.java:970` | Added debug logging for NPC interactions |
 | `GameEngine.java:9910-10150` | Created LocationHistory class (prior session) |
+| `PlayerHelpers.java:23343-23351` | Added event recording for BANK_DEPOSIT_ITEM |
+| `PlayerHelpers.java:23619-23630` | Added event recording for BANK_WITHDRAW |
+| `PlayerHelpers.java:23187-23195` | Added event recording for BANK_DEPOSIT_ALL |
+| `PlayerHelpers.java:23234-23242` | Added event recording for BANK_DEPOSIT_EQUIPMENT |
+| `PlayerHelpers.java:27871-27879` | Added event recording for CLICK_DIALOGUE (nested children path 1) |
+| `PlayerHelpers.java:27916-27924` | Added event recording for CLICK_DIALOGUE (container children path) |
+| `PlayerHelpers.java:27949-27957` | Added event recording for CLICK_DIALOGUE (nested children path 2) |
 
 ## Summary
 

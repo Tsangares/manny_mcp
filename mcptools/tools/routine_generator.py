@@ -121,6 +121,13 @@ def _extract_events(positions: List[Dict]) -> List[Dict]:
                 event["dialogueOption"] = p["dialogueOption"]
             if p.get("inventoryDelta"):
                 event["inventoryDelta"] = p["inventoryDelta"]
+            # Plane change fields
+            if p.get("oldPlane") is not None:
+                event["oldPlane"] = p["oldPlane"]
+            if p.get("newPlane") is not None:
+                event["newPlane"] = p["newPlane"]
+            if p.get("trigger"):
+                event["trigger"] = p["trigger"]
             events.append(event)
     return events
 
@@ -189,6 +196,10 @@ def _infer_await_condition(event: Dict, next_event: Optional[Dict]) -> Optional[
     elif event_type == "door":
         return "idle"
 
+    elif event_type == "plane_change":
+        # Plane change events are self-contained wait conditions
+        return None
+
     return None
 
 
@@ -244,6 +255,17 @@ def _event_to_step(event: Dict, step_id: int, phase: str, next_event: Optional[D
         step["action"] = "VERIFY"
         step["args"] = delta
         step["description"] = f"Inventory: {delta}"
+
+    elif event_type == "plane_change":
+        # Plane change events indicate we moved between floors/levels
+        old_plane = event.get("oldPlane", 0)
+        new_plane = event.get("newPlane", 0)
+        trigger = event.get("trigger", "unknown")
+        step["action"] = "WAIT_CONDITION"
+        step["args"] = f"plane:{new_plane}"
+        step["description"] = f"Wait for plane change ({old_plane} → {new_plane}) via {trigger}"
+        # The preceding interaction (stair/ladder) should have its own step
+        # This step just waits to verify we're on the new plane
 
     else:
         # Unknown event type

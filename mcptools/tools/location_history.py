@@ -5,9 +5,12 @@ Provides tools for:
 - Reading and analyzing location history from the ring buffer
 - Visualizing movement trails on collision maps
 - Detecting movement patterns (stuck, oscillation, drift)
+- Location labeling using known area definitions
+- Waypoint consolidation for cleaner routine generation
 """
 import json
 import os
+import yaml
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from collections import Counter
@@ -22,6 +25,12 @@ config = ServerConfig.load()
 COLLISION_DIR = Path("/home/wil/Desktop/manny/data/collision")
 OUTPUT_DIR = Path("/tmp/collision_viz")
 
+# Location knowledge directory
+LOCATIONS_DIR = Path("/home/wil/manny-mcp/data/locations")
+
+# Cache for loaded location data
+_location_cache: Optional[Dict] = None
+
 
 def _load_history(account_id: str = None) -> Optional[Dict]:
     """Load location history from JSON file."""
@@ -34,6 +43,176 @@ def _load_history(account_id: str = None) -> Optional[Dict]:
             return json.load(f)
     except (json.JSONDecodeError, IOError):
         return None
+
+
+def _load_location_data() -> Dict:
+    """Load all location YAML files and cache them."""
+    global _location_cache
+    if _location_cache is not None:
+        return _location_cache
+
+    _location_cache = {}
+    if not LOCATIONS_DIR.exists():
+        return _location_cache
+
+    for yaml_file in LOCATIONS_DIR.glob("*.yaml"):
+        try:
+            with open(yaml_file) as f:
+                data = yaml.safe_load(f)
+                if data:
+                    _location_cache.update(data)
+        except (yaml.YAMLError, IOError):
+            pass
+
+    return _location_cache
+
+
+def _identify_location(x: int, y: int, plane: int, location_data: Dict) -> Optional[Dict]:
+    """Identify area and room for given coordinates."""
+    for area_name, area_data in location_data.items():
+        # Skip non-location entries (like common_routes)
+        if not isinstance(area_data, dict):
+            continue
+        if area_name in ("common_routes",):
+            continue
+
+        for room_name, room_data in area_data.items():
+            if not isinstance(room_data, dict):
+                continue
+            if "bounds" not in room_data:
+                continue
+
+            bounds = room_data["bounds"]
+            room_plane = room_data.get("plane", 0)
+
+            # Check if position is within bounds and on same plane
+            # Bounds format: [min_x, min_y, max_x, max_y]
+            if len(bounds) == 4 and plane == room_plane:
+                min_x, min_y, max_x, max_y = bounds
+                if min_x <= x <= max_x and min_y <= y <= max_y:
+                    return {
+                        "area": area_name,
+                        "room": room_name
+                    }
+
+    return None
+
+
+def _add_location_labels(positions: List[Dict]) -> List[Dict]:
+    """Add location labels to positions using location knowledge base."""
+    location_data = _load_location_data()
+    if not location_data:
+        return positions
+
+    for pos in positions:
+        loc = _identify_location(pos["x"], pos["y"], pos["plane"], location_data)
+        if loc:
+            pos["area"] = loc["area"]
+            pos["room"] = loc["room"]
+
+    return positions
+
+
+def _consolidate_movements(positions: List[Dict], idle_threshold_ms: int = 2000) -> List[Dict]:
+    """
+    Consolidate consecutive movement events into walk segments.
+
+    Instead of every tile, creates walk events:
+    {"eventType": "walk", "from": {x, y}, "to": {x, y}, "tiles": N, "duration_ms": M}
+
+    Args:
+        positions: List of position entries
+        idle_threshold_ms: Minimum idle time (ms) to consider a waypoint (default 2000)
+
+    Returns:
+        Consolidated list with walk segments and non-move events preserved
+    """
+    if len(positions) < 2:
+        return positions
+
+    consolidated = []
+    walk_start = None
+    walk_start_ts = None
+    last_pos = None
+    last_ts = None
+    tiles = 0
+
+    for pos in positions:
+        event_type = pos.get("eventType", "move")
+
+        # Non-move events break the walk and are passed through
+        if event_type != "move":
+            # Emit any pending walk
+            if walk_start is not None and last_pos is not None:
+                walk_event = {
+                    "ts": walk_start_ts,
+                    "eventType": "walk",
+                    "from": {"x": walk_start["x"], "y": walk_start["y"], "plane": walk_start["plane"]},
+                    "to": {"x": last_pos["x"], "y": last_pos["y"], "plane": last_pos["plane"]},
+                    "tiles": tiles,
+                    "duration_ms": last_ts - walk_start_ts if last_ts else 0
+                }
+                consolidated.append(walk_event)
+                walk_start = None
+                tiles = 0
+
+            consolidated.append(pos)
+            last_pos = pos
+            last_ts = pos.get("ts", 0)
+            continue
+
+        # Movement event
+        curr_ts = pos.get("ts", 0)
+
+        if walk_start is None:
+            # Start a new walk
+            walk_start = pos
+            walk_start_ts = curr_ts
+            last_pos = pos
+            last_ts = curr_ts
+            tiles = 0
+        else:
+            # Calculate distance from last position
+            dx = abs(pos["x"] - last_pos["x"])
+            dy = abs(pos["y"] - last_pos["y"])
+            step_tiles = max(dx, dy)  # Chebyshev distance
+            tiles += step_tiles
+
+            # Check for significant pause (idle threshold)
+            time_since_last = curr_ts - last_ts if last_ts else 0
+            if time_since_last >= idle_threshold_ms and tiles > 0:
+                # Emit walk segment up to last_pos (the waypoint)
+                walk_event = {
+                    "ts": walk_start_ts,
+                    "eventType": "walk",
+                    "from": {"x": walk_start["x"], "y": walk_start["y"], "plane": walk_start["plane"]},
+                    "to": {"x": last_pos["x"], "y": last_pos["y"], "plane": last_pos["plane"]},
+                    "tiles": tiles - step_tiles,  # Don't include current step
+                    "duration_ms": last_ts - walk_start_ts if last_ts else 0
+                }
+                consolidated.append(walk_event)
+
+                # Start new walk from current position
+                walk_start = pos
+                walk_start_ts = curr_ts
+                tiles = step_tiles
+
+            last_pos = pos
+            last_ts = curr_ts
+
+    # Emit any remaining walk
+    if walk_start is not None and last_pos is not None and tiles > 0:
+        walk_event = {
+            "ts": walk_start_ts,
+            "eventType": "walk",
+            "from": {"x": walk_start["x"], "y": walk_start["y"], "plane": walk_start["plane"]},
+            "to": {"x": last_pos["x"], "y": last_pos["y"], "plane": last_pos["plane"]},
+            "tiles": tiles,
+            "duration_ms": last_ts - walk_start_ts if last_ts else 0
+        }
+        consolidated.append(walk_event)
+
+    return consolidated
 
 
 def _analyze_patterns(positions: List[Dict]) -> Dict[str, Any]:
@@ -171,7 +350,9 @@ Returns movement trail data with optional analysis:
 - stats: Movement statistics (distance traveled, unique positions, etc.)
 - patterns: Detected movement issues (stuck, oscillation, drift)
 
-Use last_n to limit entries returned. Use include_analysis for pattern detection.""",
+Use last_n to limit entries returned. Use include_analysis for pattern detection.
+Use add_location_labels to add area/room labels from location knowledge base.
+Use consolidate_movements to collapse move events into walk segments.""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -193,6 +374,16 @@ Use last_n to limit entries returned. Use include_analysis for pattern detection
                 "type": "boolean",
                 "description": "Include pattern analysis (stuck, oscillation, drift detection)",
                 "default": True
+            },
+            "add_location_labels": {
+                "type": "boolean",
+                "description": "Add area/room labels from location knowledge base (default: false)",
+                "default": False
+            },
+            "consolidate_movements": {
+                "type": "boolean",
+                "description": "Collapse consecutive moves into walk segments (default: false)",
+                "default": False
             }
         }
     }
@@ -203,6 +394,8 @@ async def handle_get_location_history(arguments: dict) -> dict:
     last_n = arguments.get("last_n", 0)
     include_positions = arguments.get("include_positions", True)
     include_analysis = arguments.get("include_analysis", True)
+    add_labels = arguments.get("add_location_labels", False)
+    consolidate = arguments.get("consolidate_movements", False)
 
     history = _load_history(account_id)
     if not history:
@@ -218,6 +411,14 @@ async def handle_get_location_history(arguments: dict) -> dict:
     if last_n > 0 and len(positions) > last_n:
         positions = positions[-last_n:]
 
+    # Apply location labels if requested
+    if add_labels:
+        positions = _add_location_labels(positions)
+
+    # Consolidate movements if requested
+    if consolidate:
+        positions = _consolidate_movements(positions)
+
     result = {
         "success": True,
         "account_id": account_id or config.default_account,
@@ -226,25 +427,33 @@ async def handle_get_location_history(arguments: dict) -> dict:
         "duration_seconds": history.get("durationSeconds", 0)
     }
 
-    # Add stats
-    result["stats"] = _calculate_stats(positions)
+    # Add stats (use original positions for accurate stats)
+    original_positions = history.get("positions", [])
+    if last_n > 0 and len(original_positions) > last_n:
+        original_positions = original_positions[-last_n:]
+    result["stats"] = _calculate_stats(original_positions)
 
     # Add pattern analysis
     if include_analysis:
-        result["analysis"] = _analyze_patterns(positions)
+        result["analysis"] = _analyze_patterns(original_positions)
 
-    # Add raw positions (can be large)
+    # Add processed positions
     if include_positions:
-        # Compact format: just the essential fields
-        result["positions"] = [
-            {
-                "x": p["x"],
-                "y": p["y"],
-                "plane": p["plane"],
-                "cmd": p.get("cmd")
-            }
-            for p in positions
-        ]
+        if consolidate:
+            # Include full event data for consolidated output
+            result["positions"] = positions
+        else:
+            # Compact format: just the essential fields
+            result["positions"] = [
+                {
+                    "x": p["x"],
+                    "y": p["y"],
+                    "plane": p["plane"],
+                    "cmd": p.get("cmd"),
+                    **({"area": p["area"], "room": p["room"]} if "area" in p else {})
+                }
+                for p in positions
+            ]
 
     return result
 

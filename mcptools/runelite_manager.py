@@ -574,6 +574,24 @@ class MultiRuneLiteManager:
                 }
             allocated_display = alloc_result["display"]
 
+        # Adjust proxy port based on display number (e.g., :2 → port 10002, :4 → port 10004)
+        if proxy and allocated_display:
+            try:
+                from urllib.parse import urlparse, urlunparse
+                display_num = int(allocated_display.lstrip(':'))
+                new_port = 10000 + display_num
+                parsed = urlparse(proxy)
+                if parsed.port and parsed.port != new_port:
+                    # Reconstruct URL with new port
+                    # netloc format: user:pass@host:port or host:port
+                    if parsed.username:
+                        new_netloc = f"{parsed.username}:{parsed.password}@{parsed.hostname}:{new_port}"
+                    else:
+                        new_netloc = f"{parsed.hostname}:{new_port}"
+                    proxy = urlunparse((parsed.scheme, new_netloc, parsed.path, parsed.params, parsed.query, parsed.fragment))
+            except (ValueError, AttributeError):
+                pass  # Keep original proxy if parsing fails
+
         # Step 2: Only kill instance for this account if already running (allows concurrent clients)
         kill_result = {"killed_tracked": [], "killed_external": False}
         if account_id in self.instances and self.instances[account_id].is_running():

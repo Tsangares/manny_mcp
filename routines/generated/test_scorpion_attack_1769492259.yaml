@@ -1,0 +1,33 @@
+# Generated Routine: Test Scorpion Attack
+# Generated: 2026-01-26T21:37:39.257969
+# Source: 10 minutes of gameplay
+#
+# IMPORTANT: Review before use!
+# - Verify object names use underscores (Spinning_wheel, not Spinning wheel)
+# - Check await_conditions are appropriate
+# - Test with execute_routine() before production
+#
+
+name: Test Scorpion Attack
+type: generated
+generated_at: '2026-01-26T21:37:39.257821'
+source: /tmp/manny_main_location_history.json
+description: Auto-generated routine from 1 events
+locations:
+  scorpion:
+    x: 3043
+    y: 9777
+    plane: 0
+    description: Location of Scorpion
+    validated: false
+steps:
+- id: 1
+  phase: phase_1
+  action: INTERACT_NPC
+  args: Scorpion Attack
+  description: Attack Scorpion
+_metadata:
+  event_count: 1
+  step_count: 1
+  phase_count: 1
+  generation_note: Review and validate before use. Check object names use underscores.
