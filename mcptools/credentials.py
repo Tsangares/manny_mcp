@@ -1,9 +1,11 @@
 """
 Secure credential storage for multi-account RuneLite management.
 
-Stores Jagex Launcher tokens (JX_REFRESH_TOKEN, JX_ACCESS_TOKEN) with account aliases
+Stores Jagex account identity (JX_CHARACTER_ID, JX_SESSION_ID) with account aliases
 in ~/.manny/credentials.yaml. This is separate from config.yaml to keep secrets out
 of the project directory.
+
+Bolt launcher handles actual authentication - we only need identity fields.
 
 Usage:
     from mcptools.credentials import credential_manager
@@ -15,7 +17,7 @@ Usage:
     aliases = credential_manager.list_accounts()
 
     # Add/update account
-    credential_manager.add_account("alt1", "AltAccount", refresh_token, access_token)
+    credential_manager.add_account("alt1", "AltAccount", character_id="123", session_id="abc")
 """
 import os
 import stat
@@ -86,7 +88,7 @@ class CredentialManager:
             alias: Account alias. If None, uses default.
 
         Returns:
-            Dict with display_name, jx_refresh_token, jx_access_token, jx_character_id
+            Dict with display_name, jx_character_id, jx_session_id, proxy
             or None if not found.
         """
         alias = alias or self.default
@@ -113,9 +115,8 @@ class CredentialManager:
             result.append({
                 "alias": alias,
                 "display_name": creds.get("display_name", ""),
-                "has_refresh_token": bool(creds.get("jx_refresh_token")),
-                "has_access_token": bool(creds.get("jx_access_token")),
                 "has_character_id": bool(creds.get("jx_character_id")),
+                "has_session_id": bool(creds.get("jx_session_id")),
                 "has_proxy": bool(creds.get("proxy")),
                 "is_default": alias == self.default
             })
@@ -125,8 +126,6 @@ class CredentialManager:
         self,
         alias: str,
         display_name: str,
-        refresh_token: str,
-        access_token: str,
         character_id: str = "",
         session_id: str = "",
         proxy: str = ""
@@ -137,10 +136,8 @@ class CredentialManager:
         Args:
             alias: Account alias (e.g., "main", "alt1", "fishing_bot")
             display_name: In-game display name
-            refresh_token: JX_REFRESH_TOKEN from credentials.properties
-            access_token: JX_ACCESS_TOKEN from credentials.properties
-            character_id: Optional JX_CHARACTER_ID
-            session_id: Optional JX_SESSION_ID (from Bolt's creds file)
+            character_id: JX_CHARACTER_ID from Bolt credentials
+            session_id: JX_SESSION_ID from Bolt credentials
             proxy: Optional proxy URL (e.g., "socks5://user:pass@host:port")
 
         Returns:
@@ -150,8 +147,6 @@ class CredentialManager:
 
         self.accounts[alias] = {
             "display_name": display_name,
-            "jx_refresh_token": refresh_token,
-            "jx_access_token": access_token,
         }
 
         if character_id:
@@ -293,21 +288,21 @@ class CredentialManager:
                 "error": f"Failed to read credentials.properties: {e}"
             }
 
-        refresh_token = props.get("JX_REFRESH_TOKEN", "")
-        access_token = props.get("JX_ACCESS_TOKEN", "")
+        character_id = props.get("JX_CHARACTER_ID", "")
+        session_id = props.get("JX_SESSION_ID", "")
 
-        if not refresh_token and not access_token:
+        if not character_id and not session_id:
             return {
                 "success": False,
-                "error": "No JX_REFRESH_TOKEN or JX_ACCESS_TOKEN found in file. "
-                        "Make sure you ran RuneLite with --insecure-write-credentials after logging in."
+                "error": "No JX_CHARACTER_ID or JX_SESSION_ID found in file. "
+                        "Make sure Bolt launcher has written credentials after logging in."
             }
 
         return self.add_account(
             alias=alias,
             display_name=display_name,
-            refresh_token=refresh_token,
-            access_token=access_token
+            character_id=character_id,
+            session_id=session_id
         )
 
     def reload(self) -> None:

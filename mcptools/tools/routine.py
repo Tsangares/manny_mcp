@@ -19,12 +19,13 @@ config = None
 # Late-imported handlers
 _handle_send_and_await = None
 _handle_await_state_change = None
+_handle_equip_item = None
 
 
 def set_dependencies(send_command_func, server_config):
     """Inject dependencies (called from server.py startup)"""
     global send_command_with_response, config
-    global _handle_send_and_await, _handle_await_state_change
+    global _handle_send_and_await, _handle_await_state_change, _handle_equip_item
     send_command_with_response = send_command_func
     config = server_config
 
@@ -32,6 +33,7 @@ def set_dependencies(send_command_func, server_config):
     from . import commands, monitoring
     _handle_send_and_await = commands.handle_send_and_await
     _handle_await_state_change = monitoring.handle_await_state_change
+    _handle_equip_item = commands.handle_equip_item
 
 
 async def execute_simple_command(command: str, timeout_ms: int = 10000, account_id: str = None) -> dict:
@@ -362,6 +364,122 @@ async def handle_get_dialogue(arguments: dict) -> dict:
         dialogue_info["type"] = "options"
 
     return dialogue_info
+
+
+@registry.register({
+    "name": "get_chat_messages",
+    "description": """[Routine Building] Get recent game chat messages from the chatbox.
+
+Returns the last N game messages from the chatbox widget. Useful for detecting:
+- Action feedback ("The grain slides down the chute", "You need a pot")
+- Combat messages ("You hit a 5", "The goblin is dead")
+- Quest progress hints
+- Error messages ("You can't reach that")
+
+Filters out player chat and focuses on game/server messages.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "max_messages": {
+                "type": "integer",
+                "description": "Maximum number of messages to return (default: 10)",
+                "default": 10
+            },
+            "filter": {
+                "type": "string",
+                "description": "Optional substring filter (case-insensitive)"
+            },
+            "timeout_ms": {
+                "type": "integer",
+                "description": "Timeout in milliseconds (default: 3000)",
+                "default": 3000
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
+            }
+        }
+    }
+})
+async def handle_get_chat_messages(arguments: dict) -> dict:
+    """Get recent chat messages from the game chatbox.
+
+    Widget groups for OSRS chat:
+    - 162: Main chatbox container
+    - Chat messages are children with text content
+    """
+    timeout_ms = arguments.get("timeout_ms", 3000)
+    max_messages = arguments.get("max_messages", 10)
+    filter_text = arguments.get("filter", "").lower()
+    account_id = arguments.get("account_id")
+
+    # Scan widgets to find chat messages
+    response = await send_command_with_response("SCAN_WIDGETS --group 162", timeout_ms, account_id)
+
+    if response.get("status") != "success":
+        return {
+            "success": False,
+            "messages": [],
+            "error": response.get("error", "Failed to scan chat widgets")
+        }
+
+    widgets = response.get("result", {}).get("widgets", [])
+
+    messages = []
+    seen_texts = set()  # Deduplicate messages
+
+    # Chat message widget IDs in group 162
+    # The chatbox has multiple children - we want text content
+    CHATBOX_GROUP = 162
+
+    for widget in widgets:
+        text = widget.get("text", "") or ""
+        widget_id = widget.get("id", 0)
+
+        if not widget_id or not text.strip():
+            continue
+
+        # Extract widget group
+        widget_group = widget_id >> 16
+
+        # Only process chatbox widgets
+        if widget_group != CHATBOX_GROUP:
+            continue
+
+        text_clean = text.strip()
+
+        # Skip empty or very short texts
+        if len(text_clean) < 3:
+            continue
+
+        # Skip UI labels (common chatbox labels)
+        skip_labels = ["public", "private", "channel", "clan", "trade", "report",
+                      "game", "all", "on", "off", "filter", "friends", "hide"]
+        if text_clean.lower() in skip_labels:
+            continue
+
+        # Skip duplicates
+        if text_clean in seen_texts:
+            continue
+        seen_texts.add(text_clean)
+
+        # Apply filter if specified
+        if filter_text and filter_text not in text_clean.lower():
+            continue
+
+        messages.append({
+            "text": text_clean,
+            "widget_id": widget_id
+        })
+
+        if len(messages) >= max_messages:
+            break
+
+    return {
+        "success": True,
+        "count": len(messages),
+        "messages": messages
+    }
 
 
 WIDGET_SELECTION_FILE = "/tmp/manny_widget_select.txt"
@@ -938,6 +1056,53 @@ async def handle_execute_routine(arguments: dict) -> dict:
             # Apply delay before action
             if delay_before > 0:
                 await asyncio.sleep(delay_before / 1000)
+
+            # Check for mcp_tool field (MCP tool invocation instead of game command)
+            mcp_tool = step.get('mcp_tool')
+            if mcp_tool:
+                # Handle MCP tool invocation
+                mcp_args = step.get('args', {})
+                if isinstance(mcp_args, str):
+                    # If args is a string, try to parse as dict-like
+                    mcp_args = {}
+                # Add account_id to args if not present
+                if account_id and 'account_id' not in mcp_args:
+                    mcp_args['account_id'] = account_id
+
+                step_result = {
+                    "step_id": step_id,
+                    "phase": step.get('phase'),
+                    "mcp_tool": mcp_tool,
+                    "mcp_args": mcp_args
+                }
+
+                try:
+                    if mcp_tool == "equip_item":
+                        result = await _handle_equip_item(mcp_args)
+                    elif mcp_tool == "find_and_click_widget":
+                        result = await handle_find_and_click_widget(mcp_args)
+                    else:
+                        step_result["success"] = False
+                        step_result["error"] = f"Unknown mcp_tool: {mcp_tool}"
+                        results["errors"].append(f"Step {step_id}: Unknown mcp_tool '{mcp_tool}'")
+                        results["completed_steps"].append(step_result)
+                        current_step_idx += 1
+                        continue
+
+                    step_result["success"] = result.get("success", False)
+                    step_result["result"] = result
+                    if not result.get("success"):
+                        step_result["error"] = result.get("error", "MCP tool failed")
+                        results["errors"].append(f"Step {step_id} ({mcp_tool}): {step_result['error']}")
+
+                except Exception as e:
+                    step_result["success"] = False
+                    step_result["error"] = str(e)
+                    results["errors"].append(f"Step {step_id} ({mcp_tool}): {e}")
+
+                results["completed_steps"].append(step_result)
+                current_step_idx += 1
+                continue
 
             # Build and send command
             command = f"{action} {args}".strip() if args else action

@@ -74,9 +74,8 @@ steps:
     action: USE_ITEM_ON_OBJECT
     args: "shrimps fire"
     delay_before_ms: 1000
-    notes: |
-      Use partial name "shrimps" to match "Raw shrimps"
-      Format: <item> <object> (no action needed)
+    # VALIDATED: lowercase "fire" is correct (case-sensitive!)
+    # Format: <item> <object> (no action needed)
 
   - id: 11
     description: "Continue dialogue after cooking"
@@ -85,10 +84,19 @@ steps:
     delay_before_ms: 3000
 
   - id: 12
+    description: "Walk to gate before opening"
+    action: GOTO
+    args: "3090 3091 0"
+    delay_before_ms: 1000
+    # Gate location: (3089, 3091)
+    # Stand in front before opening
+
+  - id: 13
     description: "Go through gate to cooking area"
     action: INTERACT_OBJECT
-    args: "gate Open"
+    args: "Gate Open"
     delay_before_ms: 1000
+    # VALIDATED: "Gate" capitalized
 
 # PITFALLS DISCOVERED:
 # 1. Object name is lowercase "tree" (case-sensitive)

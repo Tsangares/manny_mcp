@@ -133,7 +133,7 @@ If no fields specified, returns full state (backwards compatible).""",
                 "items": {
                     "type": "string",
                     "enum": ["location", "inventory", "inventory_full", "equipment",
-                             "skills", "dialogue", "nearby", "combat", "health", "scenario"]
+                             "skills", "dialogue", "nearby", "combat", "health", "scenario", "gravestone"]
                 },
                 "description": "Optional list of fields to include. If not specified, returns all data."
             }
@@ -216,6 +216,9 @@ async def handle_get_game_state(arguments: dict) -> dict:
 
             elif field == "scenario":
                 filtered["scenario"] = full_state.get("scenario", {})
+
+            elif field == "gravestone":
+                filtered["gravestone"] = full_state.get("gravestone", {})
 
         return {
             "success": True,

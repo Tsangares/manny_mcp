@@ -78,14 +78,19 @@ steps:
     delay_before_ms: 3000
 
   - id: 11
+    description: "Walk to north door"
+    action: GOTO
+    args: "3073 3090 0"
+    delay_before_ms: 1000
+    # Door at (3072, 3090) - stand next to it
+
+  - id: 12
     description: "Exit cooking building to Quest Guide area"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
-    notes: |
-      CRITICAL: Use the door at (3072, 3090) on the NORTH side.
-      This leads directly to the Quest Guide area.
-      DO NOT use the door at (3079, 3084) - leads to maze area.
+    # CRITICAL: North door at (3072, 3090) leads to Quest Guide
+    # DO NOT use south door at (3079, 3084) - leads to maze area
 
 # PITFALLS DISCOVERED:
 # 1. USE_ITEM_ON_ITEM with full names like "Pot_of_flour" FAILS

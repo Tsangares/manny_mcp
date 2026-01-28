@@ -446,15 +446,12 @@ class MultiRuneLiteManager:
                 "credentials_written": False
             }
 
-        refresh_token = creds.get("jx_refresh_token", "")
-        access_token = creds.get("jx_access_token", "")
         character_id = creds.get("jx_character_id", "")
         session_id = creds.get("jx_session_id", "")
         display_name = creds.get("display_name", "")
 
-        # We can proceed with just identity fields (character_id, session_id, display_name)
-        # Tokens are optional - Bolt/Jagex launcher handle auth differently
-        if not character_id and not session_id and not refresh_token and not access_token:
+        # We need identity fields (character_id, session_id) - Bolt handles actual auth
+        if not character_id and not session_id:
             return {
                 "success": True,
                 "warning": f"Account '{account_id}' has no credentials. Manual login required.",
@@ -478,8 +475,6 @@ class MultiRuneLiteManager:
                 lines.append(f"JX_SESSION_ID={session_id}")
             if display_name:
                 lines.append(f"JX_DISPLAY_NAME={display_name}")
-            lines.append(f"JX_REFRESH_TOKEN={refresh_token}")
-            lines.append(f"JX_ACCESS_TOKEN={access_token}")
 
             content = "\n".join(lines) + "\n"
             creds_file.write_text(content)

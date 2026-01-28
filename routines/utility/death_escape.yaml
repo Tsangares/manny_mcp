@@ -1,0 +1,216 @@
+# Death's Domain Escape Routine
+# CRITICAL: Required after first death to exit Death's tutorial
+# Location: Death's Domain (10698-10707, 1029-1032, plane 0)
+#
+# IMPORTANT NOTES:
+# - First death triggers MANDATORY tutorial with Death
+# - CLICK_CONTINUE command DOES NOT WORK reliably here
+# - Must use Space key (send_input key=Space) to advance dialogue
+# - Must complete ALL dialogue topics before Death lets you leave
+# - Portal cannot be used until tutorial is complete
+
+name: "Death's Domain Escape"
+type: utility
+difficulty: critical
+notes: "Required after first death - Death blocks portal until tutorial complete"
+
+# Death's Domain coordinates
+locations:
+  death_npc:
+    x: 10707
+    y: 1030
+    plane: 0
+    description: "Death NPC location"
+
+  portal:
+    x: 10697
+    y: 1030
+    plane: 0
+    description: "Exit portal"
+
+  spawn_point:
+    x: 10698
+    y: 1032
+    plane: 0
+    description: "Where player spawns after death"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: INITIATE TUTORIAL ==========
+  - id: 1
+    phase: "start_tutorial"
+    action: GOTO
+    args: "10707 1030 0"
+    description: "Walk to Death NPC"
+    location: death_npc
+
+  - id: 2
+    phase: "start_tutorial"
+    action: INTERACT_NPC
+    args: "Death Talk-to"
+    description: "Talk to Death to start tutorial"
+    notes: "MUST use Talk-to, not Collect - Collect triggers 'talk instead' loop"
+
+  # ========== PHASE 2: SPACE THROUGH INTRO ==========
+  # NOTE: These steps require send_input(key="Space") not CLICK_CONTINUE
+  - id: 3
+    phase: "intro_dialogue"
+    action: KEY_PRESS
+    args: "Space"
+    description: "Press Space to advance dialogue"
+    repeat: 5
+    delay_ms: 1000
+    notes: "CLICK_CONTINUE fails - must use Space key input"
+
+  # ========== PHASE 3: COMPLETE ALL TOPICS ==========
+  # Death requires you to ask about all topics before leaving
+
+  - id: 4
+    phase: "tutorial_topics"
+    action: CLICK_DIALOGUE
+    args: "How do I pay a gravestone fee"
+    description: "Ask about gravestone fees"
+
+  - id: 5
+    phase: "tutorial_topics"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 3
+    delay_ms: 1000
+    description: "Space through fee explanation"
+
+  - id: 6
+    phase: "tutorial_topics"
+    action: CLICK_DIALOGUE
+    args: "long do I have to return"
+    description: "Ask about gravestone timer"
+    notes: "Partial match for 'How long do I have to return to my gravestone?'"
+
+  - id: 7
+    phase: "tutorial_topics"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 3
+    delay_ms: 1000
+    description: "Space through timer explanation"
+
+  - id: 8
+    phase: "tutorial_topics"
+    action: CLICK_DIALOGUE
+    args: "I know what will happen"
+    description: "Ask about items on death"
+    notes: "Partial match for 'I know what will happen to my items when I die?'"
+
+  - id: 9
+    phase: "tutorial_topics"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 3
+    delay_ms: 1000
+    description: "Space through items explanation"
+
+  # ========== PHASE 4: EXIT ==========
+  - id: 10
+    phase: "exit"
+    action: CLICK_DIALOGUE
+    args: "I think I'm done here"
+    description: "Tell Death you're ready to leave"
+
+  - id: 11
+    phase: "exit"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 2
+    delay_ms: 1000
+    description: "Confirm exit dialogue"
+
+  - id: 12
+    phase: "exit"
+    action: INTERACT_OBJECT
+    args: "portal Use"
+    description: "Use portal to exit Death's Domain"
+    notes: "Teleports to Lumbridge - 15 min timer to reach gravestone starts"
+
+# Manual execution steps (for Claude Code sessions)
+manual_steps:
+  - step: 1
+    command: "GOTO 10707 1030 0"
+    description: "Walk to Death"
+
+  - step: 2
+    command: "INTERACT_NPC Death Talk-to"
+    description: "Start dialogue with Death"
+
+  - step: 3
+    tool: "send_input"
+    args: "input_type=key, key=Space"
+    repeat: 5
+    description: "Press Space multiple times through intro"
+
+  - step: 4
+    command: "click_text('How do I pay')"
+    description: "Select fee topic"
+
+  - step: 5
+    tool: "send_input"
+    args: "input_type=key, key=Space"
+    repeat: 3
+    description: "Space through explanation"
+
+  - step: 6
+    command: "click_text('long do I have to return')"
+    description: "Select timer topic"
+
+  - step: 7
+    tool: "send_input"
+    args: "input_type=key, key=Space"
+    repeat: 3
+    description: "Space through explanation"
+
+  - step: 8
+    command: "click_text('I know what will happen')"
+    description: "Select items topic"
+
+  - step: 9
+    tool: "send_input"
+    args: "input_type=key, key=Space"
+    repeat: 3
+    description: "Space through explanation"
+
+  - step: 10
+    command: "click_text(\"I think I'm done here\")"
+    description: "Tell Death you're done"
+
+  - step: 11
+    tool: "send_input"
+    args: "input_type=key, key=Space"
+    repeat: 2
+    description: "Confirm"
+
+  - step: 12
+    command: "INTERACT_OBJECT portal Use"
+    description: "Exit via portal"
+
+# Key lessons learned
+lessons:
+  - "CLICK_CONTINUE command does NOT work in Death's Domain dialogue"
+  - "Must use send_input(input_type='key', key='Space') to advance"
+  - "Death blocks portal exit until ALL topics are discussed"
+  - "Selecting 'I think I'm done here' early triggers 'more topics' message"
+  - "Dialogue options use partial text matching"
+  - "After exit, 15 minute timer starts to reach gravestone"
+
+# Detection - how to know if player is in Death's Domain
+detection:
+  coordinates:
+    x_range: [10690, 10720]
+    y_range: [1020, 1040]
+    plane: 0
+  indicators:
+    - "Location x > 10000 (abnormal world coordinate)"
+    - "Death NPC nearby"
+    - "Portal object nearby"
+    - "Chat message: 'items are being held in a gravestone'"
+
+# Execution log
+execution_log: []

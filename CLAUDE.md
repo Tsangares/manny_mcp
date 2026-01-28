@@ -19,15 +19,15 @@ The linked `manny_src` directory points to the manny RuneLite plugin at `/home/w
 
 For complex architectural decisions, use the `decision-maker` subagent instead of `AskUserQuestion`.
 
-## Session Startup (User Preference) ⚡
+## Session Startup ⚡
 
-**When the user asks to "start a session" or "start RuneLite", default to gamescope:**
+**When the user asks to "start a session" or "start RuneLite":**
 
 1. First, ensure gamescope displays are running: `./start_gamescopes.sh status`
 2. If not running, start them: `./start_gamescopes.sh`
 3. Then start RuneLite on a gamescope display: `start_runelite(account_id="main", display=":2")`
 
-This preference is for interactive Claude Code sessions only. The Discord bot uses headless (Xvfb) mode by default.
+Gamescope provides GPU acceleration so you can watch and interact with the client.
 
 ## Command Debugging Workflow ⚡
 
@@ -329,6 +329,59 @@ To pick up items on the ground (including items on tables/shelves which are Tile
 
 **Note:** Items displayed on tables (like buckets in Lumbridge cellar) appear as GroundItems with "Take" action. Use `PICK_UP_ITEM <itemName>` to collect them.
 
+### Gravestone Retrieval (Death Recovery) ⚡
+
+After death, items are held in a gravestone with a 15-minute timer. The game state now includes gravestone detection:
+
+**Game State (`get_game_state`):**
+```python
+get_game_state(fields=["gravestone"])
+# Returns:
+# {
+#   "gravestone": {
+#     "active": true,
+#     "inDeathsDomain": false,
+#     "location": {"x": 3216, "y": 3365, "plane": 0},
+#     "distance": 45,
+#     "actions": ["Check", "Loot"]
+#   }
+# }
+```
+
+**New Commands:**
+```python
+# Find gravestone location
+send_command("FIND_GRAVE")      # Returns location if within 50 tiles
+send_command("FIND_GRAVE 100")  # Custom search radius
+
+# Loot gravestone (must be within 15 tiles)
+send_command("LOOT_GRAVE")      # Finds and loots nearby grave
+```
+
+**Death Recovery Workflow:**
+```python
+# 1. Check if in Death's Domain (first death triggers tutorial)
+state = get_game_state(fields=["location", "gravestone"])
+if state["gravestone"]["inDeathsDomain"]:
+    # Run death_escape routine first
+    execute_routine("routines/utility/death_escape.yaml")
+
+# 2. Navigate to gravestone
+grave = state["gravestone"]
+if grave["active"]:
+    send_and_await(f"GOTO {grave['location']['x']} {grave['location']['y']} 0",
+                   f"location:{grave['location']['x']},{grave['location']['y']}")
+
+# 3. Loot and escape
+send_command("LOOT_GRAVE")
+send_command("TELEPORT_HOME")
+```
+
+**Key Facts:**
+- Gravestones appear as **NPCs**, not GameObjects (use `query_nearby`, not `scan_tile_objects`)
+- Timer starts when you **exit** Death's Domain, not when you die
+- If timer expires, items go to Death (retrievable for a fee)
+
 ## Routine Building
 
 **Quick workflow:** Use new MCP tools for 12x faster routine creation (5 min vs 55 min) with 90% error prevention.
@@ -385,6 +438,41 @@ get_command_response()
 5. `session_to_routine(session_path="...")` - Convert to routine
 
 **When to use:** First time doing a quest, debugging failed runs, creating new routines faster than writing YAML from scratch.
+
+### Location History Logs (YAML Editing Reference) ⚡
+
+**Location history is automatically recorded** to `/tmp/manny_<account>_location_history.json` during play. This provides rich data for creating/editing YAML routines:
+
+```bash
+cat /tmp/manny_ape_location_history.json | jq .
+```
+
+**Event types recorded:**
+- `move` - Position changes (x, y, plane)
+- `interact` - INTERACT_OBJECT/NPC commands with target name, action, and target coordinates
+- `plane_change` - Ladder/stair transitions with trigger command
+- `use_item_on_object` - Item usage with target object
+- `dialogue` - CLICK_CONTINUE and dialogue option selections
+- `door` - Door interactions (useful for indoor navigation)
+
+**Example event:**
+```json
+{
+  "ts": 1769495905969,
+  "x": 3165, "y": 3307, "plane": 2,
+  "eventType": "interact",
+  "command": "INTERACT_OBJECT Hopper_controls Operate",
+  "target": "Hopper controls",
+  "action": "Operate",
+  "targetX": 3166, "targetY": 3305
+}
+```
+
+**Using location history for YAML editing:**
+1. Complete a task manually while observing
+2. Read the location history to get exact coordinates and command sequences
+3. Copy successful command patterns into your YAML routine
+4. Use `targetX`, `targetY` for precise GOTO coordinates
 
 ## Quest Automation (YAML Hybrid Approach) ⚡
 
@@ -746,16 +834,12 @@ set_account_proxy(alias="myalt", proxy="")
 
 ## Prerequisites
 
-Start a virtual display first. RuneLite runs on this display to avoid blocking the main screen.
+Start gamescope displays first. RuneLite runs on these displays to avoid blocking the main screen.
 
-**On a PC (interactive use):**
 ```bash
-./start_screen.sh --gamescope   # GPU accelerated, you can watch/interact
-```
-
-**Headless server (Discord bot):**
-```bash
-./start_screen.sh               # Xvfb, no mouse capture, use get_screenshot() to view
+./start_gamescopes.sh          # Start 3 GPU-accelerated displays
+./start_gamescopes.sh status   # Check which displays are running
+./start_gamescopes.sh stop     # Stop all displays
 ```
 
 **CRITICAL: ALWAYS use MCP `start_runelite` to launch RuneLite!**

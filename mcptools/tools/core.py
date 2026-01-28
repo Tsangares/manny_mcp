@@ -224,22 +224,14 @@ async def handle_list_accounts(arguments: dict) -> dict:
                 "type": "string",
                 "description": "In-game display name for this account"
             },
-            "jx_refresh_token": {
-                "type": "string",
-                "description": "JX_REFRESH_TOKEN from ~/.runelite/credentials.properties"
-            },
-            "jx_access_token": {
-                "type": "string",
-                "description": "JX_ACCESS_TOKEN from ~/.runelite/credentials.properties"
-            },
             "jx_character_id": {
                 "type": "string",
-                "description": "Optional: JX_CHARACTER_ID",
+                "description": "JX_CHARACTER_ID from Bolt credentials (~/.local/share/bolt-launcher/creds)",
                 "default": ""
             },
             "jx_session_id": {
                 "type": "string",
-                "description": "Optional: JX_SESSION_ID (from Bolt's ~/.local/share/bolt-launcher/creds file)",
+                "description": "JX_SESSION_ID from Bolt credentials (~/.local/share/bolt-launcher/creds)",
                 "default": ""
             },
             "proxy": {
@@ -253,7 +245,7 @@ async def handle_list_accounts(arguments: dict) -> dict:
                 "default": False
             }
         },
-        "required": ["alias", "display_name", "jx_refresh_token", "jx_access_token"]
+        "required": ["alias", "display_name"]
     }
 })
 async def handle_add_account(arguments: dict) -> dict:
@@ -261,8 +253,6 @@ async def handle_add_account(arguments: dict) -> dict:
     result = credential_manager.add_account(
         alias=arguments["alias"],
         display_name=arguments["display_name"],
-        refresh_token=arguments["jx_refresh_token"],
-        access_token=arguments["jx_access_token"],
         character_id=arguments.get("jx_character_id", ""),
         session_id=arguments.get("jx_session_id", ""),
         proxy=arguments.get("proxy", "")
@@ -319,7 +309,7 @@ async def handle_set_account_proxy(arguments: dict) -> dict:
 
 @registry.register({
     "name": "import_credentials",
-    "description": "[Credentials] Import credentials from ~/.runelite/credentials.properties. Use after running RuneLite with --insecure-write-credentials flag.",
+    "description": "[Credentials] Import credentials from ~/.runelite/credentials.properties. Use after logging in via Bolt launcher.",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -345,9 +335,8 @@ async def handle_import_credentials(arguments: dict) -> dict:
     Import credentials from the current credentials.properties file.
 
     Workflow:
-    1. Log into account via Jagex Launcher
-    2. Run RuneLite with --insecure-write-credentials
-    3. Call this tool to import and save the credentials
+    1. Log into account via Bolt launcher
+    2. Call this tool to import and save the credentials
     """
     result = credential_manager.import_from_properties(
         alias=arguments["alias"],

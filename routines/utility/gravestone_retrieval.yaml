@@ -1,0 +1,101 @@
+# Gravestone Retrieval Utility
+# Use this after dying to retrieve items from gravestone
+#
+# CRITICAL: Gravestones appear as NPCs, not GameObjects!
+# Use query_nearby(include_npcs=True) to find them.
+#
+# Timer: 15 minutes from exiting Death's Domain
+
+name: "Gravestone Retrieval"
+type: utility
+difficulty: urgent
+notes: "Time-sensitive - 15 minute timer after death"
+
+# Known danger zones (aggressive NPCs that can kill low-levels)
+danger_zones:
+  dark_wizards:
+    center: {x: 3224, y: 3370, plane: 0}
+    radius: 15
+    threat: "Level 7 Dark Wizards - aggressive to all players"
+    avoidance: "Stay EAST (x>3240) or NORTH (y>3390)"
+
+# Manual execution steps (for Claude Code sessions)
+manual_steps:
+  # Step 1: If in Death's Domain, complete tutorial first
+  - step: 1
+    condition: "location.x > 10000"
+    routine: "routines/utility/death_escape.yaml"
+    description: "Complete Death's tutorial to exit"
+
+  # Step 2: Find the gravestone
+  - step: 2
+    tool: "query_nearby"
+    args: "include_npcs=True"
+    check: "Look for NPC named 'Grave'"
+    description: "Gravestones appear as NPCs, not objects!"
+
+  # Step 3: Navigate to grave location
+  - step: 3
+    command: "GOTO {grave_x} {grave_y} {grave_plane}"
+    description: "Walk to gravestone location"
+    warning: "Watch for aggressive NPCs near death location!"
+
+  # Step 4: Loot the gravestone
+  - step: 4
+    command: "INTERACT_NPC Grave Loot"
+    description: "Retrieve all items from gravestone"
+
+  # Step 5: Escape to safety
+  - step: 5
+    command: "TELEPORT_HOME"
+    description: "Teleport home immediately after looting"
+
+# Detection patterns
+detection:
+  death_domain:
+    check: "location.x > 10000"
+    action: "Run death_escape.yaml first"
+
+  gravestone_nearby:
+    tool: "query_nearby(include_npcs=True)"
+    match: "npc.name == 'Grave'"
+
+  gravestone_chat:
+    patterns:
+      - "items are being held in a gravestone"
+      - "recently dropped items"
+      - "World Map will show its location"
+
+# Key lessons (from journals)
+lessons:
+  - "Gravestones are NPCs, NOT GameObjects - use query_nearby not scan_tile_objects"
+  - "Use INTERACT_NPC Grave Loot (not INTERACT_OBJECT)"
+  - "Gravestone spawns at EXACT death coordinates"
+  - "15 minute timer starts when you EXIT Death's Domain"
+  - "If timer expires, items go to Death (can be reclaimed for fee)"
+
+# Proposed plugin enhancement
+plugin_enhancement:
+  description: "Add gravestone detection to game state and new commands"
+
+  game_state_additions:
+    - field: "gravestone"
+      type: "object"
+      contents:
+        active: "boolean - true if player has active gravestone"
+        location: "{x, y, plane} - gravestone coordinates"
+        timer_seconds: "integer - seconds remaining"
+        items_count: "integer - number of items in grave"
+
+  new_commands:
+    - name: "FIND_GRAVE"
+      description: "Query for nearby Grave NPC, return location if found"
+      returns: "{found: bool, location: {x,y,plane}, distance: int}"
+
+    - name: "LOOT_GRAVE"
+      description: "Find and loot nearby gravestone"
+      returns: "{success: bool, items_retrieved: [item names]}"
+
+    - name: "GET_GRAVE_STATUS"
+      description: "Check if player has active gravestone and timer"
+      returns: "{active: bool, timer_seconds: int, location: {x,y,plane}}"

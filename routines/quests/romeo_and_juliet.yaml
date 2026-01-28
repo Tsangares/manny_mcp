@@ -36,16 +36,18 @@ locations:
     description: "Varrock Church - Father Lawrence"
 
   apothecary:
-    x: 3196
+    x: 3197
     y: 3404
     plane: 0
     description: "Apothecary shop in southwest Varrock"
+    validated: true  # Confirmed 2026-01-27
 
   cadava_bush:
-    x: 3273
-    y: 3369
+    x: 3277
+    y: 3374
     plane: 0
-    description: "Cadava bushes southeast of Varrock (near mine)"
+    description: "Cadava bushes southeast of Varrock (SAFE: east of Dark Wizards)"
+    validated: true  # Confirmed 2026-01-27
 
 # Step-by-step routine
 steps:
@@ -65,7 +67,7 @@ steps:
 
   - id: 3
     phase: "start_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Continue through Romeo's dialogue (space spam)"
     notes: "Romeo asks you to deliver a message to Juliet"
 
@@ -99,7 +101,7 @@ steps:
 
   - id: 8
     phase: "juliet"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Continue through Juliet's dialogue (space spam)"
     notes: "Juliet tells you about Father Lawrence"
 
@@ -127,34 +129,52 @@ steps:
 
   - id: 12
     phase: "father_lawrence"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Continue through Father Lawrence's dialogue"
     notes: "He tells you about the Apothecary and cadava berries"
 
   # ========== PHASE 4: GET CADAVA BERRIES ==========
+  # DANGER: Dark Wizards at stone circle (~3224, 3370) - use eastern route!
+  - id: 13a
+    phase: "cadava_berries"
+    action: GOTO
+    args: "3280 3430 0"
+    description: "Waypoint EAST to avoid Dark Wizards"
+    notes: "Stay east of x=3240 to avoid wizard aggro range"
+
   - id: 13
     phase: "cadava_berries"
     action: GOTO
-    args: "3273 3369 0"
-    description: "Walk to cadava bushes (SE of Varrock, near mine)"
+    args: "3277 3374 0"
+    description: "Walk to cadava bushes (SE of Varrock, SAFE east of Dark Wizards)"
     location: cadava_bush
+    validated: true  # Confirmed 2026-01-27
 
   - id: 14
     phase: "cadava_berries"
     action: INTERACT_OBJECT
-    args: "Cadava bush Pick-from"
+    args: "Cadava Pick-from"
     description: "Pick cadava berries from bush"
     await_condition: "has_item:Cadava berries"
-    notes: "Click multiple bushes - one berry per bush, need at least 1 for quest"
-    repeat_until: "has_item:Cadava berries"
+    notes: "Object name is 'Cadava' not 'Cadava bush'. One berry per bush, need at least 1."
+    validated: true  # Confirmed 2026-01-27
 
   # ========== PHASE 5: GET POTION FROM APOTHECARY ==========
+  # DANGER: Route back must avoid Dark Wizards - go north first!
+  - id: 15a
+    phase: "apothecary"
+    action: GOTO
+    args: "3280 3420 0"
+    description: "Waypoint NORTH to avoid Dark Wizards"
+    notes: "Stay north of y=3390 to avoid wizard aggro range"
+
   - id: 15
     phase: "apothecary"
     action: GOTO
-    args: "3196 3404 0"
+    args: "3197 3404 0"
     description: "Walk to Apothecary in southwest Varrock"
     location: apothecary
+    validated: true  # Confirmed 2026-01-27
 
   - id: 16
     phase: "apothecary"
@@ -166,21 +186,24 @@ steps:
     phase: "apothecary"
     action: CLICK_DIALOGUE
     args: "Talk about something else"
-    description: "Select dialogue option"
-    notes: "First dialogue option"
+    description: "Select dialogue option to access quest dialogue"
+    notes: "Must navigate to this option - regular shop dialogue doesn't work"
+    validated: true  # Confirmed 2026-01-27
 
   - id: 18
     phase: "apothecary"
     action: CLICK_DIALOGUE
     args: "Talk about Romeo & Juliet"
     description: "Ask about the quest potion"
+    validated: true  # Confirmed 2026-01-27
 
   - id: 19
     phase: "apothecary"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Continue dialogue to receive potion"
     await_condition: "has_item:Cadava potion"
-    notes: "Apothecary makes potion from your cadava berries"
+    notes: "Space-spam through dialogue. Game auto-detects berries in inventory."
+    validated: true  # Confirmed 2026-01-27
 
   # ========== PHASE 6: GIVE POTION TO JULIET ==========
   - id: 20
@@ -212,7 +235,7 @@ steps:
 
   - id: 24
     phase: "juliet_potion"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Continue through cutscene (spam space)"
     notes: "Long cutscene - Juliet drinks potion, family mourns"
     await_condition: "no_item:Cadava potion"
@@ -228,8 +251,9 @@ steps:
   - id: 26
     phase: "complete_quest"
     action: GOTO
-    args: "3200 3350 0"
-    description: "Walk north (waypoint to avoid pathing issues)"
+    args: "3200 3400 0"
+    description: "Walk north (waypoint ABOVE Dark Wizards at y=3370)"
+    notes: "AVOID (3200, 3350) - that's Dark Wizard territory!"
 
   - id: 27
     phase: "complete_quest"
@@ -246,7 +270,7 @@ steps:
 
   - id: 29
     phase: "complete_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Continue through final cutscene (spam space)"
     notes: "Crypt scene - Romeo meets Phillipa instead!"
     timeout_ms: 60000
@@ -257,6 +281,8 @@ rewards:
 
 # Notes for automation
 automation_notes:
+  - "DANGER ZONE: Dark Wizards at stone circle (3210-3235, 3360-3385) - level 7, aggressive!"
+  - "Safe routes: Stay EAST (x>3240) or NORTH (y>3390) when traveling near SE Varrock"
   - "NPC names use underscores: Father_Lawrence"
   - "Object names use underscores for multi-word: Cadava_bush -> use 'Cadava bush'"
   - "Dialogue navigation: Use space key to continue, click_text for options"

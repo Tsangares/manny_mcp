@@ -65,6 +65,29 @@ Navigation can get stuck on long routes or near obstacles. Watch for:
 
 ## Future Ideas (Deferred)
 
+### get_chat_messages() MCP Tool
+**Status:** Needs Implementation
+**Date:** 2026-01-26
+**Source:** Cook's Assistant quest session
+
+Add MCP tool to read game chat widget messages programmatically. Currently no way to detect messages like:
+- "The grain slides down the chute" (hopper success)
+- "You need a pot to collect flour" (missing item)
+- Quest dialogue hints
+- Combat messages
+
+**Why needed:**
+- Can only see chat via screenshots currently
+- Would enable verification of action success/failure
+- Critical for robust quest automation
+
+**Implementation notes:**
+- Chat widget is group 162 (chatbox)
+- Messages are child widgets with text content
+- May need to filter by message type (game, public, private)
+
+---
+
 ### Routine Entry Point Validation
 **Status:** Deferred - not implementing now
 **Date:** 2026-01-08

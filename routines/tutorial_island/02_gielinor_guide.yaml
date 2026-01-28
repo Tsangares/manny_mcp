@@ -85,12 +85,19 @@ steps:
     delay_before_ms: 1000
 
   - id: 11
+    description: "Walk to tile in front of door"
+    action: GOTO
+    args: "3097 3107 0"
+    delay_before_ms: 1000
+    # Stand in front of door (inside) before opening
+
+  - id: 12
     description: "Open the door to exit"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
+    # Door location: (3098, 3107)
     # VALIDATED: Must use "Door" (capitalized), not "door" lowercase
-    # get_transitions shows correct casing; scan_tile_objects shows lowercase
 
 # After this routine:
 # Player should be outside the building, ready for Survival Expert (03_survival_expert.yaml)
