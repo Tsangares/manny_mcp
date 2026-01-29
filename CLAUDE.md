@@ -85,6 +85,35 @@ send_command("MOUSE_CLICK left")    # Click lands elsewhere
 
 **Why this matters:** Separate MOUSE_MOVE + MOUSE_CLICK commands race and cancel each other. Coordinate-based clicking is unreliable on Wayland with UI scaling. The `CLICK_WIDGET` command handles everything atomically.
 
+## NEVER Use send_input Directly ⚡
+
+**`send_input` is a last-resort escape hatch. NEVER use it to work around failing commands.**
+
+When you're tempted to use `send_input(click, x, y)`, STOP and do this instead:
+
+1. **Identify the problem**: What command/tool failed? What error occurred?
+2. **Describe to user**: Explain what you tried and why it failed
+3. **Propose solutions**: Suggest fixes or tests, such as:
+   - Fix the underlying command implementation
+   - Update widget IDs that may have changed
+   - Add missing functionality to the plugin
+
+**Why this matters:** Using `send_input` bypasses proper abstractions and masks bugs. The real fix is updating the plugin code, not working around broken commands with raw coordinate clicks.
+
+**Example - WRONG approach:**
+```python
+# BANK_DEPOSIT_ALL fails...
+send_input(click, 442, 312)  # ❌ Hacky workaround
+```
+
+**Example - CORRECT approach:**
+```python
+# BANK_DEPOSIT_ALL fails...
+# 1. Check logs: widget ID 786476 doesn't match actual button (786473)
+# 2. Tell user: "BANK_DEPOSIT_ALL uses wrong widget ID"
+# 3. Propose: "Fix DEPOSIT_INVENTORY_BUTTON constant in GameEngine.java"
+```
+
 ## Widget Discovery ⚡
 
 **`find_widget` is clearly superior to `scan_widgets`:**
