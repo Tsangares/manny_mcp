@@ -42,7 +42,15 @@ Buildings have doors that must be opened:
 | Name | Coordinates |
 |------|-------------|
 | Lumbridge Castle | 3222, 3218 |
+| Lumbridge Chickens | 3231, 3295 |
+| Lumbridge Cows | 3253, 3270 |
 | Draynor Bank | 3093, 3244 |
 | Draynor Fishing | 3087, 3227 |
 | Grand Exchange | 3165, 3487 |
 | Giant Frogs | 3197, 3169 |
+
+### Location Verification
+After claiming to be somewhere, VERIFY with get_game_state:
+- Chickens area: x ~3225-3240, y ~3290-3305
+- Draynor fishing: x ~3080-3095, y ~3220-3235
+- If coordinates don't match, navigate first!

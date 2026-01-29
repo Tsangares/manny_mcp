@@ -34,8 +34,11 @@ start_one_gamescope() {
 
     echo "Starting gamescope #$index (expecting :$expected_display)..."
 
-    # Start gamescope - it will create its own X display
+    # Start gamescope as nested compositor under existing Wayland session
+    # --backend wayland: run under GNOME/mutter instead of grabbing seat
+    WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-wayland-0}" \
     _JAVA_AWT_WM_NONREPARENTING=1 gamescope \
+        --backend wayland \
         -W 1920 -H 1080 \
         -w 1920 -h 1080 \
         --force-windows-fullscreen \

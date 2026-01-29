@@ -349,11 +349,13 @@ class SessionManager:
         return None
 
     def get_display_for_account(self, account_id: str) -> Optional[str]:
-        """Get the display an account is currently using, if any."""
+        """Get the display an account is using (active session or persistent assignment)."""
+        # First check active sessions
         for display, session in self.displays.items():
             if session and session.get("account") == account_id:
                 return display
-        return None
+        # Fall back to persistent account_displays mapping
+        return self.account_displays.get(account_id)
 
     def allocate_display(self, account_id: str, allow_reassign: bool = True) -> Dict[str, Any]:
         """

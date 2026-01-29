@@ -2,6 +2,36 @@
 
 This file provides guidance for Claude Code when working on the Discord bot codebase.
 
+## CRITICAL: Claude Code's Role When Testing
+
+**When the user asks to "test the Discord bot" or "test the LLM":**
+
+1. **DO NOT execute MCP tools directly** - The whole point is to test the Discord bot's LLM decision-making
+2. **Interact via Discord DM** - Send messages through Discord to trigger the bot's agentic loop
+3. **Monitor, don't control** - Watch logs and game state, but let the bot's LLM make decisions
+4. **Follow user's exact instructions** - If they say "kill chickens", don't deviate to "giant rats"
+
+**Testing workflow:**
+```
+1. Ensure discord-bot service is running: systemctl --user status discord-bot
+2. Check conversation logs: tail -f logs/conversations/conversations_$(date +%Y-%m-%d).log
+3. User sends message via Discord DM to the bot
+4. Bot's LLM decides what to do
+5. Claude Code monitors outcomes, doesn't interfere
+```
+
+**What Claude Code CAN do during testing:**
+- Check service status
+- Read conversation logs
+- Monitor game state (read-only observation)
+- Restart the service if it crashes
+- Report observations to the user
+
+**What Claude Code must NOT do during testing:**
+- Execute MCP commands directly (bypasses the LLM being tested)
+- Make gameplay decisions for the bot
+- Deviate from user's stated goals
+
 ## Overview
 
 The Discord bot provides remote OSRS client control via natural language. Users send messages, an LLM interprets them, and MCP tools execute actions.

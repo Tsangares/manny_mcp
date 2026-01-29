@@ -11,7 +11,7 @@ runelite_jar: /home/wil/runelite.jar
 
 # Use mvn exec:java to run (requires runelite source)
 # Set to false to use JAR directly (portable mode)
-use_exec_java: true
+use_exec_java: false
 
 # Java executable
 java_path: java
