@@ -19,6 +19,8 @@ Usage:
     # End session
     session_manager.end_session("aux")
 """
+import fcntl
+import logging
 import os
 import subprocess
 import time
@@ -27,6 +29,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Any
 import yaml
 
+logger = logging.getLogger(__name__)
+
 
 class SessionManager:
     """
@@ -34,6 +38,7 @@ class SessionManager:
     """
 
     SESSIONS_FILE = Path.home() / ".manny" / "sessions.yaml"
+    LOCK_FILE = Path.home() / ".manny" / "sessions.lock"
 
     # Display pool configuration
     MIN_DISPLAY = 2  # Start from :2
@@ -46,7 +51,23 @@ class SessionManager:
         self.displays: Dict[str, Optional[Dict]] = {}  # ":2" -> {account, pid, started}
         self.playtime: Dict[str, List[Dict]] = {}  # account -> [{start, end}, ...]
         self.account_displays: Dict[str, str] = {}  # Persistent account -> display mapping (e.g., "aux" -> ":2")
+        self._startup_cleanup_done = False
         self._load()
+
+    def _acquire_lock(self):
+        """Acquire file lock for atomic display allocation. Returns lock fd."""
+        self._ensure_dir()
+        fd = os.open(str(self.LOCK_FILE), os.O_CREAT | os.O_RDWR, 0o600)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        return fd
+
+    def _release_lock(self, fd):
+        """Release file lock."""
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+            os.close(fd)
+        except OSError:
+            pass
 
     def _ensure_dir(self) -> None:
         """Ensure sessions directory exists."""
@@ -56,6 +77,9 @@ class SessionManager:
         """Load sessions from file."""
         if not self.SESSIONS_FILE.exists():
             self._init_displays()
+            if not self._startup_cleanup_done:
+                self._cleanup_stale_on_startup()
+                self._startup_cleanup_done = True
             return
 
         try:
@@ -70,8 +94,12 @@ class SessionManager:
             self._init_displays()
 
         except Exception as e:
-            print(f"Warning: Could not load sessions: {e}")
+            logger.warning("Could not load sessions: %s", e)
             self._init_displays()
+
+        if not self._startup_cleanup_done:
+            self._cleanup_stale_on_startup()
+            self._startup_cleanup_done = True
 
     def _init_displays(self) -> None:
         """Initialize display pool."""
@@ -79,6 +107,28 @@ class SessionManager:
             display = f":{i}"
             if display not in self.displays:
                 self.displays[display] = None
+
+    def _cleanup_stale_on_startup(self) -> None:
+        """Clean up stale files from previous runs on startup."""
+        # Clean orphaned gamescope PID files
+        pidfile_dir = Path("/tmp/gamescope_pids")
+        if pidfile_dir.exists():
+            for pidfile in pidfile_dir.glob("gamescope_*.pid"):
+                try:
+                    pid = int(pidfile.read_text().strip())
+                    os.kill(pid, 0)  # Check if alive
+                except (ProcessLookupError, ValueError):
+                    logger.debug("Removing stale PID file: %s", pidfile)
+                    pidfile.unlink(missing_ok=True)
+                except PermissionError:
+                    pass  # Process exists but owned by another user
+
+        # Clean stale proxychains configs
+        manny_dir = Path.home() / ".manny"
+        if manny_dir.exists():
+            for conf in manny_dir.glob("proxychains_*.conf"):
+                logger.debug("Removing stale proxychains config: %s", conf)
+                conf.unlink(missing_ok=True)
 
     def _save(self) -> None:
         """Save sessions to file."""
@@ -361,6 +411,9 @@ class SessionManager:
         """
         Allocate a display for an account.
 
+        Uses file-based locking (fcntl.flock) to prevent concurrent calls
+        from allocating the same display.
+
         Robust approach:
         1. Check if account has a persistent display assignment
         2. If yes, try to start that display (with retries)
@@ -371,6 +424,14 @@ class SessionManager:
             account_id: Account to allocate display for
             allow_reassign: If True, reassign to different display on failure
         """
+        lock_fd = self._acquire_lock()
+        try:
+            return self._allocate_display_locked(account_id, allow_reassign)
+        finally:
+            self._release_lock(lock_fd)
+
+    def _allocate_display_locked(self, account_id: str, allow_reassign: bool = True) -> Dict[str, Any]:
+        """Internal allocate_display, called with lock held."""
         # Reload to prevent conflicts
         self._load()
 

@@ -7,7 +7,7 @@ import subprocess
 import time
 from pathlib import Path
 from ..registry import registry
-from ..utils import parse_maven_errors, parse_maven_warnings, maybe_truncate_response
+from ..utils import parse_gradle_errors, parse_gradle_warnings, maybe_truncate_response
 
 
 # Note: runelite_manager (MultiRuneLiteManager) will be injected when server starts
@@ -31,27 +31,35 @@ ACCOUNT_ID_SCHEMA = {
 
 @registry.register({
     "name": "build_plugin",
-    "description": "[RuneLite] Compile the manny RuneLite plugin using Maven. Returns structured build results with any errors.",
+    "description": "[RuneLite] Compile the manny RuneLite plugin using Gradle. Returns structured build results with any errors.",
     "inputSchema": {
         "type": "object",
         "properties": {
             "clean": {
                 "type": "boolean",
-                "description": "Whether to run 'mvn clean' first (default: true)",
+                "description": "Whether to run 'gradle clean' first (default: true)",
                 "default": True
             }
         }
     }
 })
 async def handle_build_plugin(arguments: dict) -> dict:
-    """Run Maven to compile the plugin."""
+    """Run Gradle to compile the plugin."""
     clean = arguments.get("clean", True)
     start_time = time.time()
 
-    cmd = ["mvn"]
+    # Build with Gradle, skipping tests and code quality checks
+    cmd = ["./gradlew"]
     if clean:
         cmd.append("clean")
-    cmd.extend(["compile", "-pl", "runelite-client", "-T", "1C", "-DskipTests"])
+    cmd.extend([
+        "build",
+        "-x", "test",
+        "-x", "javadoc",
+        "-x", "javadocJar",
+        "-x", "checkstyleMain",
+        "-x", "pmdMain"
+    ])
 
     result = subprocess.run(
         cmd,
@@ -64,8 +72,8 @@ async def handle_build_plugin(arguments: dict) -> dict:
     build_time = time.time() - start_time
     output = result.stdout + result.stderr
 
-    errors = parse_maven_errors(output)
-    warnings = parse_maven_warnings(output)
+    errors = parse_gradle_errors(output)
+    warnings = parse_gradle_warnings(output)
 
     response = {
         "success": result.returncode == 0,

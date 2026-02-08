@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/home/wil/manny-mcp/venv/bin/python3
 """
 CLI to run YAML routines.
 
@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-async def run_routine(routine_path: str, max_loops: int = 1, start_step: int = 1):
+async def run_routine(routine_path: str, max_loops: int = 1, start_step: int = 1, account_id: str = None):
     """Run a YAML routine and return results."""
     from mcptools.tools import routine, commands, monitoring
     from mcptools.config import ServerConfig
@@ -45,7 +45,7 @@ async def run_routine(routine_path: str, max_loops: int = 1, start_step: int = 1
     # Get initial state for XP tracking
     initial_xp = {}
     try:
-        with open(config.get_state_file()) as f:
+        with open(config.get_state_file(account_id)) as f:
             state = json.load(f)
         for skill, data in state.get('player', {}).get('skills', {}).items():
             initial_xp[skill] = data.get('xp', 0)
@@ -56,7 +56,8 @@ async def run_routine(routine_path: str, max_loops: int = 1, start_step: int = 1
     result = await routine.handle_execute_routine({
         'routine_path': routine_path,
         'max_loops': max_loops,
-        'start_step': start_step
+        'start_step': start_step,
+        'account_id': account_id
     })
 
     # Get final state
@@ -64,7 +65,7 @@ async def run_routine(routine_path: str, max_loops: int = 1, start_step: int = 1
     final_items = 0
     final_plane = None
     try:
-        with open(config.get_state_file()) as f:
+        with open(config.get_state_file(account_id)) as f:
             state = json.load(f)
         for skill, data in state.get('player', {}).get('skills', {}).items():
             final_xp[skill] = data.get('xp', 0)
@@ -130,6 +131,7 @@ def main():
     parser.add_argument('routine', help='Path to routine YAML file')
     parser.add_argument('--loops', type=int, default=1, help='Number of loops (default: 1)')
     parser.add_argument('--start-step', type=int, default=1, help='Starting step (default: 1)')
+    parser.add_argument('--account', type=str, default=None, help='Account ID (e.g., "main")')
     parser.add_argument('--json', action='store_true', help='Output raw JSON instead of formatted')
 
     args = parser.parse_args()
@@ -139,9 +141,9 @@ def main():
         sys.exit(1)
 
     print(f"Running: {args.routine}")
-    print(f"Loops: {args.loops}, Start step: {args.start_step}")
+    print(f"Loops: {args.loops}, Start step: {args.start_step}, Account: {args.account or 'default'}")
 
-    result = asyncio.run(run_routine(args.routine, args.loops, args.start_step))
+    result = asyncio.run(run_routine(args.routine, args.loops, args.start_step, args.account))
 
     if args.json:
         print(json.dumps(result, indent=2))

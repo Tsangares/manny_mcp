@@ -84,51 +84,76 @@ def maybe_truncate_response(data: dict, threshold: int = LARGE_RESPONSE_THRESHOL
     return result
 
 
-def parse_maven_errors(output: str) -> List[Dict[str, Any]]:
+def parse_gradle_errors(output: str) -> List[Dict[str, Any]]:
     """
-    Parse Maven output for compilation errors.
+    Parse Gradle output for compilation errors.
 
     Args:
-        output: Maven command output (stdout + stderr)
+        output: Gradle command output (stdout + stderr)
 
     Returns:
         List of error dicts with file, line, message
     """
     errors = []
-    # Match patterns like: [ERROR] /path/to/File.java:[42,15] error message
-    error_pattern = re.compile(
-        r'\[ERROR\]\s+([^:]+):?\[?(\d+)?[,\]]?\s*(.+)'
+    # Match javac error patterns like: /path/to/File.java:42: error: message
+    javac_error_pattern = re.compile(
+        r'^(/[^:]+\.java):(\d+):\s*error:\s*(.+)$'
+    )
+    # Match Gradle failure patterns
+    gradle_error_pattern = re.compile(
+        r'^\* What went wrong:\s*$'
     )
 
-    for line in output.split('\n'):
-        if '[ERROR]' in line:
-            match = error_pattern.match(line.strip())
-            if match:
-                file_path = match.group(1).strip()
-                line_num = match.group(2)
-                message = match.group(3).strip() if match.group(3) else line
-                errors.append({
-                    "file": file_path,
-                    "line": int(line_num) if line_num else None,
-                    "message": message
-                })
-            else:
-                # Generic error line
+    lines = output.split('\n')
+    in_error_block = False
+
+    for i, line in enumerate(lines):
+        # Check for javac errors
+        match = javac_error_pattern.match(line.strip())
+        if match:
+            errors.append({
+                "file": match.group(1),
+                "line": int(match.group(2)),
+                "message": match.group(3)
+            })
+            continue
+
+        # Check for Gradle failure block
+        if gradle_error_pattern.match(line):
+            in_error_block = True
+            continue
+
+        if in_error_block:
+            if line.startswith('* Try:') or line.startswith('* Get more help'):
+                in_error_block = False
+            elif line.strip() and not line.startswith('*'):
                 errors.append({
                     "file": None,
                     "line": None,
-                    "message": line.replace('[ERROR]', '').strip()
+                    "message": line.strip()
                 })
+
     return errors
 
 
-def parse_maven_warnings(output: str) -> List[str]:
-    """Parse Maven output for warnings"""
+def parse_gradle_warnings(output: str) -> List[str]:
+    """Parse Gradle output for warnings"""
     warnings = []
+    # Match javac warning patterns like: /path/to/File.java:42: warning: message
+    warning_pattern = re.compile(r'^/[^:]+\.java:\d+:\s*warning:\s*(.+)$')
+
     for line in output.split('\n'):
-        if '[WARNING]' in line:
-            warnings.append(line.replace('[WARNING]', '').strip())
+        match = warning_pattern.match(line.strip())
+        if match:
+            warnings.append(match.group(1))
+        elif 'warning:' in line.lower() and not line.startswith('/'):
+            warnings.append(line.strip())
     return warnings
+
+
+# Keep old names as aliases for backward compatibility
+parse_maven_errors = parse_gradle_errors
+parse_maven_warnings = parse_gradle_warnings
 
 
 def resolve_plugin_path(file: str | Path, plugin_dir: str | Path) -> Path:

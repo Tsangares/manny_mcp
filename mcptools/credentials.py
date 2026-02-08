@@ -19,11 +19,14 @@ Usage:
     # Add/update account
     credential_manager.add_account("alt1", "AltAccount", character_id="123", session_id="abc")
 """
+import logging
 import os
 import stat
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 import yaml
+
+logger = logging.getLogger(__name__)
 
 
 class CredentialManager:
@@ -60,7 +63,7 @@ class CredentialManager:
             self.accounts = data.get("accounts", {})
             self.default = data.get("default", "default")
         except Exception as e:
-            print(f"Warning: Could not load credentials: {e}")
+            logger.warning("Could not load credentials: %s", e)
             self.accounts = {}
             self.default = "default"
 
@@ -73,12 +76,19 @@ class CredentialManager:
             "default": self.default
         }
 
-        # Write with restricted permissions
-        with open(self.CREDENTIALS_FILE, 'w') as f:
-            yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-
-        # Set file permissions to 600 (owner read/write only)
-        os.chmod(self.CREDENTIALS_FILE, stat.S_IRUSR | stat.S_IWUSR)
+        # Write with restricted permissions using os.open() to avoid race condition
+        # where file is world-readable between open() and chmod()
+        fd = os.open(
+            str(self.CREDENTIALS_FILE),
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            stat.S_IRUSR | stat.S_IWUSR  # 0o600 from creation
+        )
+        try:
+            with os.fdopen(fd, 'w') as f:
+                yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        except Exception:
+            # fd is closed by os.fdopen even on error, don't close twice
+            raise
 
     def get_account(self, alias: str = None) -> Optional[Dict[str, str]]:
         """

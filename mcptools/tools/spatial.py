@@ -2,12 +2,15 @@
 Spatial awareness tools for indoor navigation.
 Provides environment scanning with direction labels and room detection.
 """
+import logging
 import os
 import json
 import math
 from pathlib import Path
 from typing import Optional, Dict, List, Any
 from ..registry import registry
+
+logger = logging.getLogger(__name__)
 
 
 # Dependencies (injected from server.py)
@@ -40,7 +43,7 @@ def _load_location_knowledge():
                     if data:
                         _location_data.update(data)
             except Exception as e:
-                print(f"Warning: Failed to load {yaml_file}: {e}")
+                logger.warning("Failed to load %s: %s", yaml_file, e)
 
 
 def _get_direction(player_x: int, player_y: int, target_x: int, target_y: int) -> str:

@@ -1,0 +1,341 @@
+# Superheat Steel Bars at Mining Guild
+# Mine coal and iron ore, cast Superheat Item to make steel bars
+# Banks bars at Falador East Bank
+
+name: "Superheat Mining - Steel Bars"
+type: skilling
+skill: mining, magic, smithing
+description: |
+  Mine coal and iron ore in the Mining Guild and cast Superheat Item to make steel bars.
+  Steel bars are more valuable (~480gp vs ~175gp for iron bars).
+
+  Steel bar = 2 coal + 1 iron ore + Superheat Item spell
+
+  XP rates (approximate):
+  - Mining: ~20k/hr (coal + iron)
+  - Magic: ~25k/hr (53 xp per Superheat)
+  - Smithing: ~17.5k/hr (17.5 xp per steel bar)
+
+  Rune costs: 4 Fire runes + 1 Nature rune per bar
+
+# Requirements
+requirements:
+  mining_level: 60  # Mining Guild requirement
+  magic_level: 43   # Superheat Item requirement
+  smithing_level: 30  # Steel bar requirement
+  items:
+    - "Pickaxe (in inventory - can't equip, weapon slot has fire staff)"
+    - "Nature runes (all in inventory - stackable, keep across trips)"
+    - "Staff of fire (MUST be equipped - provides fire runes)"
+
+# Pre-run checklist
+pre_run_checklist:
+  - "Equip Staff of fire"
+  - "Have pickaxe in inventory (NOT equipped - weapon slot taken by staff)"
+  - "Have ALL nature runes in inventory (they stay across trips)"
+  - "Ensure gamescope display is running properly (not 1x1)"
+  - "Start at Falador East Bank"
+
+# Starting location
+start_location:
+  name: "Falador East Bank"
+  x: 3012
+  y: 3355
+  plane: 0
+  validated: true
+
+# Key locations
+locations:
+  falador_east_bank:
+    x: 3012
+    y: 3355
+    plane: 0
+    description: "Falador East Bank - starting point"
+    validated: true
+
+  mining_guild_entrance:
+    x: 3019
+    y: 3337
+    plane: 0
+    description: "Above-ground Mining Guild entrance (ladder)"
+
+  coal_rocks_guild:
+    x: 3037
+    y: 9737
+    plane: 0
+    description: "Coal rock cluster in F2P section of Mining Guild"
+    validated: true
+    notes: "Close to iron rocks, F2P accessible"
+
+  iron_rocks_guild:
+    x: 3029
+    y: 9739
+    plane: 0
+    description: "Iron rocks in F2P section of Mining Guild"
+    validated: true
+    notes: "Near coal rocks, accessible without members"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: BANK STEEL BARS ==========
+  - id: 1
+    phase: "banking"
+    action: GOTO
+    args: "3012 3355 0"
+    description: "Walk to Falador East Bank"
+    await_condition: "location:3012,3355"
+    timeout_ms: 30000
+
+  - id: 2
+    phase: "banking"
+    action: BANK_OPEN
+    args: ""
+    description: "Open bank"
+    delay_after_ms: 1000
+
+  - id: 3
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Steel_bar"
+    description: "Deposit steel bars"
+    delay_after_ms: 500
+    notes: "DO NOT use BANK_DEPOSIT_ALL - that deposits pickaxe and nature runes too"
+
+  - id: 3b
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Coal"
+    description: "Deposit excess coal (ghost mining bug causes buildup)"
+    delay_after_ms: 500
+    notes: "Coal accumulates due to MINE_ORE ghost count bug giving extra ore"
+
+  - id: 3c
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_emerald"
+    description: "Deposit gem drops"
+    delay_after_ms: 500
+    notes: "Random mining gems take inventory space"
+
+  - id: 3d
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_ruby"
+    description: "Deposit gem drops"
+    delay_after_ms: 500
+
+  - id: 3e
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_sapphire"
+    description: "Deposit gem drops"
+    delay_after_ms: 500
+
+  - id: 4
+    phase: "banking"
+    action: BANK_CLOSE
+    args: ""
+    description: "Close bank"
+    delay_after_ms: 500
+
+  # ========== PHASE 2: TRAVEL TO MINING GUILD ==========
+  - id: 5
+    phase: "travel"
+    action: GOTO
+    args: "3019 3350 0"
+    description: "Walk toward Mining Guild (intermediate waypoint)"
+    await_condition: "location:3019,3350"
+    timeout_ms: 20000
+    notes: "Break long path into segments to avoid pathing failures"
+
+  - id: 5b
+    phase: "travel"
+    action: GOTO
+    args: "3019 3339 0"
+    description: "Walk to Mining Guild entrance"
+    await_condition: "location:3019,3339"
+    timeout_ms: 15000
+
+  - id: 6
+    phase: "travel"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down ladder to Mining Guild"
+    await_condition: "location:3019,9739"
+    timeout_ms: 10000
+    notes: "Underground location after climbing down"
+
+  - id: 6b
+    phase: "setup"
+    action: CAMERA_STABILIZE
+    args: "350 FAR"
+    description: "Set camera zoomed out for mining visibility"
+    delay_after_ms: 1000
+    notes: "FAR = 3 scrolls in from max. Prevents zoom drift from MINE_ORE camera adjustments."
+
+  # ========== PHASE 3: MINE COAL (1 at a time) ==========
+  # MINE_ORE handles pathfinding internally - no GOTO needed
+  # Mine 1 at a time because MINE_ORE coal 2 overcounts (ghost mining bug)
+  - id: 7
+    phase: "mining"
+    action: MINE_ORE
+    args: "coal 1"
+    description: "Mine first coal ore"
+    timeout_ms: 60000
+    notes: "MINE_ORE is a blocking command - no await_condition needed. execute_simple_command waits for plugin response."
+
+  - id: 8
+    phase: "mining"
+    action: MINE_ORE
+    args: "coal 1"
+    description: "Mine second coal ore"
+    timeout_ms: 60000
+    notes: "Mine coal 1 at a time - MINE_ORE coal 2 has ghost count bug. No await needed - plugin responds when done."
+
+  # ========== PHASE 4: MINE IRON ==========
+  - id: 9
+    phase: "mining"
+    action: MINE_ORE
+    args: "iron 1"
+    description: "Mine one iron ore"
+    timeout_ms: 45000
+    notes: "MINE_ORE walks to iron rocks automatically from coal area. No await needed - plugin responds when done."
+
+  # ========== PHASE 5: SUPERHEAT ==========
+  - id: 10
+    phase: "superheat"
+    action: CAST_SPELL_ON_INVENTORY_ITEM
+    args: "Superheat_Item Iron_ore"
+    description: "Cast Superheat Item on iron ore to make steel bar"
+    await_condition: "no_item:Iron ore"
+    timeout_ms: 8000
+    notes: "Consumes 2 coal + 1 iron ore + 4 fire + 1 nature = 1 steel bar. Use no_item:Iron ore as await - fast and reliable (~3.5s)."
+
+  # ========== PHASE 6: EXIT MINE (when loop exits) ==========
+  - id: 11
+    phase: "exit"
+    action: GOTO
+    args: "3019 9739 0"
+    description: "Walk to ladder in Mining Guild"
+    await_condition: "location:3019,9739"
+    timeout_ms: 15000
+
+  - id: 12
+    phase: "exit"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb up ladder to exit Mining Guild"
+    await_condition: "location:3019,3339"
+    timeout_ms: 10000
+    notes: "Surface location after climbing up"
+
+  # ========== LOOP BACK OR BANK ==========
+  # Loop steps 7-10: mine 2 coal (1+1), mine 1 iron, superheat
+  # Exit to step 11 (exit mine) when inventory full or out of natures
+
+# Loop configuration
+loop:
+  # Inner loop: Mine -> Superheat -> Repeat
+  inner:
+    enabled: true
+    start_step: 7
+    end_step: 10
+    exit_conditions:
+      - "inventory_full"
+      - "no_item:Nature rune"
+    on_exit: "goto_step:11"
+
+  # Outer loop: Full routine repeats
+  outer:
+    enabled: true
+    start_step: 1
+    end_step: 12
+    exit_conditions:
+      - "no_item:Nature rune"  # Completely out of natures in bank too
+    notes: |
+      Full workflow:
+      1. Bank (steps 1-4): Deposit ONLY steel bars
+      2. Travel to mine (steps 5-6b)
+      3. Mine/Superheat loop (steps 7-10)
+      4. Exit mine (steps 11-12)
+      5. Repeat from step 1
+
+# Execution notes
+notes: |
+  STEEL BAR SUPERHEAT WORKFLOW (v2 - optimized):
+
+  Key optimizations vs v1:
+  - No GOTO to coal/iron rocks - MINE_ORE handles pathfinding
+  - Mine coal 1 at a time - avoids ghost count bug with coal 2
+  - Deposit bars ONLY - keep natures + pickaxe across trips
+  - Use inventory_count for coal, no_item:Iron ore for superheat
+  - Superheat await: no_item:Iron ore (~3.5s vs 1.5s delay)
+
+  INVENTORY MANAGEMENT:
+  - Staff of fire: EQUIPPED (weapon slot)
+  - Pickaxe: IN INVENTORY (can't equip - weapon slot taken)
+  - Nature runes: 1 stack, stays across trips
+  - Remaining slots: ~26 for bars (pickaxe + natures = 2 slots)
+
+  Each cycle (2 coal + 1 iron -> 1 bar):
+  - Reduces ore count by 3, increases bar count by 1
+  - Net inventory change: -2 slots per cycle
+
+  TIMING (per iteration, observed):
+  - Coal x2: ~40-50s (contested worlds), ~20-30s (quiet worlds)
+  - Iron x1: ~15-23s
+  - Superheat: ~3.5s
+  - Total: ~60-75s per bar (coal is the bottleneck)
+
+  KNOWN ISSUES:
+  - MINE_ORE ghost count: Reports success when rock depletes mid-swing.
+    Workaround: Mine 1 at a time + inventory_count check.
+  - MINE_ORE cache: Stale after world hop, may target depleted rocks.
+    Workaround: Walk to new position to force cache miss.
+  - Coal competition: F2P Mining Guild coal is heavily contested.
+    Consider world hopping if coal takes >45s consistently.
+
+  TIPS:
+  - Mining Guild has +7 invisible mining boost
+  - Coal rocks respawn slower than iron
+  - Less crowded worlds = much faster coal mining
+
+# Troubleshooting
+troubleshooting:
+  - issue: "Can't enter Mining Guild"
+    solutions:
+      - "Requires 60 Mining"
+
+  - issue: "Making iron bars instead of steel"
+    solutions:
+      - "Must have 2+ coal in inventory when superheating iron"
+      - "Coal is consumed automatically with iron ore"
+
+  - issue: "Superheat fails / can't open Magic tab"
+    solutions:
+      - "Check you have nature runes"
+      - "Check fire staff is equipped"
+      - "Make sure iron ore AND 2 coal are in inventory"
+      - "World switcher or other overlay may be blocking - close it first"
+
+  - issue: "MINE_ORE says success but no ore in inventory"
+    solutions:
+      - "Ghost count bug - rock depleted mid-animation"
+      - "Use inventory_count await instead of relying on MINE_ORE success"
+      - "Mine 1 at a time instead of coal 2"
+
+  - issue: "MINE_ORE keeps targeting depleted rocks"
+    solutions:
+      - "Cache is stale - walk to different position before mining"
+      - "Happens after world hop - move a few tiles to force cache refresh"
+
+  - issue: "GOTO fails with UNREACHABLE"
+    solutions:
+      - "Iron rocks at (3030, 9720) are MEMBERS ONLY - use (3029, 9739) instead"
+      - "Stay in F2P section: y-coords should be ~9735-9745, not below 9730"
+      - "Check if path is blocked by members gate"
+
+  - issue: "Ladder interaction fails"
+    solutions:
+      - "Walk closer to (3019, 3337) before climbing"
+      - "Use await_condition location:3019,9739 to verify underground"

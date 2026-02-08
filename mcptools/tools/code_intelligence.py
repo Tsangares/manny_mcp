@@ -5,6 +5,7 @@ Provides IDE-like features: find usages, call graph, go-to-definition, etc.
 """
 
 import json
+import logging
 import re
 import subprocess
 from pathlib import Path
@@ -15,6 +16,8 @@ from ..config import ServerConfig
 from ..registry import registry
 from ..path_utils import normalize_path, to_symlink_path, list_java_files
 from ..utils import maybe_truncate_response
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -68,7 +71,8 @@ def find_usages_impl(symbol: str, context_lines: int = 3, plugin_dir: str = None
                         "line": line_number,
                         "match": match_text
                     })
-            except:
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.debug("Skipping malformed ripgrep entry: %s", e)
                 continue
 
         return {
@@ -241,10 +245,12 @@ def find_definition_impl(symbol: str, symbol_type: Optional[str] = None, plugin_
                             "line": line_number,
                             "signature": signature
                         }
-                except:
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    logger.debug("Skipping malformed ripgrep entry: %s", e)
                     continue
 
-        except:
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug("Pattern search failed for '%s': %s", pattern, e)
             continue
 
     return {
@@ -357,11 +363,12 @@ def get_call_graph_impl(method: str, depth: int = 2, plugin_dir: str = None) -> 
                         "line": line_number,
                         "context": context
                     })
-            except:
+            except (json.JSONDecodeError, KeyError, TypeError) as e:
+                logger.debug("Skipping malformed ripgrep entry in caller search: %s", e)
                 continue
 
-    except:
-        pass
+    except (subprocess.SubprocessError, OSError) as e:
+        logger.warning("Failed to search for callers of '%s': %s", method, e)
 
     # Find callees (what this method calls)
     # This is more complex - need to find the method definition first
@@ -415,8 +422,8 @@ def get_call_graph_impl(method: str, depth: int = 2, plugin_dir: str = None) -> 
                     unique_callees.append(callee)
             callees = unique_callees
 
-        except:
-            pass
+        except (OSError, IndexError, KeyError) as e:
+            logger.warning("Failed to extract callees for '%s': %s", method, e)
 
     return {
         "method": method,

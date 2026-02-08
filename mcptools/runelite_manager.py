@@ -8,6 +8,7 @@ Credential Flow:
 2. On start_instance(), writes to ~/.runelite/credentials.properties
 3. RuneLite reads credentials.properties for JX_REFRESH_TOKEN and JX_ACCESS_TOKEN
 """
+import logging
 import os
 import subprocess
 import threading
@@ -19,6 +20,8 @@ from typing import Dict, Any, Optional, List
 from .config import ServerConfig, AccountConfig
 from .credentials import credential_manager
 from .session_manager import session_manager
+
+logger = logging.getLogger(__name__)
 
 
 class RuneLiteInstance:
@@ -40,6 +43,7 @@ class RuneLiteInstance:
         self.log_thread = None
         self.log_file = None
         self.log_file_path = None
+        self._proxychains_config = None
 
     def _capture_logs(self):
         """Background thread to capture process output."""
@@ -52,8 +56,8 @@ class RuneLiteInstance:
                 timestamp = datetime.now().isoformat()
                 with self.log_lock:
                     self.log_buffer.append((timestamp, line.rstrip()))
-        except Exception:
-            pass
+        except (OSError, ValueError) as e:
+            logger.debug("Log capture ended for %s: %s", self.account_id, e)
 
     def _setup_proxychains(self, proxy_url: str) -> Optional[str]:
         """
@@ -115,9 +119,11 @@ tcp_connect_time_out 8000
 {proxy_line}
 """
             config_path.write_text(config_content)
+            self._proxychains_config = str(config_path)
             return str(config_path)
 
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to setup proxychains: %s", e)
             return None
 
     def start(self, developer_mode: bool = True, display: str = None, proxy: str = None) -> Dict[str, Any]:
@@ -144,48 +150,34 @@ tcp_connect_time_out 8000
         use_vgl = self.config.use_virtualgl
         vgl_display = self.config.vgl_display
 
-        # Determine launch mode: prefer exec:java if source exists, fall back to JAR
-        use_exec_java = self.config.use_exec_java
-        runelite_root_exists = self.config.runelite_root and self.config.runelite_root.exists()
-        runelite_jar_exists = self.config.runelite_jar and self.config.runelite_jar.exists()
+        # Find the RuneLite JAR to run
+        # Priority: 1) Gradle shaded JAR, 2) configured JAR path
+        runelite_jar = None
+        cwd = None
 
-        # Fall back to JAR if exec:java requested but source dir doesn't exist
-        if use_exec_java and not runelite_root_exists:
-            if runelite_jar_exists:
-                use_exec_java = False  # Fall back to JAR
-            else:
-                return {
-                    "account_id": self.account_id,
-                    "pid": None,
-                    "status": "error",
-                    "error": f"RuneLite source not found at {self.config.runelite_root} and no JAR configured"
-                }
+        # Check for Gradle shaded JAR in build output
+        if self.config.runelite_root and self.config.runelite_root.exists():
+            gradle_libs = self.config.runelite_root / "runelite-client" / "build" / "libs"
+            if gradle_libs.exists():
+                # Find the shaded JAR (e.g., client-1.12.17-SNAPSHOT-shaded.jar)
+                shaded_jars = list(gradle_libs.glob("*-shaded.jar"))
+                if shaded_jars:
+                    runelite_jar = shaded_jars[0]  # Use most recent if multiple
 
-        # If not using exec:java, verify JAR exists
-        if not use_exec_java and not runelite_jar_exists:
+        # Fall back to configured JAR path
+        if not runelite_jar and self.config.runelite_jar and self.config.runelite_jar.exists():
+            runelite_jar = self.config.runelite_jar
+
+        if not runelite_jar:
             return {
                 "account_id": self.account_id,
                 "pid": None,
                 "status": "error",
-                "error": f"RuneLite JAR not found at {self.config.runelite_jar}"
+                "error": f"No RuneLite JAR found. Build with 'build_plugin' first or configure runelite_jar path."
             }
 
-        if use_exec_java:
-            args = " ".join(self.config.runelite_args)
-            base_cmd = [
-                "mvn", "exec:java",
-                "-pl", "runelite-client",
-                "-Dexec.mainClass=net.runelite.client.RuneLite",
-                # Note: Removed -Dsun.java2d.uiScale=2.0 - it caused coordinate mismatch
-                # with gamescope/Xwayland, making the sidebar unclickable
-            ]
-            if args:
-                base_cmd.append(f"-Dexec.args={args}")
-            cwd = str(self.config.runelite_root)
-        else:
-            base_cmd = [self.config.java_path, "-jar", str(self.config.runelite_jar)]
-            base_cmd.extend(self.config.runelite_args)
-            cwd = None
+        base_cmd = [self.config.java_path, "-jar", str(runelite_jar)]
+        base_cmd.extend(self.config.runelite_args)
 
         if use_vgl:
             cmd = ["vglrun", "-d", vgl_display] + base_cmd
@@ -202,8 +194,8 @@ tcp_connect_time_out 8000
 
         env = os.environ.copy()
 
-        # Java heap size - reduced for VPS with limited RAM
-        env["_JAVA_OPTIONS"] = "-Xmx768m -XX:MaxMetaspaceSize=128m"
+        # Java heap size - 1536m to avoid OOM on map transitions
+        env["_JAVA_OPTIONS"] = "-Xmx1536m -XX:MaxMetaspaceSize=192m"
 
         # Use allocated display
         env["DISPLAY"] = target_display
@@ -233,13 +225,19 @@ tcp_connect_time_out 8000
         self.log_file_path = f"/tmp/runelite{log_suffix}.log"
         self.log_file = open(self.log_file_path, "w")
 
-        self.process = subprocess.Popen(
-            cmd,
-            stdout=self.log_file,
-            stderr=subprocess.STDOUT,
-            env=env,
-            cwd=cwd
-        )
+        try:
+            self.process = subprocess.Popen(
+                cmd,
+                stdout=self.log_file,
+                stderr=subprocess.STDOUT,
+                env=env,
+                cwd=cwd
+            )
+        except Exception:
+            # Close log file if Popen fails to prevent file handle leak
+            self.log_file.close()
+            self.log_file = None
+            raise
 
         time.sleep(3)
 
@@ -283,23 +281,34 @@ tcp_connect_time_out 8000
             return {"stopped": False, "account_id": self.account_id, "message": "No process running"}
 
         pid = self.process.pid
+        exit_code = None
 
-        self.process.terminate()
         try:
-            exit_code = self.process.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            exit_code = self.process.wait()
-
-        self.process = None
-
-        # Close log file
-        if self.log_file:
+            self.process.terminate()
             try:
-                self.log_file.close()
-            except Exception:
-                pass
-            self.log_file = None
+                exit_code = self.process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                exit_code = self.process.wait()
+        finally:
+            # Always clean up state, even if terminate/kill is interrupted
+            self.process = None
+
+            # Close log file
+            if self.log_file:
+                try:
+                    self.log_file.close()
+                except OSError as e:
+                    logger.debug("Error closing log file: %s", e)
+                self.log_file = None
+
+            # Clean up proxychains config file
+            if self._proxychains_config:
+                try:
+                    os.unlink(self._proxychains_config)
+                except OSError:
+                    pass
+                self._proxychains_config = None
 
         return {"stopped": True, "account_id": self.account_id, "exit_code": exit_code, "pid": pid}
 
@@ -329,7 +338,7 @@ tcp_connect_time_out 8000
             for timestamp_str, line in self.log_buffer:
                 try:
                     ts = datetime.fromisoformat(timestamp_str).timestamp()
-                except:
+                except (ValueError, TypeError):
                     ts = 0
 
                 if ts < cutoff_time:
@@ -405,9 +414,9 @@ class MultiRuneLiteManager:
             pass
 
         try:
-            # Also try killing by mvn exec pattern
+            # Also try killing by RuneLite JAR pattern
             subprocess.run(
-                ["pkill", "-f", "runelite-client.*exec:java"],
+                ["pkill", "-f", "java.*runelite.*shaded.jar"],
                 capture_output=True,
                 text=True
             )

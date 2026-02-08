@@ -1,11 +1,14 @@
 """
 Server configuration management.
 """
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Dict, Any
 import yaml
 import os
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -172,7 +175,43 @@ class ServerConfig:
         data["accounts"] = accounts
         data.setdefault("default_account", "default")
 
-        return cls(**data)
+        instance = cls(**data)
+        instance._validate()
+        return instance
+
+    def _validate(self) -> None:
+        """Validate configuration values at startup."""
+        warnings = []
+        errors = []
+
+        # Validate required paths exist
+        if not self.runelite_root.exists():
+            warnings.append(f"runelite_root does not exist: {self.runelite_root}")
+
+        if not self.plugin_directory.exists():
+            warnings.append(f"plugin_directory does not exist: {self.plugin_directory}")
+
+        # Validate display format
+        if not self.display.startswith(":") or not self.display[1:].isdigit():
+            errors.append(f"Invalid display format: '{self.display}' (expected ':N')")
+
+        # Validate log_buffer_size
+        if not isinstance(self.log_buffer_size, int) or self.log_buffer_size < 100:
+            warnings.append(f"log_buffer_size too small ({self.log_buffer_size}), using 10000")
+            self.log_buffer_size = 10000
+
+        # Validate java_path
+        if self.java_path and self.java_path != "java":
+            if not Path(self.java_path).exists():
+                warnings.append(f"java_path does not exist: {self.java_path}")
+
+        # Log warnings
+        for w in warnings:
+            logger.warning("Config: %s", w)
+
+        # Raise errors
+        if errors:
+            raise ValueError(f"Config validation failed: {'; '.join(errors)}")
 
     def to_dict(self) -> dict:
         """Convert config to dict (for logging/debugging)"""

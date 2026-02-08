@@ -6,11 +6,12 @@ runelite_root: /home/wil/Desktop/runelite
 # Path to the plugin source (manny plugin)
 plugin_directory: /home/wil/Desktop/manny
 
-# RuneLite client JAR - use this when not building from source
+# RuneLite client JAR - fallback when Gradle shaded JAR not found
+# The server auto-detects the Gradle shaded JAR at:
+# {runelite_root}/runelite-client/build/libs/*-shaded.jar
 runelite_jar: /home/wil/runelite.jar
 
-# Use mvn exec:java to run (requires runelite source)
-# Set to false to use JAR directly (portable mode)
+# Legacy option - no longer used (Gradle build always produces shaded JAR)
 use_exec_java: false
 
 # Java executable

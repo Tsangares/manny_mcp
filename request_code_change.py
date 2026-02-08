@@ -310,7 +310,7 @@ def validate_code_change(
     """
     Validate code changes by running a compile check.
 
-    Uses 'mvn compile' with -o (offline) for faster validation.
+    Uses Gradle compile for validation.
     For safety, use backup_files() before making changes so you can
     rollback_code_change() if the fix doesn't work.
 
@@ -324,10 +324,9 @@ def validate_code_change(
     start_time = time.time()
 
     try:
-        # Run compilation directly (offline mode for speed)
+        # Run compilation with Gradle
         result = subprocess.run(
-            ["mvn", "compile", "-pl", "runelite-client", "-T", "1C",
-             "-DskipTests", "-q"],  # quiet mode
+            ["./gradlew", ":client:compileJava", "-q"],  # quiet mode
             cwd=runelite_root,
             capture_output=True,
             text=True,
@@ -338,7 +337,7 @@ def validate_code_change(
         # Parse errors if compilation failed
         errors = []
         if result.returncode != 0:
-            errors = _parse_maven_errors(result.stdout + result.stderr)
+            errors = _parse_gradle_errors(result.stdout + result.stderr)
 
         return {
             "success": result.returncode == 0,
@@ -385,8 +384,10 @@ def deploy_code_change(
     start_time = time.time()
 
     try:
+        # Build with Gradle, skipping tests and code quality checks
         result = subprocess.run(
-            ["mvn", "compile", "-pl", "runelite-client", "-T", "1C", "-DskipTests"],
+            ["./gradlew", "build", "-x", "test", "-x", "javadoc", "-x", "javadocJar",
+             "-x", "checkstyleMain", "-x", "pmdMain"],
             cwd=runelite_root,
             capture_output=True,
             text=True,
@@ -397,7 +398,7 @@ def deploy_code_change(
 
         errors = []
         if result.returncode != 0:
-            errors = _parse_maven_errors(result.stdout + result.stderr)
+            errors = _parse_gradle_errors(result.stdout + result.stderr)
 
         response = {
             "success": result.returncode == 0,
@@ -502,33 +503,29 @@ def validate_with_anti_pattern_check(
     }
 
 
-def _parse_maven_errors(output: str) -> list:
-    """Parse Maven output for compilation errors."""
+def _parse_gradle_errors(output: str) -> list:
+    """Parse Gradle/javac output for compilation errors."""
     import re
 
     errors = []
-    error_pattern = re.compile(
-        r'\[ERROR\]\s+([^:]+):?\[?(\d+)?[,\]]?\s*(.+)'
-    )
+    # Match javac error patterns like: /path/to/File.java:42: error: message
+    javac_pattern = re.compile(r'^(/[^:]+\.java):(\d+):\s*error:\s*(.+)$')
 
     for line in output.split('\n'):
-        if '[ERROR]' in line:
-            match = error_pattern.match(line.strip())
-            if match:
-                file_path = match.group(1).strip()
-                line_num = match.group(2)
-                message = match.group(3).strip() if match.group(3) else line
-                errors.append({
-                    "file": file_path,
-                    "line": int(line_num) if line_num else None,
-                    "message": message
-                })
-            else:
-                errors.append({
-                    "file": None,
-                    "line": None,
-                    "message": line.replace('[ERROR]', '').strip()
-                })
+        match = javac_pattern.match(line.strip())
+        if match:
+            errors.append({
+                "file": match.group(1),
+                "line": int(match.group(2)),
+                "message": match.group(3)
+            })
+        elif 'FAILURE' in line or 'error:' in line.lower():
+            # Capture other error indicators
+            errors.append({
+                "file": None,
+                "line": None,
+                "message": line.strip()
+            })
     return errors
 
 
@@ -593,7 +590,7 @@ VALIDATE_CODE_CHANGE_TOOL = {
     "name": "validate_code_change",
     "description": """[Code Change] Validate code changes by running a compile check.
 
-Runs 'mvn compile' to verify changes compile correctly.
+Runs Gradle compile to verify changes compile correctly.
 For safety, use backup_files() before making changes so you can
 rollback_code_change() if the fix doesn't work.
 

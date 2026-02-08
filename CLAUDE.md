@@ -29,6 +29,13 @@ For complex architectural decisions, use the `decision-maker` subagent instead o
 
 Gamescope provides GPU acceleration so you can watch and interact with the client.
 
+### Display Rules (CRITICAL)
+
+- **ALWAYS use gamescope displays** - Check `./start_gamescopes.sh status` for available displays. NEVER use a non-gamescope display (e.g., a raw X display). Non-gamescope displays lack GPU acceleration and cause high CPU usage.
+- **NEVER overlap accounts on the same display** - Each account MUST have its own unique gamescope display. Before starting, check which displays are already in use by other accounts.
+- **Check before starting:** Run `./start_gamescopes.sh status` to see available displays, then check which are occupied (e.g., main on :3) to avoid conflicts.
+- **User's main account** is typically on `:3` - don't use that display or disrupt it.
+
 ## Command Debugging Workflow ⚡
 
 **When a command doesn't work as expected, follow this pattern:**
@@ -112,6 +119,38 @@ send_input(click, 442, 312)  # ❌ Hacky workaround
 # 1. Check logs: widget ID 786476 doesn't match actual button (786473)
 # 2. Tell user: "BANK_DEPOSIT_ALL uses wrong widget ID"
 # 3. Propose: "Fix DEPOSIT_INVENTORY_BUTTON constant in GameEngine.java"
+```
+
+## Routine Execution Protocol ⚡
+
+**When executing a task with an existing YAML routine, ALWAYS follow this protocol:**
+
+1. **READ the routine YAML first** - Don't assume you know the steps
+2. **FOLLOW steps in order** - Never skip steps or jump ahead
+3. **VERIFY position after each GOTO** - Confirm arrival before proceeding
+4. **If a step fails, STOP and report** - Don't improvise or guess alternative routes
+
+**Why this matters:** YAML routines encode validated paths. Step 3 might require completing steps 1-2 first (e.g., entering a building requires being at the door and opening it). Skipping steps causes invalid pathing that sends the character in random directions.
+
+**Anti-pattern (causes lost characters):**
+```python
+# User says "go mine iron"
+# WRONG: Jump to step 3 coordinates directly
+send_and_await("GOTO 3019 3450 0", ...)  # ❌ This is INSIDE a building!
+# Result: Pathing fails, character wanders off
+```
+
+**Correct pattern:**
+```python
+# User says "go mine iron"
+# 1. Read the routine YAML
+routine = Read("routines/skilling/mining_falador_iron.yaml")
+
+# 2. Follow steps in order
+send_and_await("GOTO 3061 3374 0", "location:3061,3374")  # Step 1: entrance
+send_command("INTERACT_OBJECT Door Open")                  # Step 2: open door
+send_and_await("GOTO 3019 3450 0", "location:3019,3450")  # Step 3: inside
+# ... continue with remaining steps
 ```
 
 ## Widget Discovery ⚡

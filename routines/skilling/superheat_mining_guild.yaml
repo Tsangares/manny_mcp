@@ -1,0 +1,220 @@
+# Superheat Mining at Mining Guild
+# Mine iron ore and cast Superheat Item to make iron bars
+# Banks bars at Falador East Bank
+
+name: "Superheat Mining - Mining Guild Iron"
+type: skilling
+skill: mining, magic, smithing
+description: |
+  Mine iron ore in the Mining Guild and cast Superheat Item to make iron bars.
+  Trains Mining, Magic, and Smithing simultaneously.
+
+  XP rates (approximate):
+  - Mining: ~25-30k/hr (iron ore)
+  - Magic: ~30k/hr (53 xp per Superheat)
+  - Smithing: ~7k/hr (12.5 xp per iron bar)
+
+  Rune costs: 4 Fire runes + 1 Nature rune per bar
+
+# Requirements
+requirements:
+  mining_level: 60  # Mining Guild requirement
+  magic_level: 43   # Superheat Item requirement
+  smithing_level: 15  # Iron bar requirement
+  items:
+    - "Any pickaxe (rune recommended)"
+    - "Nature runes (1 per bar)"
+    - "Fire runes (4 per bar)"
+    - "Fire staff (optional, saves fire runes)"
+
+# Starting location
+start_location:
+  name: "Falador East Bank"
+  x: 3013
+  y: 3355
+  plane: 0
+  validated: true
+
+# Key locations
+locations:
+  falador_east_bank:
+    x: 3013
+    y: 3355
+    plane: 0
+    description: "Falador East Bank for banking bars and getting runes"
+    validated: true
+
+  mining_guild_entrance:
+    x: 3019
+    y: 3337
+    plane: 0
+    description: "Above-ground Mining Guild entrance (ladder)"
+    notes: "South-east of Falador East Bank"
+
+  mining_guild_underground:
+    x: 3019
+    y: 9737
+    plane: 0
+    description: "Underground Mining Guild area"
+    notes: "Y coordinate offset by -6400 for underground"
+
+  iron_rocks_guild:
+    x: 3030
+    y: 9720
+    plane: 0
+    description: "Iron rock cluster in Mining Guild"
+    notes: "Multiple iron rocks close together, fast respawn"
+
+# Step-by-step routine
+steps:
+  # ========== PHASE 1: BANK FOR SUPPLIES ==========
+  - id: 1
+    phase: "banking"
+    action: GOTO
+    args: "3013 3355 0"
+    description: "Walk to Falador East Bank"
+    await_condition: "location:3013,3355"
+
+  - id: 2
+    phase: "banking"
+    action: BANK_OPEN
+    args: ""
+    description: "Open bank"
+    delay_after_ms: 1000
+
+  - id: 3
+    phase: "banking"
+    action: BANK_DEPOSIT_ALL
+    args: ""
+    description: "Deposit all items (bars, ore, etc)"
+    delay_after_ms: 500
+    notes: "Clear inventory before withdrawing supplies"
+
+  - id: 4
+    phase: "banking"
+    action: BANK_WITHDRAW
+    args: "Nature rune 27"
+    description: "Withdraw 27 nature runes"
+    delay_after_ms: 300
+    notes: "1 nature rune per superheat cast"
+
+  - id: 5
+    phase: "banking"
+    action: BANK_CLOSE
+    args: ""
+    description: "Close bank"
+    delay_after_ms: 500
+    notes: "Fire runes come from equipped fire staff, or withdraw fire runes too"
+
+  # ========== PHASE 2: TRAVEL TO MINING GUILD ==========
+  - id: 6
+    phase: "travel"
+    action: GOTO
+    args: "3019 3337 0"
+    description: "Walk to Mining Guild entrance"
+    await_condition: "location:3019,3337"
+    timeout_ms: 30000
+
+  - id: 7
+    phase: "travel"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down ladder to Mining Guild"
+    delay_after_ms: 2000
+    notes: "Requires 60 Mining to enter"
+
+  # ========== PHASE 3: WALK TO IRON ROCKS ==========
+  - id: 8
+    phase: "navigate"
+    action: GOTO
+    args: "3030 9720 0"
+    description: "Walk to iron rock cluster in Mining Guild"
+    await_condition: "location:3030,9720"
+    timeout_ms: 15000
+
+  # ========== PHASE 4: MINE AND SUPERHEAT LOOP ==========
+  - id: 9
+    phase: "mining"
+    action: MINE_ORE
+    args: "iron"
+    description: "Mine one iron ore"
+    await_condition: "has_item:Iron ore"
+    timeout_ms: 15000
+
+  - id: 10
+    phase: "superheat"
+    action: CAST_SPELL_ON_INVENTORY_ITEM
+    args: "Superheat_Item Iron_ore"
+    description: "Cast Superheat Item on iron ore to make iron bar"
+    delay_after_ms: 1800
+    notes: "Consumes 4 fire runes + 1 nature rune, produces iron bar"
+
+  # ========== PHASE 5: REPEAT OR BANK ==========
+  # The routine should loop steps 9-10 until:
+  # - Out of nature runes, OR
+  # - Inventory full of iron bars (27 bars max)
+
+  - id: 11
+    phase: "check"
+    action: QUERY_INVENTORY
+    args: ""
+    description: "Check inventory state"
+    notes: "Use this to decide if we need to bank"
+
+# Loop configuration
+loop:
+  enabled: true
+  start_step: 9
+  end_step: 10
+  exit_conditions:
+    - "inventory_full"
+    - "no_item:Nature rune"
+  notes: |
+    Loop mining and superheating until:
+    - Inventory is full of iron bars (27), OR
+    - Out of nature runes
+    Then return to step 1 (banking phase)
+
+# Execution notes
+notes: |
+  SUPERHEAT MINING WORKFLOW:
+
+  1. Bank Phase: Get 27 nature runes (assumes fire staff equipped)
+  2. Travel: Walk to Mining Guild, climb down ladder
+  3. Mine Loop: Mine iron ore -> Superheat -> Repeat
+  4. Bank: When out of runes or inventory full of bars
+
+  RUNE REQUIREMENTS:
+  - Fire staff: Eliminates fire rune cost (recommended)
+  - Without fire staff: Need 4 fire runes per cast (108 fire runes for 27 bars)
+  - Nature runes: 1 per cast (27 for full inventory)
+
+  XP PER INVENTORY (27 iron bars):
+  - Mining: ~945 XP (35 per ore)
+  - Magic: ~1,431 XP (53 per cast)
+  - Smithing: ~337.5 XP (12.5 per bar)
+
+  TIPS:
+  - Equip fire staff to save fire runes
+  - Mining Guild has +7 invisible mining boost
+  - Iron rocks respawn fast in Mining Guild
+  - Consider using Varrock armour for double ore chance
+
+# Troubleshooting
+troubleshooting:
+  - issue: "Can't enter Mining Guild"
+    solutions:
+      - "Requires 60 Mining (can be boosted with dwarven stout)"
+      - "Make sure you're at the correct entrance"
+
+  - issue: "Superheat fails"
+    solutions:
+      - "Check you have nature runes and fire runes (or fire staff)"
+      - "Make sure iron ore is in inventory"
+      - "Requires 43 Magic"
+
+  - issue: "Not getting iron bars"
+    solutions:
+      - "Iron has ~50% success rate without ring of forging"
+      - "Consider using ring of forging for 100% success"
+      - "Failed superheats still consume runes but give magic xp"

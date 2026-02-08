@@ -15,6 +15,7 @@ from ..utils import maybe_truncate_response
 # Dependencies (send_command_with_response function and config)
 send_command_with_response = None
 config = None
+runelite_manager = None
 
 # Late-imported handlers
 _handle_send_and_await = None
@@ -22,12 +23,13 @@ _handle_await_state_change = None
 _handle_equip_item = None
 
 
-def set_dependencies(send_command_func, server_config):
+def set_dependencies(send_command_func, server_config, manager=None):
     """Inject dependencies (called from server.py startup)"""
-    global send_command_with_response, config
+    global send_command_with_response, config, runelite_manager
     global _handle_send_and_await, _handle_await_state_change, _handle_equip_item
     send_command_with_response = send_command_func
     config = server_config
+    runelite_manager = manager
 
     # Late import handlers from other modules to avoid circular deps
     from . import commands, monitoring
@@ -172,6 +174,13 @@ async def handle_scan_widgets(arguments: dict) -> dict:
     filter_text = arguments.get("filter_text")
     specific_group = arguments.get("group")
     account_id = arguments.get("account_id")
+
+    # Validate inputs
+    if not isinstance(timeout_ms, (int, float)) or timeout_ms < 100 or timeout_ms > 30000:
+        timeout_ms = 3000
+    if specific_group is not None:
+        if not isinstance(specific_group, int) or specific_group < 0 or specific_group > 65535:
+            return {"success": False, "error": f"Invalid group: must be 0-65535, got {specific_group}"}
 
     # Build command with optional --group flag and filter
     parts = ["SCAN_WIDGETS"]
@@ -986,7 +995,7 @@ Returns progress updates and final results.""",
     }
 })
 async def handle_execute_routine(arguments: dict) -> dict:
-    """Execute a YAML routine step by step."""
+    """Execute a YAML routine step by step with inner/outer loop support."""
     routine_path = arguments.get("routine_path")
     start_step = arguments.get("start_step", 1)
     max_loops = arguments.get("max_loops", 10000)
@@ -1006,209 +1015,163 @@ async def handle_execute_routine(arguments: dict) -> dict:
 
     steps = routine['steps']
     loop_config = routine.get('loop', {})
-    loop_enabled = loop_config.get('enabled', False)
-    repeat_from = loop_config.get('repeat_from_step', 1)
-
-    # Extract config for variable interpolation
     routine_config = routine.get('config', {})
+
+    # Build step index: map step ID -> list index (supports string IDs like "6b")
+    step_id_to_idx = {}
+    for idx, step in enumerate(steps):
+        sid = step.get('id', idx + 1)
+        step_id_to_idx[str(sid)] = idx
+
+    # Parse loop configuration (supports both flat and inner/outer formats)
+    inner_loop = loop_config.get('inner', {})
+    outer_loop = loop_config.get('outer', {})
+
+    # Flat loop format (backwards compatible)
+    flat_loop_enabled = loop_config.get('enabled', False)
+    flat_repeat_from = loop_config.get('repeat_from_step', 1)
+
+    # Determine loop mode
+    has_inner_outer = inner_loop.get('enabled', False) or outer_loop.get('enabled', False)
 
     results = {
         "success": True,
         "routine_name": routine.get('name', 'Unknown'),
         "total_steps": len(steps),
         "completed_steps": [],
+        "inner_loops_completed": 0,
+        "outer_loops_completed": 0,
         "loops_completed": 0,
         "errors": []
     }
 
-    loop_count = 0
-    current_step_idx = start_step - 1  # Convert to 0-indexed
-    health_check_interval = 5  # Check health every N steps
+    health_check_interval = 5
     steps_since_health_check = 0
+    outer_count = 0
+    inner_count = 0
+    restart_attempts = 0
+    max_restart_attempts = 3
+    current_step_idx = _resolve_step_idx(start_step, step_id_to_idx, 0)
 
-    while loop_count < max_loops:
-        # Health check at start of each loop
+    while outer_count < max_loops:
+        # Health check at start of each outer loop
         health = await check_client_health(account_id, max_stale_seconds=60)
         if not health["alive"]:
+            if restart_attempts < max_restart_attempts:
+                restart_attempts += 1
+                _routine_logger.warning("[ROUTINE] Client crash detected (attempt %d/%d), auto-restarting...",
+                                        restart_attempts, max_restart_attempts)
+                restarted = await _auto_restart_client(account_id)
+                if restarted:
+                    results["errors"].append(f"Auto-restarted client (attempt {restart_attempts})")
+                    continue  # Retry this outer loop iteration
             results["success"] = False
             results["crash_detected"] = True
             results["crash_error"] = health["error"]
             results["stale_seconds"] = health.get("stale_seconds")
+            results["restart_attempts"] = restart_attempts
             return results
 
         # Execute steps
         while current_step_idx < len(steps):
             step = steps[current_step_idx]
             step_id = step.get('id', current_step_idx + 1)
-            action = step.get('action')
-            delay_before = step.get('delay_before_ms', 0)
-            timeout_ms = step.get('timeout_ms', 30000)
 
-            # Interpolate variables in step fields
-            args = step.get('args', '')
-            if args and routine_config:
-                args = interpolate_variables(str(args), routine_config)
-
-            await_condition = step.get('await_condition')
-            if await_condition and routine_config:
-                await_condition = interpolate_variables(await_condition, routine_config)
-
-            # Apply delay before action
-            if delay_before > 0:
-                await asyncio.sleep(delay_before / 1000)
-
-            # Check for mcp_tool field (MCP tool invocation instead of game command)
-            mcp_tool = step.get('mcp_tool')
-            if mcp_tool:
-                # Handle MCP tool invocation
-                mcp_args = step.get('args', {})
-                if isinstance(mcp_args, str):
-                    # If args is a string, try to parse as dict-like
-                    mcp_args = {}
-                # Add account_id to args if not present
-                if account_id and 'account_id' not in mcp_args:
-                    mcp_args['account_id'] = account_id
-
-                step_result = {
-                    "step_id": step_id,
-                    "phase": step.get('phase'),
-                    "mcp_tool": mcp_tool,
-                    "mcp_args": mcp_args
-                }
-
-                try:
-                    if mcp_tool == "equip_item":
-                        result = await _handle_equip_item(mcp_args)
-                    elif mcp_tool == "find_and_click_widget":
-                        result = await handle_find_and_click_widget(mcp_args)
-                    else:
-                        step_result["success"] = False
-                        step_result["error"] = f"Unknown mcp_tool: {mcp_tool}"
-                        results["errors"].append(f"Step {step_id}: Unknown mcp_tool '{mcp_tool}'")
-                        results["completed_steps"].append(step_result)
-                        current_step_idx += 1
-                        continue
-
-                    step_result["success"] = result.get("success", False)
-                    step_result["result"] = result
-                    if not result.get("success"):
-                        step_result["error"] = result.get("error", "MCP tool failed")
-                        results["errors"].append(f"Step {step_id} ({mcp_tool}): {step_result['error']}")
-
-                except Exception as e:
-                    step_result["success"] = False
-                    step_result["error"] = str(e)
-                    results["errors"].append(f"Step {step_id} ({mcp_tool}): {e}")
-
-                results["completed_steps"].append(step_result)
-                current_step_idx += 1
-                continue
-
-            # Build and send command
-            command = f"{action} {args}".strip() if args else action
-
-            step_result = {
-                "step_id": step_id,
-                "phase": step.get('phase'),
-                "action": action,
-                "command": command
-            }
-
-            # Handle step execution using existing tested handlers
-            if action == "WAIT":
-                # Pure wait - use await_state_change
-                if await_condition:
-                    result = await _handle_await_state_change({
-                        "condition": await_condition,
-                        "timeout_ms": timeout_ms,
-                        "poll_interval_ms": 200,
-                        "account_id": account_id
-                    })
-                    step_result["success"] = result.get("success", False)
-                    step_result["elapsed_ms"] = result.get("elapsed_ms")
-                    step_result["await_result"] = "success" if result.get("success") else "timeout"
-                else:
-                    await asyncio.sleep(timeout_ms / 1000)
-                    step_result["success"] = True
-                    step_result["await_result"] = "waited"
-
-            elif await_condition:
-                # Command with condition - use send_and_await (atomic operation)
-                result = await _handle_send_and_await({
-                    "command": command,
-                    "await_condition": await_condition,
-                    "timeout_ms": timeout_ms,
-                    "poll_interval_ms": 200,
-                    "account_id": account_id
-                })
-                step_result["success"] = result.get("success", False)
-                step_result["elapsed_ms"] = result.get("elapsed_ms")
-                step_result["checks"] = result.get("checks")
-                step_result["await_result"] = "success" if result.get("success") else "timeout"
-
-                # Retry once if condition not met
-                if not result.get("success"):
-                    result = await _handle_send_and_await({
-                        "command": command,
-                        "await_condition": await_condition,
-                        "timeout_ms": timeout_ms * 2,  # Double timeout on retry
-                        "poll_interval_ms": 200,
-                        "account_id": account_id
-                    })
-                    if result.get("success"):
-                        step_result["success"] = True
-                        step_result["await_result"] = "success"
-                        step_result["retried"] = True
-
-            else:
-                # Simple command without condition - poll for response confirmation
-                result = await execute_simple_command(command, timeout_ms, account_id)
-                step_result["success"] = result.get("success", False)
-                step_result["response"] = result.get("response", {}).get("status")
-                step_result["elapsed_ms"] = result.get("elapsed_ms")
-                if result.get("error"):
-                    step_result["error"] = result["error"]
+            # Execute this step
+            step_result = await _execute_single_step(step, current_step_idx, routine_config, account_id)
+            results["completed_steps"].append(step_result)
 
             # Track failures
             if not step_result.get("success", True):
+                action = step.get('action', step.get('mcp_tool', '?'))
                 results["errors"].append(f"Step {step_id} ({action}): {step_result.get('error', 'failed')}")
 
-            results["completed_steps"].append(step_result)
-            current_step_idx += 1
-
-            # Periodic health check every N steps to catch crashes mid-routine
+            # Periodic health check
             steps_since_health_check += 1
             if steps_since_health_check >= health_check_interval:
                 steps_since_health_check = 0
                 health = await check_client_health(account_id, max_stale_seconds=60)
                 if not health["alive"]:
+                    if restart_attempts < max_restart_attempts:
+                        restart_attempts += 1
+                        _routine_logger.warning("[ROUTINE] Client crash at step %s (attempt %d/%d), auto-restarting...",
+                                                step_id, restart_attempts, max_restart_attempts)
+                        restarted = await _auto_restart_client(account_id)
+                        if restarted:
+                            results["errors"].append(f"Auto-restarted at step {step_id} (attempt {restart_attempts})")
+                            break  # Break inner step loop, re-enter outer loop (re-checks health)
                     results["success"] = False
                     results["crash_detected"] = True
                     results["crash_error"] = health["error"]
-                    results["stale_seconds"] = health.get("stale_seconds")
                     results["crashed_at_step"] = step_id
+                    results["restart_attempts"] = restart_attempts
                     return results
 
-        # Check if we should loop
-        if loop_enabled:
-            loop_count += 1
-            results["loops_completed"] = loop_count
-            current_step_idx = repeat_from - 1  # Reset to repeat step
+            # Check inner loop: did we just finish the inner loop's end_step?
+            if has_inner_outer and inner_loop.get('enabled', False):
+                inner_end = str(inner_loop.get('end_step', ''))
+                if str(step_id) == inner_end:
+                    # Check inner exit conditions
+                    inner_exit = await _check_conditions(
+                        inner_loop.get('exit_conditions', []), routine_config, account_id)
 
-            # Check stop conditions (with variable interpolation)
+                    if inner_exit:
+                        # Inner loop exits - jump to on_exit target
+                        inner_count += 1
+                        results["inner_loops_completed"] = inner_count
+                        on_exit = inner_loop.get('on_exit', '')
+                        if on_exit.startswith('goto_step:'):
+                            target_step = on_exit.split(':', 1)[1]
+                            jump_idx = _resolve_step_idx(target_step, step_id_to_idx, None)
+                            if jump_idx is not None:
+                                current_step_idx = jump_idx
+                                continue
+                        # If no on_exit or invalid target, fall through to next step
+                    else:
+                        # Inner loop continues - jump back to start_step
+                        inner_start = inner_loop.get('start_step', 1)
+                        jump_idx = _resolve_step_idx(inner_start, step_id_to_idx, None)
+                        if jump_idx is not None:
+                            current_step_idx = jump_idx
+                            continue
+
+            current_step_idx += 1
+
+        # All steps completed - check if we should loop
+        if has_inner_outer and outer_loop.get('enabled', False):
+            outer_count += 1
+            results["outer_loops_completed"] = outer_count
+            results["loops_completed"] = outer_count
+
+            # Check outer exit conditions
+            outer_exit = await _check_conditions(
+                outer_loop.get('exit_conditions', []), routine_config, account_id)
+
+            if outer_exit:
+                results["stop_reason"] = "outer_exit_condition_met"
+                break
+
+            # Outer loop continues - restart from outer start_step
+            outer_start = outer_loop.get('start_step', 1)
+            current_step_idx = _resolve_step_idx(outer_start, step_id_to_idx, 0)
+
+        elif flat_loop_enabled:
+            # Flat loop (backwards compatible)
+            outer_count += 1
+            results["loops_completed"] = outer_count
+            current_step_idx = _resolve_step_idx(flat_repeat_from, step_id_to_idx, 0)
+
+            # Check flat stop conditions
             stop_conditions = loop_config.get('stop_conditions', [])
             should_stop = False
             for condition in stop_conditions:
-                # Interpolate variables in stop condition
-                interpolated_condition = condition
+                interpolated = condition
                 if routine_config:
-                    interpolated_condition = interpolate_variables(condition, routine_config)
-
-                if await check_stop_condition(interpolated_condition, account_id):
+                    interpolated = interpolate_variables(condition, routine_config)
+                if await check_stop_condition(interpolated, account_id):
                     should_stop = True
-                    results["stop_reason"] = interpolated_condition
+                    results["stop_reason"] = interpolated
                     break
-
             if should_stop:
                 break
         else:
@@ -1217,16 +1180,206 @@ async def handle_execute_routine(arguments: dict) -> dict:
     return results
 
 
+def _resolve_step_idx(step_id, step_id_to_idx: dict, default):
+    """Resolve a step ID (int or string like '6b') to a list index."""
+    key = str(step_id)
+    if key in step_id_to_idx:
+        return step_id_to_idx[key]
+    # Try as integer index (1-based)
+    try:
+        return int(step_id) - 1
+    except (ValueError, TypeError):
+        return default
+
+
+async def _check_conditions(conditions: list, routine_config: dict, account_id: str) -> bool:
+    """Check if ANY exit condition is met. Returns True if should exit."""
+    for condition in conditions:
+        interpolated = condition
+        if routine_config:
+            interpolated = interpolate_variables(condition, routine_config)
+        if await check_stop_condition(interpolated, account_id):
+            return True
+    return False
+
+
+async def _execute_single_step(step: dict, step_idx: int, routine_config: dict, account_id: str) -> dict:
+    """Execute a single routine step and return the result."""
+    step_id = step.get('id', step_idx + 1)
+    action = step.get('action')
+    delay_before = step.get('delay_before_ms', 0)
+    timeout_ms = step.get('timeout_ms', 30000)
+
+    # Interpolate variables in step fields
+    args = step.get('args', '')
+    if args and routine_config:
+        args = interpolate_variables(str(args), routine_config)
+
+    await_condition = step.get('await_condition')
+    if await_condition and routine_config:
+        await_condition = interpolate_variables(await_condition, routine_config)
+
+    # Apply delay before action
+    if delay_before > 0:
+        await asyncio.sleep(delay_before / 1000)
+
+    # Check for mcp_tool field (MCP tool invocation instead of game command)
+    mcp_tool = step.get('mcp_tool')
+    if mcp_tool:
+        return await _execute_mcp_tool_step(step, mcp_tool, account_id)
+
+    # Build and send command
+    command = f"{action} {args}".strip() if args else action
+
+    step_result = {
+        "step_id": step_id,
+        "phase": step.get('phase'),
+        "action": action,
+        "command": command
+    }
+
+    # Handle step execution using existing tested handlers
+    if action == "WAIT":
+        if await_condition:
+            result = await _handle_await_state_change({
+                "condition": await_condition,
+                "timeout_ms": timeout_ms,
+                "poll_interval_ms": 200,
+                "account_id": account_id
+            })
+            step_result["success"] = result.get("success", False)
+            step_result["elapsed_ms"] = result.get("elapsed_ms")
+            step_result["await_result"] = "success" if result.get("success") else "timeout"
+        else:
+            await asyncio.sleep(timeout_ms / 1000)
+            step_result["success"] = True
+            step_result["await_result"] = "waited"
+
+    elif await_condition:
+        result = await _handle_send_and_await({
+            "command": command,
+            "await_condition": await_condition,
+            "timeout_ms": timeout_ms,
+            "poll_interval_ms": 200,
+            "account_id": account_id
+        })
+        step_result["success"] = result.get("success", False)
+        step_result["elapsed_ms"] = result.get("elapsed_ms")
+        step_result["checks"] = result.get("checks")
+        step_result["await_result"] = "success" if result.get("success") else "timeout"
+
+        # Retry once if condition not met
+        if not result.get("success"):
+            result = await _handle_send_and_await({
+                "command": command,
+                "await_condition": await_condition,
+                "timeout_ms": timeout_ms * 2,
+                "poll_interval_ms": 200,
+                "account_id": account_id
+            })
+            if result.get("success"):
+                step_result["success"] = True
+                step_result["await_result"] = "success"
+                step_result["retried"] = True
+
+    else:
+        result = await execute_simple_command(command, timeout_ms, account_id)
+        step_result["success"] = result.get("success", False)
+        step_result["response"] = result.get("response", {}).get("status")
+        step_result["elapsed_ms"] = result.get("elapsed_ms")
+        if result.get("error"):
+            step_result["error"] = result["error"]
+
+    return step_result
+
+
+async def _execute_mcp_tool_step(step: dict, mcp_tool: str, account_id: str) -> dict:
+    """Execute a step that invokes an MCP tool."""
+    step_id = step.get('id', '?')
+    mcp_args = step.get('args', {})
+    if isinstance(mcp_args, str):
+        mcp_args = {}
+    if account_id and 'account_id' not in mcp_args:
+        mcp_args['account_id'] = account_id
+
+    step_result = {
+        "step_id": step_id,
+        "phase": step.get('phase'),
+        "mcp_tool": mcp_tool,
+        "mcp_args": mcp_args
+    }
+
+    try:
+        if mcp_tool == "equip_item":
+            result = await _handle_equip_item(mcp_args)
+        elif mcp_tool == "find_and_click_widget":
+            result = await handle_find_and_click_widget(mcp_args)
+        else:
+            step_result["success"] = False
+            step_result["error"] = f"Unknown mcp_tool: {mcp_tool}"
+            return step_result
+
+        step_result["success"] = result.get("success", False)
+        step_result["result"] = result
+        if not result.get("success"):
+            step_result["error"] = result.get("error", "MCP tool failed")
+
+    except Exception as e:
+        step_result["success"] = False
+        step_result["error"] = str(e)
+
+    return step_result
+
+
 async def check_stop_condition(condition: str, account_id: str = None) -> bool:
     """Check if a loop stop condition is met."""
     state = await get_game_state(account_id)
     if not state:
         return False
 
+    # inventory_full - All 28 slots used
+    if condition == "inventory_full":
+        inventory = state.get("inventory", state.get("player", {}).get("inventory", {}))
+        # Handle both compact format {"used": N} and list format
+        if isinstance(inventory, dict):
+            used = inventory.get("used", 0)
+            return used >= 28
+        elif isinstance(inventory, list):
+            return len([i for i in inventory if i]) >= 28
+        return False
+
+    # no_item:ItemName - Item not in inventory
+    if condition.startswith("no_item:"):
+        item_name = condition[len("no_item:"):].strip()
+        inventory = state.get("inventory", state.get("player", {}).get("inventory", {}))
+        # Check compact format: {"items": ["Coal x2", "Iron ore x1", ...]}
+        if isinstance(inventory, dict):
+            items = inventory.get("items", [])
+            for item in items:
+                # Items may be "Name xN" or just "Name"
+                if isinstance(item, str) and item.split(" x")[0] == item_name:
+                    return False
+                elif isinstance(item, dict) and item.get("name") == item_name:
+                    return False
+            return True  # Item not found
+        elif isinstance(inventory, list):
+            for item in inventory:
+                if isinstance(item, dict) and item.get("name") == item_name:
+                    return False
+                elif isinstance(item, str) and item.split(" x")[0] == item_name:
+                    return False
+            return True
+        return False
+
+    # has_item:ItemName - Item IS in inventory
+    if condition.startswith("has_item:"):
+        item_name = condition[len("has_item:"):].strip()
+        # Invert no_item check
+        return not await check_stop_condition(f"no_item:{item_name}", account_id)
+
     # no_item_in_bank:ItemName - No more of item in bank (can't withdraw)
-    # This is checked implicitly when withdraw returns 0 items
     if condition.startswith("no_item_in_bank:"):
-        # We'd need to check bank contents - for now return False
+        # Bank contents not available in state file - return False
         return False
 
     # skill_level:N - Skill reached level N
@@ -1247,7 +1400,7 @@ async def get_game_state(account_id: str = None) -> dict:
     try:
         with open(state_file, 'r') as f:
             return json.load(f)
-    except:
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
@@ -1290,6 +1443,51 @@ async def check_client_health(account_id: str = None, max_stale_seconds: float =
             "stale_seconds": None,
             "error": f"Error checking state file: {e}"
         }
+
+
+import logging
+_routine_logger = logging.getLogger("routine.auto_restart")
+
+
+async def _auto_restart_client(account_id: str = None) -> bool:
+    """
+    Stop and restart the RuneLite client, then wait for the state file to refresh.
+
+    Returns True if the client is healthy again, False otherwise.
+    """
+    if runelite_manager is None:
+        _routine_logger.warning("[AUTO-RESTART] No runelite_manager available, cannot restart")
+        return False
+
+    _routine_logger.info("[AUTO-RESTART] Stopping client for account '%s'...", account_id or "default")
+    try:
+        runelite_manager.stop_instance(account_id)
+    except Exception as e:
+        _routine_logger.warning("[AUTO-RESTART] Stop failed (may already be dead): %s", e)
+
+    await asyncio.sleep(3)  # Brief cooldown before restart
+
+    _routine_logger.info("[AUTO-RESTART] Starting client for account '%s'...", account_id or "default")
+    try:
+        start_result = runelite_manager.start_instance(account_id)
+        if not start_result.get("success", False):
+            _routine_logger.error("[AUTO-RESTART] Start failed: %s", start_result)
+            return False
+    except Exception as e:
+        _routine_logger.error("[AUTO-RESTART] Start exception: %s", e)
+        return False
+
+    # Wait for state file to become fresh (max 120s for login + plugin load)
+    _routine_logger.info("[AUTO-RESTART] Waiting for state file to refresh...")
+    for i in range(60):  # 60 * 2s = 120s
+        await asyncio.sleep(2)
+        health = await check_client_health(account_id, max_stale_seconds=10)
+        if health["alive"]:
+            _routine_logger.info("[AUTO-RESTART] Client healthy after %ds", (i + 1) * 2)
+            return True
+
+    _routine_logger.error("[AUTO-RESTART] Client did not become healthy within 120s")
+    return False
 
 
 @registry.register({
@@ -1587,21 +1785,10 @@ async def handle_find_and_click_widget(arguments: dict) -> dict:
         click_x = bounds["x"] + bounds["width"] // 2
         click_y = bounds["y"] + bounds["height"] // 2
 
-        # Use xdotool for clicking - the Java Mouse.click() doesn't register properly
-        # Get display from account config
-        account_config = config.get_account_config(account_id)
-        display = account_config.display or config.display or ":2"
-        import subprocess
-        try:
-            subprocess.run(
-                ["xdotool", "mousemove", str(click_x), str(click_y), "click", "1"],
-                env={**os.environ, "DISPLAY": display},
-                timeout=5,
-                check=True
-            )
-            click_response = {"status": "success"}
-        except Exception as e:
-            click_response = {"status": "error", "error": str(e)}
+        # Use CLICK_AT command - atomic move+click handled by the Java plugin
+        # This avoids xdotool display connection issues with gamescope
+        click_command = f"CLICK_AT {click_x} {click_y}"
+        click_response = await send_command_with_response(click_command, timeout_ms, account_id)
     else:
         # Fallback: Use CLICK_WIDGET with action (for widgets with proper individual IDs)
         if action:
@@ -1734,15 +1921,16 @@ async def handle_click_widget_by_action(arguments: dict) -> dict:
     command_file = config.get_command_file(account_id)
 
     try:
-        # Move mouse to position
-        with open(command_file, "w") as f:
-            f.write(f"MOUSE_MOVE {click_x} {click_y}\n")
+        # Use CLICK_AT for atomic move+click (avoids MOUSE_MOVE + MOUSE_CLICK race)
+        click_command = f"CLICK_AT {click_x} {click_y}"
+        click_response = await send_command_with_response(click_command, timeout_ms, account_id)
 
-        await asyncio.sleep(0.3)
-
-        # Click
-        with open(command_file, "w") as f:
-            f.write("MOUSE_CLICK left\n")
+        if click_response.get("status") != "success":
+            return {
+                "success": False,
+                "error": f"Click failed: {click_response.get('error', 'Unknown error')}",
+                "action": action
+            }
 
         return {
             "success": True,

@@ -4,16 +4,13 @@
 import asyncio
 import json
 import os
-import signal
 import uuid
-from pathlib import Path
 from dotenv import load_dotenv
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import Tool, TextContent
 
 # Import modular components
 from mcptools.config import ServerConfig
@@ -21,67 +18,7 @@ from mcptools.registry import registry
 from mcptools.runelite_manager import MultiRuneLiteManager
 
 # Import tool modules (they register themselves on import)
-from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial, session, quests, sessions, location_history, routine_generator
-
-# Import code change tools (not yet refactored)
-from request_code_change import (
-    prepare_code_change,
-    validate_code_change,
-    deploy_code_change,
-    validate_with_anti_pattern_check,
-    find_relevant_files,
-    backup_files,
-    rollback_code_change,
-    diagnose_issues,
-    PREPARE_CODE_CHANGE_TOOL,
-    VALIDATE_CODE_CHANGE_TOOL,
-    DEPLOY_CODE_CHANGE_TOOL,
-    VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL,
-    FIND_RELEVANT_FILES_TOOL,
-    BACKUP_FILES_TOOL,
-    ROLLBACK_CODE_CHANGE_TOOL,
-    DIAGNOSE_ISSUES_TOOL
-)
-
-# Import manny-specific tools (not yet refactored)
-from manny_tools import (
-    get_manny_guidelines,
-    get_plugin_context,
-    get_section,
-    find_command,
-    find_pattern_in_plugin,
-    generate_command_template,
-    check_anti_patterns,
-    get_class_summary,
-    find_similar_fix,
-    get_threading_patterns,
-    find_blocking_patterns,
-    generate_debug_instrumentation,
-    get_blocking_trace,
-    list_available_commands,
-    get_command_examples,
-    validate_routine_deep,
-    generate_command_reference,
-    get_teleport_info,
-    GET_MANNY_GUIDELINES_TOOL,
-    GET_PLUGIN_CONTEXT_TOOL,
-    GET_SECTION_TOOL,
-    FIND_COMMAND_TOOL,
-    FIND_PATTERN_TOOL,
-    GENERATE_COMMAND_TEMPLATE_TOOL,
-    CHECK_ANTI_PATTERNS_TOOL,
-    GET_CLASS_SUMMARY_TOOL,
-    FIND_SIMILAR_FIX_TOOL,
-    GET_THREADING_PATTERNS_TOOL,
-    FIND_BLOCKING_PATTERNS_TOOL,
-    GENERATE_DEBUG_INSTRUMENTATION_TOOL,
-    GET_BLOCKING_TRACE_TOOL,
-    LIST_AVAILABLE_COMMANDS_TOOL,
-    GET_COMMAND_EXAMPLES_TOOL,
-    VALIDATE_ROUTINE_DEEP_TOOL,
-    GENERATE_COMMAND_REFERENCE_TOOL,
-    GET_TELEPORT_INFO_TOOL
-)
+from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial, session, quests, sessions, location_history, routine_generator, code_changes, manny_navigation
 
 # Load environment variables (for GEMINI_API_KEY, session credentials)
 load_dotenv()
@@ -263,9 +200,11 @@ runelite_manager = MultiRuneLiteManager(config)
 core.set_dependencies(runelite_manager, config)
 monitoring.set_dependencies(runelite_manager, config)
 screenshot.set_dependencies(runelite_manager, config, genai if GEMINI_AVAILABLE else None)
-routine.set_dependencies(send_command_with_response, config)
+routine.set_dependencies(send_command_with_response, config, runelite_manager)
 commands.set_dependencies(send_command_with_response, config)
 spatial.set_dependencies(send_command_with_response, config)
+code_changes.set_dependencies(config)
+manny_navigation.set_dependencies(config)
 quests.set_dependencies(runelite_manager, config)
 
 
@@ -278,374 +217,14 @@ server = Server("runelite-debug")
 
 @server.list_tools()
 async def list_tools():
-    """Return all tools from registry plus non-refactored tools."""
-    # Get tools from registry
-    registry_tools = registry.list_tools()
-
-    # Add non-refactored tools (code change and manny-specific)
-    additional_tools = [
-        Tool(
-            name=PREPARE_CODE_CHANGE_TOOL["name"],
-            description=PREPARE_CODE_CHANGE_TOOL["description"],
-            inputSchema=PREPARE_CODE_CHANGE_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=VALIDATE_CODE_CHANGE_TOOL["name"],
-            description=VALIDATE_CODE_CHANGE_TOOL["description"],
-            inputSchema=VALIDATE_CODE_CHANGE_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=DEPLOY_CODE_CHANGE_TOOL["name"],
-            description=DEPLOY_CODE_CHANGE_TOOL["description"],
-            inputSchema=DEPLOY_CODE_CHANGE_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL["name"],
-            description=VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL["description"],
-            inputSchema=VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=FIND_RELEVANT_FILES_TOOL["name"],
-            description=FIND_RELEVANT_FILES_TOOL["description"],
-            inputSchema=FIND_RELEVANT_FILES_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=BACKUP_FILES_TOOL["name"],
-            description=BACKUP_FILES_TOOL["description"],
-            inputSchema=BACKUP_FILES_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=ROLLBACK_CODE_CHANGE_TOOL["name"],
-            description=ROLLBACK_CODE_CHANGE_TOOL["description"],
-            inputSchema=ROLLBACK_CODE_CHANGE_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=DIAGNOSE_ISSUES_TOOL["name"],
-            description=DIAGNOSE_ISSUES_TOOL["description"],
-            inputSchema=DIAGNOSE_ISSUES_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_MANNY_GUIDELINES_TOOL["name"],
-            description=GET_MANNY_GUIDELINES_TOOL["description"],
-            inputSchema=GET_MANNY_GUIDELINES_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_PLUGIN_CONTEXT_TOOL["name"],
-            description=GET_PLUGIN_CONTEXT_TOOL["description"],
-            inputSchema=GET_PLUGIN_CONTEXT_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_SECTION_TOOL["name"],
-            description=GET_SECTION_TOOL["description"],
-            inputSchema=GET_SECTION_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=FIND_COMMAND_TOOL["name"],
-            description=FIND_COMMAND_TOOL["description"],
-            inputSchema=FIND_COMMAND_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=FIND_PATTERN_TOOL["name"],
-            description=FIND_PATTERN_TOOL["description"],
-            inputSchema=FIND_PATTERN_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GENERATE_COMMAND_TEMPLATE_TOOL["name"],
-            description=GENERATE_COMMAND_TEMPLATE_TOOL["description"],
-            inputSchema=GENERATE_COMMAND_TEMPLATE_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=CHECK_ANTI_PATTERNS_TOOL["name"],
-            description=CHECK_ANTI_PATTERNS_TOOL["description"],
-            inputSchema=CHECK_ANTI_PATTERNS_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_CLASS_SUMMARY_TOOL["name"],
-            description=GET_CLASS_SUMMARY_TOOL["description"],
-            inputSchema=GET_CLASS_SUMMARY_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=FIND_SIMILAR_FIX_TOOL["name"],
-            description=FIND_SIMILAR_FIX_TOOL["description"],
-            inputSchema=FIND_SIMILAR_FIX_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_THREADING_PATTERNS_TOOL["name"],
-            description=GET_THREADING_PATTERNS_TOOL["description"],
-            inputSchema=GET_THREADING_PATTERNS_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=FIND_BLOCKING_PATTERNS_TOOL["name"],
-            description=FIND_BLOCKING_PATTERNS_TOOL["description"],
-            inputSchema=FIND_BLOCKING_PATTERNS_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GENERATE_DEBUG_INSTRUMENTATION_TOOL["name"],
-            description=GENERATE_DEBUG_INSTRUMENTATION_TOOL["description"],
-            inputSchema=GENERATE_DEBUG_INSTRUMENTATION_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_BLOCKING_TRACE_TOOL["name"],
-            description=GET_BLOCKING_TRACE_TOOL["description"],
-            inputSchema=GET_BLOCKING_TRACE_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=LIST_AVAILABLE_COMMANDS_TOOL["name"],
-            description=LIST_AVAILABLE_COMMANDS_TOOL["description"],
-            inputSchema=LIST_AVAILABLE_COMMANDS_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_COMMAND_EXAMPLES_TOOL["name"],
-            description=GET_COMMAND_EXAMPLES_TOOL["description"],
-            inputSchema=GET_COMMAND_EXAMPLES_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=VALIDATE_ROUTINE_DEEP_TOOL["name"],
-            description=VALIDATE_ROUTINE_DEEP_TOOL["description"],
-            inputSchema=VALIDATE_ROUTINE_DEEP_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GENERATE_COMMAND_REFERENCE_TOOL["name"],
-            description=GENERATE_COMMAND_REFERENCE_TOOL["description"],
-            inputSchema=GENERATE_COMMAND_REFERENCE_TOOL["inputSchema"]
-        ),
-        Tool(
-            name=GET_TELEPORT_INFO_TOOL["name"],
-            description=GET_TELEPORT_INFO_TOOL["description"],
-            inputSchema=GET_TELEPORT_INFO_TOOL["inputSchema"]
-        )
-    ]
-
-    return registry_tools + additional_tools
+    """Return all registered tools."""
+    return registry.list_tools()
 
 
 @server.call_tool()
 async def call_tool(name: str, arguments: dict):
-    """Route tool calls to registry or non-refactored handlers."""
-
-    # Try registry first
-    if registry.has_tool(name):
-        return await registry.call_tool(name, arguments)
-
-    # Handle non-refactored tools
-    if name == "prepare_code_change":
-        result = prepare_code_change(
-            problem_description=arguments["problem_description"],
-            relevant_files=arguments["relevant_files"],
-            logs=arguments.get("logs", ""),
-            game_state=arguments.get("game_state"),
-            manny_src=config.plugin_directory,
-            auto_include_guidelines=arguments.get("auto_include_guidelines", True),
-            compact=arguments.get("compact", False),
-            max_file_lines=arguments.get("max_file_lines", 0)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "validate_code_change":
-        result = validate_code_change(
-            runelite_root=config.runelite_root,
-            modified_files=arguments.get("modified_files")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "deploy_code_change":
-        result = deploy_code_change(
-            runelite_root=config.runelite_root,
-            restart_after=arguments.get("restart_after", True)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "validate_with_anti_pattern_check":
-        result = validate_with_anti_pattern_check(
-            runelite_root=config.runelite_root,
-            modified_files=arguments["modified_files"],
-            manny_src=config.plugin_directory
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "find_relevant_files":
-        result = find_relevant_files(
-            manny_src=config.plugin_directory,
-            search_term=arguments.get("search_term"),
-            class_name=arguments.get("class_name"),
-            error_message=arguments.get("error_message")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "backup_files":
-        result = backup_files(
-            file_paths=arguments["file_paths"]
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "rollback_code_change":
-        result = rollback_code_change(
-            file_paths=arguments.get("file_paths")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "diagnose_issues":
-        result = diagnose_issues(
-            log_lines=arguments["log_lines"],
-            game_state=arguments.get("game_state"),
-            manny_src=config.plugin_directory
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    # Manny-specific tools
-    elif name == "get_manny_guidelines":
-        result = get_manny_guidelines(
-            plugin_dir=config.plugin_directory,
-            mode=arguments.get("mode", "full"),
-            section=arguments.get("section")
-        )
-        if result.get("success"):
-            content_text = f"# Manny Plugin Guidelines ({result['mode']} mode)\n\n"
-            if result.get('section'):
-                content_text += f"Section: {result['section']}\n\n"
-            content_text += f"Path: {result['path']}\n\n"
-            content_text += "---\n\n"
-            content_text += result['content']
-            return [TextContent(type="text", text=content_text)]
-        else:
-            error_text = f"Error: {result['error']}"
-            if result.get('available_sections'):
-                error_text += f"\n\nAvailable sections: {', '.join(result['available_sections'])}"
-            return [TextContent(type="text", text=error_text)]
-
-    elif name == "get_plugin_context":
-        result = get_plugin_context(
-            plugin_dir=config.plugin_directory,
-            context_type=arguments.get("context_type", "full")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_section":
-        result = get_section(
-            plugin_dir=config.plugin_directory,
-            file=arguments.get("file", "PlayerHelpers.java"),
-            section=arguments.get("section", "list"),
-            max_lines=arguments.get("max_lines", 0),
-            summary_only=arguments.get("summary_only", False)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "find_command":
-        result = find_command(
-            plugin_dir=config.plugin_directory,
-            command=arguments["command"],
-            include_handler=arguments.get("include_handler", True),
-            max_handler_lines=arguments.get("max_handler_lines", 50),
-            summary_only=arguments.get("summary_only", False)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "find_pattern":
-        result = find_pattern_in_plugin(
-            plugin_dir=config.plugin_directory,
-            pattern_type=arguments["pattern_type"],
-            search_term=arguments.get("search_term")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "generate_command_template":
-        result = generate_command_template(
-            command_name=arguments["command_name"],
-            description=arguments.get("description", "TODO: Add description"),
-            has_args=arguments.get("has_args", False),
-            args_format=arguments.get("args_format", "<arg>"),
-            has_loop=arguments.get("has_loop", False)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "check_anti_patterns":
-        result = check_anti_patterns(
-            code=arguments.get("code"),
-            file_path=arguments.get("file_path")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_class_summary":
-        result = get_class_summary(
-            plugin_dir=config.plugin_directory,
-            class_name=arguments["class_name"]
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "find_similar_fix":
-        result = find_similar_fix(
-            plugin_dir=config.plugin_directory,
-            problem=arguments["problem"]
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_threading_patterns":
-        result = get_threading_patterns()
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    # Runtime debugging tools
-    elif name == "find_blocking_patterns":
-        result = find_blocking_patterns(
-            plugin_dir=config.plugin_directory,
-            file_path=arguments.get("file_path")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "generate_debug_instrumentation":
-        result = generate_debug_instrumentation(
-            instrumentation_type=arguments["type"],
-            threshold_ms=arguments.get("threshold_ms", 100)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_blocking_trace":
-        result = get_blocking_trace(
-            since_seconds=arguments.get("since_seconds", 60),
-            min_duration_ms=arguments.get("min_duration_ms", 100)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    # Routine building and command discovery tools
-    elif name == "list_available_commands":
-        result = list_available_commands(
-            plugin_dir=str(config.plugin_directory),
-            category=arguments.get("category", "all"),
-            search=arguments.get("search")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_command_examples":
-        result = get_command_examples(
-            command=arguments["command"]
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "validate_routine_deep":
-        result = validate_routine_deep(
-            routine_path=arguments["routine_path"],
-            plugin_dir=str(config.plugin_directory),
-            check_commands=arguments.get("check_commands", True),
-            suggest_fixes=arguments.get("suggest_fixes", True)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "generate_command_reference":
-        result = generate_command_reference(
-            plugin_dir=str(config.plugin_directory),
-            format=arguments.get("format", "markdown"),
-            category_filter=arguments.get("category_filter")
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    elif name == "get_teleport_info":
-        result = get_teleport_info(
-            destination=arguments.get("destination"),
-            include_all=arguments.get("include_all", False)
-        )
-        return [TextContent(type="text", text=json.dumps(result, indent=2))]
-
-    else:
-        return [TextContent(type="text", text=f"Unknown tool: {name}")]
+    """Route all tool calls through the registry."""
+    return await registry.call_tool(name, arguments)
 
 
 async def main():

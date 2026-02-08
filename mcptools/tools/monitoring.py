@@ -3,6 +3,7 @@ Monitoring tools for RuneLite process.
 Handles logs, game state, and health checks.
 Supports multi-client via account_id parameter.
 """
+import logging
 import os
 import json
 import subprocess
@@ -11,6 +12,8 @@ from pathlib import Path
 from ..registry import registry
 from ..session_manager import session_manager
 from ..utils import maybe_truncate_response
+
+logger = logging.getLogger(__name__)
 
 
 # Dependencies injected at startup (MultiRuneLiteManager)
@@ -122,6 +125,7 @@ Valid fields:
 - "combat" - Combat state and threat level
 - "health" - Current/max health
 - "scenario" - Current task and progress
+- "camera" - Camera yaw and pitch
 
 If no fields specified, returns full state (backwards compatible).""",
     "inputSchema": {
@@ -133,7 +137,7 @@ If no fields specified, returns full state (backwards compatible).""",
                 "items": {
                     "type": "string",
                     "enum": ["location", "inventory", "inventory_full", "equipment",
-                             "skills", "dialogue", "nearby", "combat", "health", "scenario", "gravestone"]
+                             "skills", "dialogue", "nearby", "combat", "health", "scenario", "gravestone", "camera"]
                 },
                 "description": "Optional list of fields to include. If not specified, returns all data."
             }
@@ -147,13 +151,18 @@ async def handle_get_game_state(arguments: dict) -> dict:
     - fields=["location"] returns ~3 lines instead of ~400
     - fields=["location", "inventory", "dialogue"] returns ~50 lines
     """
+    import asyncio
+
     account_id = arguments.get("account_id")
     fields = arguments.get("fields")
     state_file = config.get_state_file(account_id)
 
-    try:
+    def _read_state():
         with open(state_file) as f:
-            full_state = json.load(f)
+            return json.load(f)
+
+    try:
+        full_state = await asyncio.to_thread(_read_state)
 
         # Record state delta if session is active
         recorder = _get_recorder()
@@ -219,6 +228,9 @@ async def handle_get_game_state(arguments: dict) -> dict:
 
             elif field == "gravestone":
                 filtered["gravestone"] = full_state.get("gravestone", {})
+
+            elif field == "camera":
+                filtered["camera"] = player.get("camera", {})
 
         return {
             "success": True,
@@ -364,8 +376,8 @@ async def handle_check_health(arguments: dict) -> dict:
                         health["state_file"]["has_player_data"] = False
                         health["healthy"] = False
                         health["issues"].append("State file missing player location - game may have crashed")
-            except:
-                pass
+            except (json.JSONDecodeError, KeyError, OSError) as e:
+                logger.debug("Error parsing state file for health check: %s", e)
         else:
             health["healthy"] = False
             health["issues"].append(f"State file does not exist: {state_file}")
@@ -458,8 +470,8 @@ async def handle_is_alive(arguments: dict) -> dict:
                 capture_output=True, timeout=2
             )
             process_alive = result.returncode == 0
-        except:
-            pass
+        except (subprocess.SubprocessError, OSError) as e:
+            logger.debug("Process check failed: %s", e)
 
     # Quick state file check
     state_fresh = False
@@ -468,8 +480,8 @@ async def handle_is_alive(arguments: dict) -> dict:
         if os.path.exists(state_file):
             state_age = round(time.time() - os.path.getmtime(state_file), 1)
             state_fresh = state_age < max_stale
-    except:
-        pass
+    except OSError as e:
+        logger.debug("State file check failed: %s", e)
 
     alive = process_alive and state_fresh
     status = "ALIVE" if alive else ("DEAD" if not process_alive else "STALE")
@@ -582,7 +594,7 @@ def _check_condition(state: dict, condition: tuple) -> bool:
         current_x = location.get("x", 0)
         current_y = location.get("y", 0)
         target_x, target_y = value
-        distance = abs(current_x - target_x) + abs(current_y - target_y)
+        distance = max(abs(current_x - target_x), abs(current_y - target_y))
         return distance <= 3
 
     elif cond_type == "idle":
@@ -1131,8 +1143,8 @@ async def handle_restart_if_frozen(arguments: dict) -> dict:
                             "original_state_age": round(state_age, 1),
                             "frozen": True
                         }
-            except:
-                pass
+            except OSError as e:
+                logger.debug("Error checking state file during restart: %s", e)
 
         return {
             "success": False,

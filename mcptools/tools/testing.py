@@ -22,7 +22,7 @@ from ..utils import maybe_truncate_response
 
 def run_tests_impl(pattern: Optional[str] = None, timeout: int = 60, plugin_dir: str = None) -> dict:
     """
-    Execute Maven tests for the manny plugin.
+    Execute Gradle tests for the manny plugin.
 
     Args:
         pattern: Test class pattern (e.g., "**/PathingTest.java", "PathingManagerTest")
@@ -50,18 +50,18 @@ def run_tests_impl(pattern: Optional[str] = None, timeout: int = 60, plugin_dir:
         # Assume runelite_root is parent of plugin_dir
         runelite_root = str(Path(plugin_dir).parent.parent)
 
-    # Build Maven command
-    cmd = ["mvn", "test", "-pl", "runelite-client"]
+    # Build Gradle command
+    cmd = ["./gradlew", ":client:test"]
 
     if pattern:
-        # Convert pattern to Maven test format
+        # Convert pattern to Gradle test format
         if pattern.endswith(".java"):
             pattern = pattern.replace(".java", "")
         if "/" in pattern or "\\" in pattern:
             # Extract class name from path
             pattern = Path(pattern).stem
 
-        cmd.extend(["-Dtest=" + pattern])
+        cmd.extend(["--tests", pattern])
 
     # Run tests
     try:
@@ -75,7 +75,7 @@ def run_tests_impl(pattern: Optional[str] = None, timeout: int = 60, plugin_dir:
 
         output = result.stdout + "\n" + result.stderr
 
-        # Parse Maven output
+        # Parse Gradle/JUnit output
         tests_run = 0
         failures = 0
         errors = 0
@@ -145,11 +145,11 @@ def run_tests_impl(pattern: Optional[str] = None, timeout: int = 60, plugin_dir:
 @registry.tool(
     name="run_tests",
     description=(
-        "Execute Maven tests for the manny plugin.\n\n"
+        "Execute Gradle tests for the manny plugin.\n\n"
         "Examples:\n"
         "- run_tests() - Run all tests\n"
         "- run_tests(pattern='PathingManagerTest') - Run specific test class\n"
-        "- run_tests(pattern='**/Pathing*.java', timeout=120) - Run all pathing tests with longer timeout"
+        "- run_tests(pattern='*Pathing*', timeout=120) - Run all pathing tests with longer timeout"
     ),
     inputSchema={
         "type": "object",
@@ -168,7 +168,7 @@ def run_tests_impl(pattern: Optional[str] = None, timeout: int = 60, plugin_dir:
     }
 )
 async def run_tests(pattern: Optional[str] = None, timeout: int = 60) -> list[TextContent]:
-    """MCP tool: Execute Maven tests"""
+    """MCP tool: Execute Gradle tests"""
     result = run_tests_impl(pattern=pattern, timeout=timeout)
 
     if "error" in result:
@@ -216,7 +216,7 @@ async def run_tests(pattern: Optional[str] = None, timeout: int = 60) -> list[Te
             output += f"### {failed['test']}\n"
             output += f"```\n{failed['error']}\n```\n\n"
 
-    output += "## Maven Output\n\n"
+    output += "## Gradle Output\n\n"
     output += f"```\n{result['output']}\n```\n"
 
     return [TextContent(type="text", text=output)]

@@ -96,7 +96,8 @@ async def handle_send_command(arguments: dict) -> dict:
         result = {
             "dispatched": True,
             "command": command,
-            "note": "Command queued. Use get_logs() or get_command_response() to verify execution."
+            "note": "Command queued. Use get_logs() or get_command_response() to verify execution.",
+            "command_file": command_file
         }
         if account_id:
             result["account_id"] = account_id
@@ -618,9 +619,9 @@ Pitch values:
 - 512 = maximum top-down (best for dungeons/caves)
 
 Examples:
-- stabilize_camera() - Default: pitch=400, zoom=8
+- stabilize_camera() - Default: pitch=350, zoom=15 (zoomed in for reliable clicks)
 - stabilize_camera(pitch=512) - Max top-down for Hill Giants cave
-- stabilize_camera(pitch=300, zoom_in_scrolls=10) - Custom setup""",
+- stabilize_camera(pitch=400, zoom_in_scrolls=8) - Legacy zoom (more zoomed out)""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -630,13 +631,13 @@ Examples:
             },
             "pitch": {
                 "type": "integer",
-                "description": "Camera pitch: 128=level, 256=slight down, 400=top-down (default), 512=max top-down",
-                "default": 400
+                "description": "Camera pitch: 128=level, 256=slight down, 350=top-down (default), 400=classic top-down, 512=max top-down",
+                "default": 350
             },
             "zoom_in_scrolls": {
                 "type": "integer",
-                "description": "How many times to zoom in after maxing out (0-15, default: 8)",
-                "default": 8
+                "description": "How many times to zoom in after maxing out (0-15, default: 15 for reliable clicks)",
+                "default": 15
             }
         },
         "required": []
@@ -645,8 +646,8 @@ Examples:
 async def handle_stabilize_camera(arguments: dict) -> dict:
     """Reset camera to stable zoom and configurable pitch."""
     account_id = arguments.get("account_id")
-    pitch = arguments.get("pitch", 400)
-    zoom_in_scrolls = arguments.get("zoom_in_scrolls", 8)
+    pitch = arguments.get("pitch", 350)
+    zoom_in_scrolls = arguments.get("zoom_in_scrolls", 15)
     command_file = config.get_command_file(account_id)
 
     # Build command with optional parameters
@@ -760,7 +761,7 @@ async def handle_equip_item(arguments: dict) -> dict:
             "item_name": item_name
         }
 
-    # Step 2: Click at the item's bounds using xdotool
+    # Step 2: Click at the item's bounds using CLICK_AT command (Java-side atomic click)
     # (CLICK_WIDGET with action re-searches and finds wrong item)
     bounds = inventory_widget.get("bounds", {})
     if not bounds or bounds.get("x", -1) < 0:
@@ -774,21 +775,15 @@ async def handle_equip_item(arguments: dict) -> dict:
     click_x = bounds["x"] + bounds["width"] // 2
     click_y = bounds["y"] + bounds["height"] // 2
 
-    # Use xdotool - Java Mouse.click() doesn't register properly
-    # Get display from account config
-    account_config = config.get_account_config(account_id)
-    display = account_config.display or config.display or ":2"
-    try:
-        subprocess.run(
-            ["xdotool", "mousemove", str(click_x), str(click_y), "click", "1"],
-            env={**os.environ, "DISPLAY": display},
-            timeout=5,
-            check=True
-        )
-    except Exception as e:
+    # Use CLICK_AT command - atomic move+click handled by the Java plugin
+    # This avoids xdotool display connection issues with gamescope
+    click_command = f"CLICK_AT {click_x} {click_y}"
+    click_response = await send_command_with_response(click_command, timeout_ms, account_id)
+
+    if click_response.get("status") != "success":
         return {
             "success": False,
-            "error": f"Click failed: {e}",
+            "error": f"Click failed: {click_response.get('error', 'Unknown error')}",
             "item_name": item_name
         }
 
@@ -933,4 +928,62 @@ async def handle_execute_combat_routine(arguments: dict) -> dict:
         "bones": bones,
         "config_file": config_file,
         "note": "Combat routine started. Use get_logs() to monitor progress."
+    }
+
+
+@registry.register({
+    "name": "kill_command",
+    "description": """[Commands] EMERGENCY STOP - Immediately kill any running command or routine.
+
+Sends the KILL command which:
+1. Sets the interrupt flag to stop all loops (MINE_ORE, FISH, CHOP_TREE, etc.)
+2. Cancels any running background command task
+3. Stops scenario/routine playback
+4. Cancels navigation/pathfinding
+5. Resets state managers
+
+Use this when:
+- A command is stuck in a loop
+- You need to immediately stop all automation
+- send_and_await is timing out but the command keeps running
+
+This is a nuclear option - it stops EVERYTHING.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "account_id": {
+                "type": "string",
+                "description": "Account ID for multi-client (optional, defaults to 'default')"
+            }
+        },
+        "required": []
+    }
+})
+async def handle_kill_command(arguments: dict) -> dict:
+    """Send KILL command to immediately stop all running commands/routines."""
+    account_id = arguments.get("account_id")
+    command_file = config.get_command_file(account_id)
+
+    command = "KILL"
+
+    # Log the command
+    _get_command_log().log_command(command)
+
+    try:
+        with open(command_file, "w") as f:
+            f.write(command + "\n")
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"Failed to send KILL command: {e}"
+        }
+
+    # Wait a moment for the kill to take effect
+    await asyncio.sleep(0.5)
+
+    return {
+        "success": True,
+        "command": "KILL",
+        "message": "Kill signal sent. All running commands and routines should stop within ~500ms.",
+        "account_id": account_id or "default"
     }

@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 # Start multiple gamescope instances for RuneLite multi-boxing
 # Each instance is GPU-accelerated and visible as a window on your desktop
 #
@@ -11,6 +12,13 @@
 PIDFILE_DIR="/tmp/gamescope_pids"
 DISPLAY_MAP="/tmp/gamescope_displays.txt"
 DEFAULT_COUNT=3
+
+# Verify gamescope is installed
+if ! command -v gamescope &>/dev/null; then
+    echo "ERROR: gamescope not found. Install it first."
+    echo "  Arch: sudo pacman -S gamescope"
+    exit 1
+fi
 
 mkdir -p "$PIDFILE_DIR"
 
@@ -47,15 +55,18 @@ start_one_gamescope() {
 
     local pid=$!
 
-    # Wait for it to create a display
+    # Wait for it to create a display and become responsive
     for i in {1..20}; do
         sleep 0.5
-        # Find newest display that appeared
+        # Check if socket exists
         if [ -S "/tmp/.X11-unix/X$expected_display" ]; then
-            echo "$expected_display" >> "$DISPLAY_MAP"
-            echo "$pid" > "$PIDFILE_DIR/gamescope_$expected_display.pid"
-            echo "  Started :$expected_display (PID: $pid)"
-            return 0
+            # Verify the display is actually responsive (not just socket created)
+            if xdpyinfo -display ":$expected_display" &>/dev/null; then
+                echo "$expected_display" >> "$DISPLAY_MAP"
+                echo "$pid" > "$PIDFILE_DIR/gamescope_$expected_display.pid"
+                echo "  Started :$expected_display (PID: $pid)"
+                return 0
+            fi
         fi
     done
 
@@ -141,6 +152,52 @@ status() {
     fi
 }
 
+cleanup() {
+    echo "Cleaning up stale files..."
+    local cleaned=0
+
+    # Clean orphaned PID files
+    for pidfile in "$PIDFILE_DIR"/gamescope_*.pid; do
+        if [ -f "$pidfile" ]; then
+            local pid
+            pid=$(cat "$pidfile")
+            if ! kill -0 "$pid" 2>/dev/null; then
+                echo "  Removing stale PID file: $pidfile (PID $pid dead)"
+                rm -f "$pidfile"
+                ((cleaned++)) || true
+            fi
+        fi
+    done
+
+    # Clean stale proxychains configs
+    if [ -d "$HOME/.manny" ]; then
+        for conf in "$HOME/.manny"/proxychains_*.conf; do
+            if [ -f "$conf" ]; then
+                echo "  Removing stale proxychains config: $conf"
+                rm -f "$conf"
+                ((cleaned++)) || true
+            fi
+        done
+    fi
+
+    # Clean backup files with ~ suffix in routines
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [ -d "$script_dir/routines" ]; then
+        while IFS= read -r -d '' backup; do
+            echo "  Removing backup file: $backup"
+            rm -f "$backup"
+            ((cleaned++)) || true
+        done < <(find "$script_dir/routines" -name '*~' -print0 2>/dev/null)
+    fi
+
+    if [ "$cleaned" -eq 0 ]; then
+        echo "  Nothing to clean up"
+    else
+        echo "  Cleaned $cleaned stale file(s)"
+    fi
+}
+
 # Main
 case "${1:-start}" in
     stop)
@@ -149,6 +206,9 @@ case "${1:-start}" in
     status)
         status
         ;;
+    cleanup)
+        cleanup
+        ;;
     [0-9]*)
         start_gamescopes "$1"
         ;;
@@ -156,13 +216,14 @@ case "${1:-start}" in
         start_gamescopes $DEFAULT_COUNT
         ;;
     *)
-        echo "Usage: $0 [start|stop|status|N]"
+        echo "Usage: $0 [start|stop|status|cleanup|N]"
         echo ""
         echo "Examples:"
         echo "  $0           # Start 3 gamescope displays"
         echo "  $0 4         # Start 4 gamescope displays"
         echo "  $0 stop      # Stop all displays"
         echo "  $0 status    # Show running displays"
+        echo "  $0 cleanup   # Remove stale PID/config files"
         exit 1
         ;;
 esac

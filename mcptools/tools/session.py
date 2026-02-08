@@ -6,12 +6,16 @@ Records commands, state changes, and events to YAML files for:
 - Converting successful sessions to reusable routines
 - Understanding patterns and pitfalls
 
-Two recording modes:
+Three recording modes:
 1. Always-on command log: Every command is logged to daily file (lightweight)
 2. Explicit session recording: Full state tracking with deltas (start/stop)
+3. Always-on action log: Plugin-side recording of manual play clicks (ActionRecorder)
 
 Usage:
     # Commands are ALWAYS logged to /tmp/manny_sessions/commands_YYYY-MM-DD.yaml
+
+    # Manual play actions are ALWAYS logged to /tmp/manny_<account>_actions.json
+    # Read with: get_action_log(since_seconds=300)
 
     # For full session tracking:
     start_session_recording(goal="Complete quest X")
@@ -24,6 +28,7 @@ Usage:
 import yaml
 import json
 import os
+import time
 from datetime import datetime, date
 from pathlib import Path
 from typing import Optional, Dict, Any, List, Set
@@ -743,3 +748,353 @@ async def handle_get_command_history(arguments: dict) -> dict:
         "available_logs": log_files[:7],  # Show last 7 days
         "log_directory": str(command_log.output_dir)
     }
+
+
+# ============================================================================
+# Action Log Tools (reads from plugin-side ActionRecorder)
+# ============================================================================
+
+def _get_actions_file(account_id: str = None) -> str:
+    """Get the actions file path for an account."""
+    if account_id and account_id != "default":
+        return f"/tmp/manny_{account_id}_actions.json"
+    return "/tmp/manny_actions.json"
+
+
+def _find_actions_files() -> List[str]:
+    """Find all action log files across accounts."""
+    import glob
+    files = glob.glob("/tmp/manny_*_actions.json") + glob.glob("/tmp/manny_actions.json")
+    return sorted(set(files))
+
+
+@registry.register({
+    "name": "get_action_log",
+    "description": """[Session] Read the always-on action log from manual play.
+
+The plugin continuously records ALL manual clicks (mining, banking, casting spells,
+walking, etc.) to a JSON file. This captures what the user actually did in-game,
+even without any MCP commands being sent.
+
+Use this to:
+- See what the user was doing manually (mine, bank, superheat loop)
+- Build YAML routines from manual play patterns
+- Understand the user's workflow before automating it
+
+The action log includes:
+- High-level commands (MINE_ORE Iron, BANK_OPEN, CAST_SPELL Superheat_Item)
+- Player position at each action
+- Inventory snapshot at each action
+- XP gains between actions
+- Game chat messages between actions
+
+Examples:
+- get_action_log(since_seconds=300) - Last 5 minutes of play
+- get_action_log(since_seconds=1800, account_id="main") - Last 30 min on main
+- get_action_log() - All recorded actions (up to 500)""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "since_seconds": {
+                "type": "integer",
+                "description": "Only return actions from the last N seconds (default: return all)"
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account to read actions for (default: auto-detect from running instances)"
+            }
+        }
+    }
+})
+async def handle_get_action_log(arguments: dict) -> dict:
+    """Read the action log from the plugin's ActionRecorder."""
+    account_id = arguments.get("account_id")
+    since_seconds = arguments.get("since_seconds")
+
+    # Try to find the actions file
+    if account_id:
+        actions_file = _get_actions_file(account_id)
+    else:
+        # Auto-detect: find any actions file
+        files = _find_actions_files()
+        if not files:
+            return {
+                "success": False,
+                "error": "No action log files found. Is RuneLite running with the manny plugin?",
+                "hint": "Action logs are written to /tmp/manny_<account>_actions.json"
+            }
+        actions_file = files[0]  # Use most recent
+
+    if not os.path.exists(actions_file):
+        return {
+            "success": False,
+            "error": f"Action log not found: {actions_file}",
+            "hint": "Start RuneLite and perform some actions. The log is created automatically."
+        }
+
+    try:
+        with open(actions_file) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        return {
+            "success": False,
+            "error": f"Failed to read action log: {e}"
+        }
+
+    actions = data.get("actions", [])
+
+    # Filter by time if requested
+    if since_seconds:
+        cutoff_ms = (time.time() - since_seconds) * 1000
+        actions = [a for a in actions if a.get("ts", 0) >= cutoff_ms]
+
+    return {
+        "success": True,
+        "accountId": data.get("accountId", "unknown"),
+        "eventCount": len(actions),
+        "totalRecorded": data.get("eventCount", 0),
+        "durationSeconds": data.get("durationSeconds", 0),
+        "actions": actions,
+        "file": actions_file
+    }
+
+
+@registry.register({
+    "name": "clear_action_log",
+    "description": """[Session] Clear the action log buffer for a fresh start.
+
+Use this before asking the user to demonstrate a workflow, so the log
+only contains the relevant actions.
+
+Note: This deletes the action log file. The plugin will create a new one
+as soon as new actions are performed.""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "account_id": {
+                "type": "string",
+                "description": "Account to clear actions for (default: all accounts)"
+            }
+        }
+    }
+})
+async def handle_clear_action_log(arguments: dict) -> dict:
+    """Clear the action log file."""
+    account_id = arguments.get("account_id")
+
+    if account_id:
+        files = [_get_actions_file(account_id)]
+    else:
+        files = _find_actions_files()
+
+    cleared = []
+    for f in files:
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+                cleared.append(f)
+            except IOError as e:
+                return {"success": False, "error": f"Failed to clear {f}: {e}"}
+
+    return {
+        "success": True,
+        "cleared": cleared,
+        "message": f"Cleared {len(cleared)} action log file(s). New actions will be recorded automatically."
+    }
+
+
+@registry.register({
+    "name": "action_log_to_routine",
+    "description": """[Session] Convert a manual play action log to a YAML routine draft.
+
+Reads the action log, identifies repeating patterns, and generates a draft
+YAML routine with appropriate steps, await_conditions, and loop configuration.
+
+Use this after the user has demonstrated a workflow manually (e.g., mine→superheat→bank loop).
+
+The generated routine is a DRAFT - review and adjust:
+- Verify await_conditions are correct
+- Adjust timeouts
+- Add error handling steps
+- Configure loop count
+
+Examples:
+- action_log_to_routine(since_seconds=1800) - Build from last 30 min
+- action_log_to_routine(output_path="routines/skilling/my_routine.yaml")""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "since_seconds": {
+                "type": "integer",
+                "description": "Only use actions from the last N seconds"
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account to read actions for"
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Where to save the routine YAML (optional, returns inline if omitted)"
+            },
+            "routine_name": {
+                "type": "string",
+                "description": "Name for the routine (default: auto-generated)"
+            }
+        }
+    }
+})
+async def handle_action_log_to_routine(arguments: dict) -> dict:
+    """Convert action log to a YAML routine draft."""
+    # First, get the action log
+    log_result = await handle_get_action_log({
+        "since_seconds": arguments.get("since_seconds"),
+        "account_id": arguments.get("account_id")
+    })
+
+    if not log_result.get("success"):
+        return log_result
+
+    actions = log_result.get("actions", [])
+    if not actions:
+        return {
+            "success": False,
+            "error": "No actions found in the log. Play manually first, then try again."
+        }
+
+    # Filter out noisy/irrelevant actions
+    meaningful_actions = []
+    for action in actions:
+        cmd = action.get("command", "")
+        # Skip WALK actions that are just repositioning (keep significant ones)
+        # Skip generic CLICK_WIDGET with no useful info
+        if cmd in ("CANCEL", "CLICK_WIDGET", ""):
+            continue
+        meaningful_actions.append(action)
+
+    if not meaningful_actions:
+        return {
+            "success": False,
+            "error": "No meaningful actions found (only walks/cancels). Perform more game actions."
+        }
+
+    # Build routine steps
+    routine_name = arguments.get("routine_name", "Manual Play Routine")
+    steps = []
+    step_id = 0
+
+    for action in meaningful_actions:
+        step_id += 1
+        cmd = action.get("command", "")
+        parts = cmd.split(maxsplit=1)
+
+        step = {
+            "id": step_id,
+            "command": cmd,
+            "description": f"{action.get('option', '')} {action.get('target', '')}".strip(),
+        }
+
+        # Add position context
+        step["position"] = f"{action.get('x', 0)},{action.get('y', 0)},{action.get('plane', 0)}"
+
+        # Add await conditions based on command type
+        if parts and parts[0] in ("MINE_ORE", "CHOP_TREE"):
+            # Mining/woodcutting - await item or idle
+            step["await_condition"] = "idle"
+            step["timeout_ms"] = 15000
+        elif parts and parts[0] == "GOTO":
+            coords = parts[1] if len(parts) > 1 else ""
+            xy = coords.replace(" ", ",").split(",")
+            if len(xy) >= 2:
+                step["await_condition"] = f"location:{xy[0]},{xy[1]}"
+                step["timeout_ms"] = 30000
+        elif parts and parts[0] == "BANK_OPEN":
+            step["await_condition"] = "idle"
+            step["timeout_ms"] = 5000
+
+        # Add XP context as comment
+        xp = action.get("xpGains")
+        if xp:
+            step["xp_gains"] = xp
+
+        # Add inventory context
+        inv_delta = action.get("inventoryDelta")
+        if inv_delta:
+            step["inventory_delta"] = inv_delta
+
+        steps.append(step)
+
+    # Detect loop patterns (simplified: look for command sequence repetition)
+    loop_info = _detect_loop_pattern(meaningful_actions)
+
+    # Build routine document
+    routine = {
+        "name": routine_name,
+        "description": f"Auto-generated from {len(meaningful_actions)} manual actions",
+        "generated_from": "action_log",
+        "generated_at": datetime.now().isoformat(),
+    }
+
+    if loop_info:
+        routine["loop"] = loop_info
+
+    routine["steps"] = steps
+
+    # Output
+    output_path = arguments.get("output_path")
+    if output_path:
+        output_file = Path(output_path)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, 'w') as f:
+            yaml.dump(routine, f, default_flow_style=False, sort_keys=False)
+
+        return {
+            "success": True,
+            "output_path": str(output_file),
+            "step_count": len(steps),
+            "loop_detected": loop_info is not None,
+            "message": f"Routine draft saved to {output_file}. Review and adjust await_conditions and timeouts."
+        }
+    else:
+        return {
+            "success": True,
+            "routine": routine,
+            "step_count": len(steps),
+            "loop_detected": loop_info is not None,
+            "yaml": yaml.dump(routine, default_flow_style=False, sort_keys=False),
+            "message": "Routine draft generated. Review and adjust await_conditions and timeouts."
+        }
+
+
+def _detect_loop_pattern(actions: List[Dict]) -> Optional[Dict]:
+    """
+    Simple loop detection: look for repeating command sequences.
+    Returns loop config if a pattern is found.
+    """
+    if len(actions) < 4:
+        return None
+
+    commands = [a.get("command", "") for a in actions]
+
+    # Try different loop lengths (3-20 steps)
+    for loop_len in range(3, min(21, len(commands) // 2 + 1)):
+        # Check if the first loop_len commands repeat
+        pattern = commands[:loop_len]
+        repetitions = 0
+
+        for i in range(0, len(commands) - loop_len + 1, loop_len):
+            chunk = commands[i:i + loop_len]
+            if chunk == pattern:
+                repetitions += 1
+            else:
+                break
+
+        if repetitions >= 2:
+            return {
+                "detected": True,
+                "loop_length": loop_len,
+                "repetitions_seen": repetitions,
+                "pattern_commands": pattern,
+                "note": "Loop pattern detected. Consider wrapping steps 1-{} in a loop.".format(loop_len)
+            }
+
+    return None
