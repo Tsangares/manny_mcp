@@ -134,39 +134,77 @@ steps:
     notes: "He tells you about the Apothecary and cadava berries"
 
   # ========== PHASE 4: GET CADAVA BERRIES ==========
-  # DANGER: Dark Wizards at stone circle (~3224, 3370) - use eastern route!
+  # DANGER: Dark Wizards at stone circle (~3224, 3370) - level 7, aggressive!
+  # ROUTE: South through Varrock south gate, then east along south wall
+  # The south gate is at ~(3217, 3375) - must exit city before heading east
   - id: 13a
     phase: "cadava_berries"
     action: GOTO
-    args: "3280 3430 0"
-    description: "Waypoint EAST to avoid Dark Wizards"
-    notes: "Stay east of x=3240 to avoid wizard aggro range"
+    args: "3217 3375 0"
+    description: "Go through Varrock south gate"
+    notes: "Must exit city through south gate before heading east to cadava bushes"
+    validated: true  # Confirmed 2026-02-09
+
+  - id: 13b
+    phase: "cadava_berries"
+    action: GOTO
+    args: "3235 3375 0"
+    description: "Head east outside south wall"
+    validated: true  # Confirmed 2026-02-09
+
+  - id: 13c
+    phase: "cadava_berries"
+    action: GOTO
+    args: "3255 3372 0"
+    description: "Continue east toward cadava bushes"
+    validated: true  # Confirmed 2026-02-09
 
   - id: 13
     phase: "cadava_berries"
     action: GOTO
-    args: "3277 3374 0"
-    description: "Walk to cadava bushes (SE of Varrock, SAFE east of Dark Wizards)"
+    args: "3268 3371 0"
+    description: "Walk to cadava bushes (SE of Varrock)"
     location: cadava_bush
-    validated: true  # Confirmed 2026-01-27
+    notes: "Cadava bush at (3268, 3370). Stay east of x=3240 to avoid Dark Wizard aggro."
+    validated: true  # Confirmed 2026-02-09
 
   - id: 14
     phase: "cadava_berries"
     action: INTERACT_OBJECT
-    args: "Cadava Pick-from"
+    args: "Cadava_bush Pick-from"
     description: "Pick cadava berries from bush"
     await_condition: "has_item:Cadava berries"
-    notes: "Object name is 'Cadava' not 'Cadava bush'. One berry per bush, need at least 1."
-    validated: true  # Confirmed 2026-01-27
+    notes: "Object name is 'Cadava_bush' with underscore. One berry per bush."
+    validated: true  # Confirmed 2026-02-09
 
   # ========== PHASE 5: GET POTION FROM APOTHECARY ==========
-  # DANGER: Route back must avoid Dark Wizards - go north first!
+  # DANGER: Return route must retrace east path! NEVER go directly west!
+  # Dark Wizards at (~3224, 3370) will kill low-level accounts instantly
   - id: 15a
     phase: "apothecary"
     action: GOTO
-    args: "3280 3420 0"
-    description: "Waypoint NORTH to avoid Dark Wizards"
-    notes: "Stay north of y=3390 to avoid wizard aggro range"
+    args: "3255 3372 0"
+    description: "Head west along safe route (south of wall)"
+    notes: "Retrace the safe path - stay south of Varrock wall"
+
+  - id: 15b
+    phase: "apothecary"
+    action: GOTO
+    args: "3235 3375 0"
+    description: "Continue west toward south gate"
+
+  - id: 15c
+    phase: "apothecary"
+    action: GOTO
+    args: "3217 3375 0"
+    description: "Back through Varrock south gate"
+    validated: true  # Confirmed 2026-02-09
+
+  - id: 15d
+    phase: "apothecary"
+    action: GOTO
+    args: "3210 3395 0"
+    description: "Head north inside city toward Apothecary"
 
   - id: 15
     phase: "apothecary"
@@ -248,11 +286,24 @@ steps:
     description: "Teleport to Lumbridge (cutscene may trap you)"
     notes: "Indoor navigation can fail, teleport is reliable"
 
+  - id: 26a
+    phase: "complete_quest"
+    action: GOTO
+    args: "3235 3300 0"
+    description: "Walk north from Lumbridge toward Varrock"
+
+  - id: 26b
+    phase: "complete_quest"
+    action: GOTO
+    args: "3254 3350 0"
+    description: "Continue north, stay EAST of Dark Wizards"
+    notes: "Dark Wizards at (3210-3235, 3360-3385) - stay east!"
+
   - id: 26
     phase: "complete_quest"
     action: GOTO
-    args: "3200 3400 0"
-    description: "Walk north (waypoint ABOVE Dark Wizards at y=3370)"
+    args: "3260 3400 0"
+    description: "Waypoint north past Dark Wizards"
     notes: "AVOID (3200, 3350) - that's Dark Wizard territory!"
 
   - id: 27

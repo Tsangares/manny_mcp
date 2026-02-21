@@ -131,6 +131,27 @@ steps:
     description: "Deposit gem drops"
     delay_after_ms: 500
 
+  - id: 3f
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_diamond"
+    description: "Deposit diamond drops"
+    delay_after_ms: 500
+
+  - id: 3g
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Iron_bar"
+    description: "Deposit any leftover iron bars (from previous runs or failed superheat)"
+    delay_after_ms: 500
+
+  - id: 3h
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Iron_ore"
+    description: "Deposit any leftover iron ore"
+    delay_after_ms: 500
+
   - id: 4
     phase: "banking"
     action: BANK_CLOSE

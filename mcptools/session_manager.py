@@ -572,6 +572,18 @@ class SessionManager:
         if account_id not in self.playtime:
             self.playtime[account_id] = []
 
+        # Close any orphaned open sessions for this account before starting a new one
+        for session in self.playtime[account_id]:
+            if session.get("end") is None:
+                # Close orphaned session using its start time + 1min for old sessions
+                start = datetime.fromisoformat(session["start"])
+                if (datetime.now() - start).total_seconds() > 3600:  # >1h old
+                    session["end"] = (start + timedelta(minutes=1)).isoformat()
+                    session["active_seconds"] = 60
+                else:
+                    session["end"] = now
+                logger.info(f"Closed orphaned session for {account_id} (started {session['start']})")
+
         # Add session start (end will be filled when session ends)
         self.playtime[account_id].append({
             "start": now,
@@ -630,10 +642,40 @@ class SessionManager:
             "ended": now
         }
 
+    def _get_active_end_time(self, account_id: str) -> datetime:
+        """
+        For an open session, determine the actual active end time using the state file.
+
+        If the state file is fresh (<60s), the player is actively logged in -> use now().
+        If the state file is stale, the player is disconnected -> use state file mtime.
+        If no state file exists, use now() (fallback).
+        """
+        STALE_THRESHOLD = 60  # seconds
+
+        try:
+            state_file = Path(f"/tmp/manny_{account_id}_state.json")
+            if not state_file.exists():
+                # Try default state file
+                state_file = Path("/tmp/manny_state.json")
+
+            if state_file.exists():
+                mtime = state_file.stat().st_mtime
+                age = time.time() - mtime
+                if age > STALE_THRESHOLD:
+                    # Player is disconnected/logged out - use mtime as last active time
+                    return datetime.fromtimestamp(mtime)
+        except OSError:
+            pass
+
+        return datetime.now()
+
     def get_playtime_24h(self, account_id: str) -> float:
         """
         Get total playtime for an account in the last 24 hours.
         Returns hours as a float.
+
+        Only counts ACTIVE time - periods where the game state file was being
+        updated. Disconnected/logged-out time is not counted.
         """
         if account_id not in self.playtime:
             return 0.0
@@ -643,7 +685,28 @@ class SessionManager:
 
         for session in self.playtime[account_id]:
             start = datetime.fromisoformat(session["start"])
-            end = datetime.fromisoformat(session["end"]) if session.get("end") else datetime.now()
+
+            if session.get("end"):
+                # Closed session - use recorded end time and active_seconds if available
+                end = datetime.fromisoformat(session["end"])
+
+                if "active_seconds" in session:
+                    # Use tracked active time (more accurate)
+                    if end < cutoff:
+                        continue
+                    # Proportionally count active time within 24h window
+                    session_duration = (end - start).total_seconds()
+                    if session_duration > 0:
+                        overlap_start = max(start, cutoff)
+                        overlap_ratio = (end - overlap_start).total_seconds() / session_duration
+                        total_seconds += session["active_seconds"] * overlap_ratio
+                    continue
+                else:
+                    # Legacy session - use wall-clock (best we can do)
+                    pass
+            else:
+                # Open session - use state file freshness to determine actual active time
+                end = self._get_active_end_time(account_id)
 
             # Only count time within the 24h window
             if end < cutoff:
@@ -663,6 +726,52 @@ class SessionManager:
     def get_accounts_under_limit(self, account_ids: List[str]) -> List[str]:
         """Filter accounts to those under the playtime limit."""
         return [a for a in account_ids if self.is_under_playtime_limit(a)]
+
+    def cleanup_stale_sessions(self) -> Dict[str, Any]:
+        """
+        Close any open sessions whose processes are no longer running.
+        This prevents stale sessions from inflating playtime calculations.
+        """
+        closed = []
+        for account_id, sessions in self.playtime.items():
+            for session in sessions:
+                if session.get("end") is not None:
+                    continue
+
+                # Check if there's actually a running process for this account
+                display = self.get_display_for_account(account_id)
+                if display and self.displays.get(display):
+                    pid = self.displays[display].get("pid")
+                    if pid:
+                        try:
+                            os.kill(pid, 0)  # Check if process exists
+                            continue  # Process is alive, session is valid
+                        except OSError:
+                            pass
+
+                # No running process found - close the session using state file mtime
+                end_time = self._get_active_end_time(account_id)
+                session["end"] = end_time.isoformat()
+
+                # Calculate approximate active_seconds (conservative: use 80% of wall-clock)
+                start = datetime.fromisoformat(session["start"])
+                wall_seconds = (end_time - start).total_seconds()
+                session["active_seconds"] = wall_seconds * 0.8
+
+                closed.append({
+                    "account": account_id,
+                    "start": session["start"],
+                    "end": session["end"],
+                    "reason": "process_not_running"
+                })
+
+        if closed:
+            self._save()
+
+        return {
+            "closed_sessions": len(closed),
+            "details": closed
+        }
 
     def get_active_sessions(self) -> List[Dict[str, Any]]:
         """Get all currently active sessions."""

@@ -512,6 +512,25 @@ systemctl --user status discord-bot
 | Conversation logs (JSON) | `logs/conversations/conversations_YYYY-MM-DD.jsonl` |
 | Training data | `~/.manny/training_data/training_YYYY-MM-DD.jsonl` |
 | Service logs | `journalctl --user -u discord-bot` |
+| manny-driver LLM requests | `/tmp/manny_driver_requests.jsonl` |
+
+## manny-driver Cost Tracking
+
+The `manny_driver` autonomous agent logs every LLM request to `/tmp/manny_driver_requests.jsonl` with model, token counts, cost, directive, and phase. Each line is a JSON object:
+
+```jsonl
+{"ts":"2026-02-07T14:30:01+00:00","session_id":"abc123","model":"gemini-2.5-flash-lite","in":1234,"out":56,"cost_usd":0.000146,"directive":"Kill chickens","phase":"monitoring"}
+```
+
+**Reporting:**
+```bash
+python -m manny_driver.report_cost            # today's sessions
+python -m manny_driver.report_cost --all       # all sessions
+python -m manny_driver.report_cost --session abc123  # specific session
+python -m manny_driver.report_cost --tail      # live watch mode (polls every 5s)
+```
+
+**Default model:** `gemini-2.5-flash-lite` ($0.10/M input, $0.40/M output). Pricing table in `manny_driver/config.py`.
 
 ## What NOT to Do
 

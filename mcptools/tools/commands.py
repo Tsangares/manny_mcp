@@ -22,6 +22,9 @@ _extract_relevant_state = None
 _session_recorder = None
 _command_log = None
 
+# Stuck detector
+from ..stuck_detector import stuck_detector as _stuck_detector
+
 
 def _get_recorder():
     """Lazy import session recorder."""
@@ -82,6 +85,29 @@ async def handle_send_command(arguments: dict) -> dict:
     command = arguments.get("command", "")
     account_id = arguments.get("account_id")
     command_file = config.get_command_file(account_id)
+    state_file = config.get_state_file(account_id)
+
+    # Stuck detection: read current state and check for repeated commands
+    current_state = None
+    try:
+        if os.path.exists(state_file):
+            with open(state_file) as f:
+                raw_state = json.load(f)
+            # Extract the nested state dict if present
+            current_state = raw_state.get("state", raw_state) if isinstance(raw_state, dict) else raw_state
+    except (json.JSONDecodeError, IOError):
+        pass
+
+    acct = account_id or "default"
+    stuck_status, stuck_msg = _stuck_detector.check_command(command, acct, current_state)
+
+    if stuck_status == "block":
+        return {
+            "dispatched": False,
+            "command": command,
+            "error": stuck_msg,
+            "stuck_detection": _stuck_detector.get_status(acct)
+        }
 
     # Always log to daily command history (lightweight, always-on)
     _get_command_log().log_command(command)
@@ -101,6 +127,10 @@ async def handle_send_command(arguments: dict) -> dict:
         }
         if account_id:
             result["account_id"] = account_id
+        # Include stuck warning if approaching threshold
+        if stuck_status == "warn":
+            result["warning"] = stuck_msg
+            result["stuck_detection"] = _stuck_detector.get_status(acct)
         return result
     except Exception as e:
         # Record error if session active
@@ -162,6 +192,18 @@ async def handle_send_input(arguments: dict) -> dict:
     input_type = arguments.get("input_type")
     account_id = arguments.get("account_id")
     command_file = config.get_command_file(account_id)
+    state_file = config.get_state_file(account_id)
+
+    # Stuck detection for key presses and clicks
+    acct = account_id or "default"
+    current_state = None
+    try:
+        if os.path.exists(state_file):
+            with open(state_file) as f:
+                raw_state = json.load(f)
+            current_state = raw_state.get("state", raw_state) if isinstance(raw_state, dict) else raw_state
+    except (json.JSONDecodeError, IOError):
+        pass
 
     try:
         if input_type == "click":
@@ -173,9 +215,20 @@ async def handle_send_input(arguments: dict) -> dict:
 
             button_name = {1: "left", 2: "middle", 3: "right"}.get(button, "left")
             command = f"MOUSE_MOVE {x} {y}\nMOUSE_CLICK {button_name}"
+
+            # Check stuck detection
+            stuck_status, stuck_msg = _stuck_detector.check_command(
+                f"click:{x},{y}", acct, current_state)
+            if stuck_status == "block":
+                return {"sent": False, "error": stuck_msg,
+                        "stuck_detection": _stuck_detector.get_status(acct)}
+
             with open(command_file, "w") as f:
                 f.write(command + "\n")
-            return {"sent": True, "input_type": "click", "x": x, "y": y, "button": button_name}
+            result = {"sent": True, "input_type": "click", "x": x, "y": y, "button": button_name}
+            if stuck_status == "warn":
+                result["warning"] = stuck_msg
+            return result
 
         elif input_type == "key":
             key = arguments.get("key")
@@ -183,10 +236,20 @@ async def handle_send_input(arguments: dict) -> dict:
                 return {"sent": False, "error": "key type requires 'key' parameter"}
 
             command = f"KEY_PRESS {key}"
+
+            # Check stuck detection
+            stuck_status, stuck_msg = _stuck_detector.check_command(
+                f"key:{key}", acct, current_state)
+            if stuck_status == "block":
+                return {"sent": False, "error": stuck_msg,
+                        "stuck_detection": _stuck_detector.get_status(acct)}
+
             with open(command_file, "w") as f:
                 f.write(command + "\n")
-            return {"sent": True, "input_type": "key", "key": key,
-                    "note": "KEY_PRESS command may need to be added to plugin"}
+            result = {"sent": True, "input_type": "key", "key": key}
+            if stuck_status == "warn":
+                result["warning"] = stuck_msg
+            return result
 
         elif input_type == "move":
             x = arguments.get("x")

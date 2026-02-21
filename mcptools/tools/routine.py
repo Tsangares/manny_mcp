@@ -1034,6 +1034,12 @@ async def handle_execute_routine(arguments: dict) -> dict:
     # Determine loop mode
     has_inner_outer = inner_loop.get('enabled', False) or outer_loop.get('enabled', False)
 
+    inner_start_idx = None
+    inner_end_idx = None
+    if inner_loop.get('enabled', False):
+        inner_start_idx = _resolve_step_idx(inner_loop.get('start_step', 1), step_id_to_idx, None)
+        inner_end_idx = _resolve_step_idx(inner_loop.get('end_step', ''), step_id_to_idx, None)
+
     results = {
         "success": True,
         "routine_name": routine.get('name', 'Unknown'),
@@ -1051,6 +1057,8 @@ async def handle_execute_routine(arguments: dict) -> dict:
     inner_count = 0
     restart_attempts = 0
     max_restart_attempts = 3
+    inner_consecutive_failures = 0
+    max_inner_consecutive_failures = 3
     current_step_idx = _resolve_step_idx(start_step, step_id_to_idx, 0)
 
     while outer_count < max_loops:
@@ -1086,6 +1094,31 @@ async def handle_execute_routine(arguments: dict) -> dict:
                 action = step.get('action', step.get('mcp_tool', '?'))
                 results["errors"].append(f"Step {step_id} ({action}): {step_result.get('error', 'failed')}")
 
+                # Inner loop failure: restart iteration instead of continuing
+                if (inner_start_idx is not None and inner_end_idx is not None
+                        and inner_start_idx <= current_step_idx <= inner_end_idx):
+                    inner_consecutive_failures += 1
+                    _routine_logger.warning(
+                        "[ROUTINE] Inner loop step %s failed (%d/%d). Restarting from step %s.",
+                        step_id, inner_consecutive_failures, max_inner_consecutive_failures,
+                        inner_loop.get('start_step', 1))
+
+                    if inner_consecutive_failures >= max_inner_consecutive_failures:
+                        _routine_logger.warning(
+                            "[ROUTINE] %d consecutive inner loop failures. Exiting via on_exit.",
+                            inner_consecutive_failures)
+                        inner_consecutive_failures = 0
+                        on_exit = inner_loop.get('on_exit', '')
+                        if on_exit.startswith('goto_step:'):
+                            target_step = on_exit.split(':', 1)[1]
+                            jump_idx = _resolve_step_idx(target_step, step_id_to_idx, None)
+                            if jump_idx is not None:
+                                current_step_idx = jump_idx
+                                continue
+                    else:
+                        current_step_idx = inner_start_idx
+                        continue
+
             # Periodic health check
             steps_since_health_check += 1
             if steps_since_health_check >= health_check_interval:
@@ -1118,6 +1151,7 @@ async def handle_execute_routine(arguments: dict) -> dict:
                     if inner_exit:
                         # Inner loop exits - jump to on_exit target
                         inner_count += 1
+                        inner_consecutive_failures = 0
                         results["inner_loops_completed"] = inner_count
                         on_exit = inner_loop.get('on_exit', '')
                         if on_exit.startswith('goto_step:'):
@@ -1129,10 +1163,9 @@ async def handle_execute_routine(arguments: dict) -> dict:
                         # If no on_exit or invalid target, fall through to next step
                     else:
                         # Inner loop continues - jump back to start_step
-                        inner_start = inner_loop.get('start_step', 1)
-                        jump_idx = _resolve_step_idx(inner_start, step_id_to_idx, None)
-                        if jump_idx is not None:
-                            current_step_idx = jump_idx
+                        inner_consecutive_failures = 0
+                        if inner_start_idx is not None:
+                            current_step_idx = inner_start_idx
                             continue
 
             current_step_idx += 1
@@ -1289,6 +1322,11 @@ async def _execute_single_step(step: dict, step_idx: int, routine_config: dict, 
         step_result["elapsed_ms"] = result.get("elapsed_ms")
         if result.get("error"):
             step_result["error"] = result["error"]
+
+    # Apply delay after action
+    delay_after = step.get('delay_after_ms', 0)
+    if delay_after > 0:
+        await asyncio.sleep(delay_after / 1000.0)
 
     return step_result
 

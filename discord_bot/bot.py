@@ -33,7 +33,7 @@ logger = logging.getLogger("discord_bot")
 
 # Accounts that the Discord bot is NOT allowed to control
 # This protects important accounts from accidental or unauthorized access
-BLOCKED_ACCOUNTS = {"main"}
+BLOCKED_ACCOUNTS = set()
 
 # Agentic mode toggle - set USE_AGENTIC_MODE=false to use old architecture
 USE_AGENTIC_MODE = os.environ.get("USE_AGENTIC_MODE", "true").lower() == "true"
@@ -42,7 +42,14 @@ USE_AGENTIC_MODE = os.environ.get("USE_AGENTIC_MODE", "true").lower() == "true"
 class OSRSBot(commands.Bot):
     """Discord bot for controlling OSRS automation."""
 
+    STATE_FILE = Path.home() / ".manny" / "discord_bot_state.yaml"
+
     def __init__(self, llm_provider: str = "ollama", account_id: str = "aux"):
+        # Load persisted account if available (overrides CLI default)
+        saved_account = self._load_saved_account()
+        if saved_account and saved_account not in BLOCKED_ACCOUNTS:
+            account_id = saved_account
+
         # Validate account_id is not blocked
         if account_id in BLOCKED_ACCOUNTS:
             raise ValueError(f"Account '{account_id}' is blocked and cannot be used by the Discord bot")
@@ -942,6 +949,26 @@ class OSRSBot(commands.Bot):
             logger.error(f"Failed to load credentials: {e}")
             return {}
 
+    @classmethod
+    def _load_saved_account(cls) -> Optional[str]:
+        """Load the last-used account from disk."""
+        try:
+            if cls.STATE_FILE.exists():
+                data = yaml.safe_load(cls.STATE_FILE.read_text())
+                if data and isinstance(data, dict):
+                    return data.get("account_id")
+        except Exception as e:
+            logger.debug(f"Failed to load saved account: {e}")
+        return None
+
+    def _save_account(self, account_id: str):
+        """Persist the active account to disk so it survives restarts."""
+        try:
+            self.STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+            self.STATE_FILE.write_text(yaml.dump({"account_id": account_id}))
+        except Exception as e:
+            logger.warning(f"Failed to save account state: {e}")
+
     def switch_account(self, account_id: str) -> bool:
         """Switch to a different account.
 
@@ -957,6 +984,7 @@ class OSRSBot(commands.Bot):
             return False
 
         self.account_id = account_id
+        self._save_account(account_id)
         # Clear conversation history on account switch
         self.conversation_history.clear()
         logger.info(f"Switched to account: {account_id}")
@@ -996,7 +1024,10 @@ class OSRSBot(commands.Bot):
 
             elif tool_name == "start_runelite":
                 # Run in thread to avoid blocking event loop (start_instance can take 30s)
-                result = await asyncio.to_thread(self._manager.start_instance, self.account_id)
+                display = arguments.get("display")
+                result = await asyncio.to_thread(
+                    self._manager.start_instance, self.account_id, True, display
+                )
                 return result
 
             elif tool_name == "stop_runelite":
@@ -1368,19 +1399,18 @@ Inventory: {inv.get('used', '?')}/{inv.get('capacity', 28)} slots"""
             logger.error(f"/stop error: {e}")
             await interaction.followup.send(f"Error: {e}")
 
-    @bot.tree.command(name="restart", description="Kill all RuneLite instances and restart")
+    @bot.tree.command(name="restart", description="Restart this account's RuneLite instance")
     async def restart(interaction: discord.Interaction):
-        import subprocess
         bot._load_tools()
         await interaction.response.defer()
 
         try:
-            # Kill all RuneLite/java processes
-            await interaction.followup.send("Killing all RuneLite instances...")
-            await asyncio.to_thread(subprocess.run, ["pkill", "-9", "-f", "runelite"], capture_output=True)
-            await asyncio.to_thread(subprocess.run, ["pkill", "-9", "-f", "RuneLite"], capture_output=True)
+            # Stop only this account's instance
+            await interaction.followup.send(f"Stopping RuneLite for `{bot.account_id}`...")
+            stop_result = await asyncio.to_thread(bot._manager.stop_instance, bot.account_id)
+            logger.info(f"/restart stop result: {stop_result}")
 
-            # Wait for processes to die
+            # Wait for process to die
             await asyncio.sleep(2)
 
             # Start RuneLite (run in thread to avoid blocking heartbeat)
@@ -1395,24 +1425,19 @@ Inventory: {inv.get('used', '?')}/{inv.get('capacity', 28)} slots"""
             logger.error(f"/restart error: {e}")
             await interaction.followup.send(f"Error: {e}")
 
-    @bot.tree.command(name="kill", description="Kill all RuneLite instances")
+    @bot.tree.command(name="kill", description="Kill this account's RuneLite instance")
     async def kill(interaction: discord.Interaction):
-        import subprocess
         await interaction.response.defer()
 
         try:
-            # Kill all RuneLite/java processes
-            subprocess.run(["pkill", "-9", "-f", "runelite"], capture_output=True)
-            subprocess.run(["pkill", "-9", "-f", "RuneLite"], capture_output=True)
+            # Stop only this account's instance
+            result = await asyncio.to_thread(bot._manager.stop_instance, bot.account_id)
+            logger.info(f"/kill result: {result}")
 
-            await asyncio.sleep(1)
-
-            # Check if any remain
-            result = subprocess.run(["pgrep", "-f", "runelite"], capture_output=True)
-            if result.returncode == 0:
-                await interaction.followup.send("Killed RuneLite (some processes may remain)")
+            if result.get("stopped"):
+                await interaction.followup.send(f"Killed RuneLite for `{bot.account_id}`")
             else:
-                await interaction.followup.send("All RuneLite instances killed")
+                await interaction.followup.send(f"No running instance for `{bot.account_id}`")
         except Exception as e:
             logger.error(f"/kill error: {e}")
             await interaction.followup.send(f"Error: {e}")

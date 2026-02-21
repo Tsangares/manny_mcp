@@ -127,7 +127,12 @@ TOOL_DEFINITIONS = [
         "description": "Start the RuneLite client. Use this when the client is not running.",
         "parameters": {
             "type": "object",
-            "properties": {}
+            "properties": {
+                "display": {
+                    "type": "string",
+                    "description": "X display to use (e.g. ':2', ':3', ':4'). If not specified, auto-allocated."
+                }
+            }
         }
     },
     {

@@ -240,7 +240,7 @@ class GeminiClient(LLMClient):
             llm_resp.input_tokens = getattr(response.usage_metadata, 'prompt_token_count', 0) or 0
             llm_resp.output_tokens = getattr(response.usage_metadata, 'candidates_token_count', 0) or 0
 
-        if response.candidates and response.candidates[0].content.parts:
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
             for part in response.candidates[0].content.parts:
                 if hasattr(part, "function_call") and part.function_call:
                     fc = part.function_call
@@ -327,7 +327,7 @@ class OpenAIClient(LLMClient):
             model=self.model,
             messages=oai_messages,
             tools=oai_tools,
-            max_tokens=4096,
+            max_completion_tokens=4096,
         )
 
         choice = response.choices[0]

@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-async def run_routine(routine_path: str, max_loops: int = 1, start_step: int = 1, account_id: str = None):
+async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '1', account_id: str = None):
     """Run a YAML routine and return results."""
     from mcptools.tools import routine, commands, monitoring
     from mcptools.config import ServerConfig
@@ -130,7 +130,7 @@ def main():
     parser = argparse.ArgumentParser(description='Run a YAML routine')
     parser.add_argument('routine', help='Path to routine YAML file')
     parser.add_argument('--loops', type=int, default=1, help='Number of loops (default: 1)')
-    parser.add_argument('--start-step', type=int, default=1, help='Starting step (default: 1)')
+    parser.add_argument('--start-step', type=str, default='1', help='Starting step ID (default: 1)')
     parser.add_argument('--account', type=str, default=None, help='Account ID (e.g., "main")')
     parser.add_argument('--json', action='store_true', help='Output raw JSON instead of formatted')
 

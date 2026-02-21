@@ -15,6 +15,7 @@ MODEL_PRICING = {
     "claude-sonnet-4-20250514": (3.00, 15.00),
     "claude-haiku-4-5-20251001": (0.80, 4.00),
     "gpt-4o-mini": (0.15, 0.60),
+    "gpt-5-nano": (0.05, 0.40),
 }
 
 
@@ -61,7 +62,7 @@ class DriverConfig:
             "anthropic": "claude-sonnet-4-20250514",
             "gemini": "gemini-2.5-flash-lite",
             "ollama": "hermes3:8b-llama3.1-q4_K_M",
-            "openai": "gpt-4o-mini",
+            "openai": "gpt-5-nano",
         }
         return defaults.get(self.provider, "claude-sonnet-4-20250514")
 

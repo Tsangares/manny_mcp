@@ -66,6 +66,7 @@ class Agent:
         self._current_directive = ""
         self._original_goal = ""  # Preserved across monitoring interventions
         self._monitoring = False
+        self._kill_loop_sent = False  # Track if KILL_LOOP was issued
 
     def _convert_tools(self, tools) -> list[dict]:
         """Convert MCP tools to the current provider's format."""
@@ -94,6 +95,7 @@ class Agent:
         self._running = True
         if not monitoring_intervention:
             self._current_directive = directive
+            self._kill_loop_sent = False
         self.stuck_detector.reset()
 
         # Use reduced tool set for monitoring interventions
@@ -190,6 +192,9 @@ class Agent:
                     if is_command:
                         cmd = tc.arguments.get("command", "")
                         self.stuck_detector.record_command(cmd)
+                        # Detect KILL_LOOP to auto-transition to monitoring
+                        if cmd.startswith("KILL_LOOP"):
+                            self._kill_loop_sent = True
 
                     # Delay between consecutive commands to avoid overwriting
                     # (send_command writes to a file, only last write per tick executes)
@@ -247,6 +252,14 @@ class Agent:
                                 if isinstance(item, dict) and item.get("type") == "tool_result":
                                     item["_tool_name"] = tc.name
                         self.conversation.add_message(msg)
+
+                # Auto-exit execution after KILL_LOOP is sent
+                # The monitoring loop will handle ongoing checks. This prevents
+                # Gemini flash-lite from burning tool calls polling get_game_state.
+                if self._kill_loop_sent and not monitoring_intervention:
+                    self.on_status("KILL_LOOP active, transitioning to monitoring")
+                    logger.info("KILL_LOOP detected, exiting execution loop")
+                    break
 
                 # Check if stuck
                 signals = self.stuck_detector.check()
@@ -361,14 +374,17 @@ class Agent:
                     inv = game_state.get("inventory", {})
                     loc = game_state.get("location", {})
                     skills = game_state.get("skills", {})
-                    atk = skills.get("attack", {})
                     hp = game_state.get("health", {})
                     cost = self.conversation.stats.estimated_cost
+                    # Show combat skills compactly: A/S/D levels
+                    atk_lvl = skills.get("attack", {}).get("level", "?")
+                    str_lvl = skills.get("strength", {}).get("level", "?")
+                    def_lvl = skills.get("defence", {}).get("level", "?")
                     self.on_status(
                         f"Monitoring: ({loc.get('x','?')},{loc.get('y','?')}) "
                         f"inv={inv.get('used','?')}/28 "
                         f"hp={hp.get('current','?')}/{hp.get('max','?')} "
-                        f"atk_xp={atk.get('xp','?')} | "
+                        f"cmb={atk_lvl}/{str_lvl}/{def_lvl} | "
                         f"${cost:.4f}"
                     )
 
@@ -416,7 +432,15 @@ class Agent:
         # If no XP gained for 3 consecutive checks (~90s), restart the kill loop
         if self._idle_checks >= 3:
             self._idle_checks = 0
-            return ("xp_idle", ["KILL_LOOP Chicken none"])
+            # Extract kill target from directive (e.g., "KILL_LOOP Cow" or "kill cows")
+            import re
+            directive = self._current_directive or self._original_goal or ""
+            m = re.search(r'KILL_LOOP\s+(\S+)', directive)
+            if not m:
+                # Try natural language: "kill cows" -> "Cow"
+                m = re.search(r'kill(?:ing)?\s+(\w+)', directive, re.IGNORECASE)
+            target = m.group(1).rstrip('s') if m else "Cow"  # strip plural
+            return ("xp_idle", [f"KILL_LOOP {target} none"])
 
         return None
 

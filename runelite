@@ -1,0 +1,390 @@
+#!/usr/bin/env python3
+"""
+CLI utility for starting and stopping RuneLite clients.
+
+Usage:
+    ./runelite start [account]          Start RuneLite for account (default: main)
+    ./runelite start [account] -d :3    Start on specific display
+    ./runelite stop [account]           Stop RuneLite for account
+    ./runelite stop --all               Stop all RuneLite instances
+    ./runelite status                   Show running instances
+    ./runelite accounts                 List configured accounts
+"""
+import argparse
+import os
+import signal
+import subprocess
+import sys
+import time
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from mcptools.config import ServerConfig
+from mcptools.credentials import credential_manager
+from mcptools.session_manager import session_manager
+from mcptools.runelite_manager import RuneLiteInstance
+
+
+def find_running_runelite() -> list:
+    """Find all running RuneLite Java processes."""
+    try:
+        result = subprocess.run(
+            ["pgrep", "-a", "-f", "net.runelite.client.RuneLite"],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            return []
+
+        processes = []
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            parts = line.split(None, 1)
+            pid = int(parts[0])
+            cmdline = parts[1] if len(parts) > 1 else ""
+
+            # Try to figure out which account by checking env
+            account = "unknown"
+            try:
+                env_path = f"/proc/{pid}/environ"
+                if os.path.exists(env_path):
+                    with open(env_path, 'rb') as f:
+                        env_data = f.read().decode('utf-8', errors='replace')
+                        for entry in env_data.split('\0'):
+                            if entry.startswith("MANNY_ACCOUNT_ID="):
+                                account = entry.split('=', 1)[1]
+                                break
+                            elif entry.startswith("JX_DISPLAY_NAME="):
+                                account = entry.split('=', 1)[1]
+            except (PermissionError, FileNotFoundError):
+                pass
+
+            # Get display
+            display = "unknown"
+            try:
+                env_path = f"/proc/{pid}/environ"
+                if os.path.exists(env_path):
+                    with open(env_path, 'rb') as f:
+                        env_data = f.read().decode('utf-8', errors='replace')
+                        for entry in env_data.split('\0'):
+                            if entry.startswith("DISPLAY="):
+                                display = entry.split('=', 1)[1]
+                                break
+            except (PermissionError, FileNotFoundError):
+                pass
+
+            processes.append({
+                "pid": pid,
+                "account": account,
+                "display": display,
+                "cmdline": cmdline[:80]
+            })
+
+        return processes
+    except FileNotFoundError:
+        return []
+
+
+def cmd_start(args):
+    """Start a RuneLite instance."""
+    account = args.account or "main"
+    display = args.display
+    proxy = args.proxy
+
+    config = ServerConfig.load()
+
+    # Check for existing instance
+    running = find_running_runelite()
+    for proc in running:
+        if proc["account"] == account:
+            print(f"RuneLite already running for '{account}' (PID: {proc['pid']}, display: {proc['display']})")
+            if not args.force:
+                print("Use --force to restart")
+                return 1
+            print(f"Stopping existing instance (PID: {proc['pid']})...")
+            os.kill(proc["pid"], signal.SIGTERM)
+            time.sleep(2)
+
+    # Get proxy from credentials if not specified
+    if not proxy:
+        creds = credential_manager.get_account(account)
+        if creds and creds.get("proxy"):
+            proxy = creds["proxy"]
+
+    # Allocate display
+    if not display:
+        alloc = session_manager.allocate_display(account)
+        if not alloc.get("success"):
+            print(f"Failed to allocate display: {alloc.get('error')}")
+            print("Hint: Run ./start_gamescopes.sh first")
+            return 1
+        display = alloc["display"]
+
+    # Write credentials
+    creds = credential_manager.get_account(account)
+    if creds:
+        creds_file = os.path.expanduser("~/.runelite/credentials.properties")
+        os.makedirs(os.path.dirname(creds_file), exist_ok=True)
+        lines = ["#Do not share this file with anyone"]
+        if creds.get("jx_character_id"):
+            lines.append(f"JX_CHARACTER_ID={creds['jx_character_id']}")
+        if creds.get("jx_session_id"):
+            lines.append(f"JX_SESSION_ID={creds['jx_session_id']}")
+        if creds.get("display_name"):
+            lines.append(f"JX_DISPLAY_NAME={creds['display_name']}")
+        with open(creds_file, 'w') as f:
+            f.write('\n'.join(lines) + '\n')
+        print(f"Credentials written for '{account}' ({creds.get('display_name', 'N/A')})")
+    else:
+        print(f"No credentials found for '{account}' - manual login required")
+
+    # Start RuneLite
+    instance = RuneLiteInstance(config, account)
+    result = instance.start(developer_mode=True, display=display, proxy=proxy)
+
+    pid = result.get("pid")
+    if pid:
+        # Record session
+        session_manager.start_session(account_id=account, display=display, pid=pid)
+
+        print(f"RuneLite started for '{account}'")
+        print(f"  PID:     {pid}")
+        print(f"  Display: {display}")
+        print(f"  Log:     {result.get('log_file', 'N/A')}")
+        if proxy:
+            print(f"  Proxy:   {result.get('proxy', {}).get('scheme', '?')}://{result.get('proxy', {}).get('host', '?')}")
+        return 0
+    else:
+        print(f"Failed to start RuneLite: {result.get('error', 'unknown error')}")
+        return 1
+
+
+def cmd_stop(args):
+    """Stop RuneLite instance(s)."""
+    if args.all:
+        running = find_running_runelite()
+        if not running:
+            print("No RuneLite instances running")
+            return 0
+
+        for proc in running:
+            print(f"Stopping {proc['account']} (PID: {proc['pid']}, display: {proc['display']})...")
+            try:
+                os.kill(proc["pid"], signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+
+        time.sleep(2)
+
+        # Verify they stopped
+        still_running = find_running_runelite()
+        if still_running:
+            for proc in still_running:
+                print(f"  Force killing PID {proc['pid']}...")
+                try:
+                    os.kill(proc["pid"], signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+        print(f"Stopped {len(running)} instance(s)")
+        return 0
+
+    account = args.account or "main"
+    running = find_running_runelite()
+
+    stopped = False
+    for proc in running:
+        if proc["account"] == account or account == proc.get("display_name", ""):
+            print(f"Stopping '{proc['account']}' (PID: {proc['pid']})...")
+            try:
+                os.kill(proc["pid"], signal.SIGTERM)
+                stopped = True
+
+                # Wait for graceful shutdown
+                for _ in range(10):
+                    time.sleep(0.5)
+                    try:
+                        os.kill(proc["pid"], 0)
+                    except ProcessLookupError:
+                        break
+                else:
+                    print(f"  Force killing PID {proc['pid']}...")
+                    os.kill(proc["pid"], signal.SIGKILL)
+
+            except ProcessLookupError:
+                print(f"  Process already dead")
+                stopped = True
+
+    if not stopped:
+        # Try by PID from session manager
+        display = session_manager.get_display_for_account(account)
+        if display:
+            session = session_manager.displays.get(display)
+            if session and session.get("pid"):
+                pid = session["pid"]
+                print(f"Stopping '{account}' (PID: {pid} from session tracker)...")
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                    stopped = True
+                    time.sleep(2)
+                except ProcessLookupError:
+                    print(f"  Process already dead")
+                    stopped = True
+
+    if stopped:
+        session_manager.end_session(account_id=account)
+        print(f"Stopped '{account}'")
+        return 0
+    else:
+        print(f"No RuneLite instance found for '{account}'")
+        return 1
+
+
+def cmd_status(args):
+    """Show status of all RuneLite instances."""
+    running = find_running_runelite()
+
+    # Also check session manager
+    active_sessions = session_manager.get_active_sessions()
+
+    if not running and not active_sessions:
+        print("No RuneLite instances running")
+        return 0
+
+    print("Running RuneLite Instances")
+    print("=" * 50)
+
+    if running:
+        for proc in running:
+            playtime = session_manager.get_playtime_24h(proc["account"])
+            state_file = f"/tmp/manny_{proc['account']}_state.json" if proc["account"] != "default" else "/tmp/manny_state.json"
+
+            state_age = "N/A"
+            try:
+                if os.path.exists(state_file):
+                    age = time.time() - os.path.getmtime(state_file)
+                    if age < 5:
+                        state_age = f"{age:.1f}s (fresh)"
+                    elif age < 30:
+                        state_age = f"{age:.1f}s (lagging)"
+                    else:
+                        state_age = f"{age:.0f}s (STALE)"
+            except Exception:
+                pass
+
+            print(f"  {proc['account']:<12} PID: {proc['pid']:<8} Display: {proc['display']:<5} State: {state_age:<20} Playtime: {playtime:.1f}h/12h")
+    else:
+        print("  (no processes found via pgrep)")
+
+    # Show stale sessions (tracked but process dead)
+    stale = []
+    for session in active_sessions:
+        pid = session.get("pid")
+        if pid:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                stale.append(session)
+            except PermissionError:
+                pass
+
+    if stale:
+        print()
+        print("Stale Sessions (process dead):")
+        for s in stale:
+            print(f"  {s.get('account', '?'):<12} PID: {s.get('pid', '?'):<8} Display: {s.get('display', '?')}")
+        print("  Run: ./runelite cleanup")
+
+    return 0
+
+
+def cmd_accounts(args):
+    """List configured accounts."""
+    accounts = credential_manager.get_accounts_info()
+
+    if not accounts:
+        print("No accounts configured")
+        print("Add one with: import_credentials() MCP tool")
+        return 0
+
+    print("Configured Accounts")
+    print("=" * 50)
+
+    for acc in accounts:
+        default_marker = " (default)" if acc["is_default"] else ""
+        proxy_marker = " [proxy]" if acc["has_proxy"] else ""
+        creds_marker = "creds" if acc["has_character_id"] else "no-creds"
+
+        display = session_manager.account_displays.get(acc["alias"], "auto")
+
+        print(f"  {acc['alias']:<12} {acc['display_name']:<16} display={display:<5} {creds_marker}{proxy_marker}{default_marker}")
+
+    return 0
+
+
+def cmd_cleanup(args):
+    """Clean up stale sessions."""
+    result = session_manager.cleanup_stale_sessions()
+
+    if result["session_count"] == 0 and result["display_count"] == 0:
+        print("Nothing to clean up")
+    else:
+        if result["cleaned_sessions"]:
+            for s in result["cleaned_sessions"]:
+                print(f"Cleaned session: {s['account']} (PID: {s['pid']}, display: {s['display']})")
+        if result["cleaned_displays"]:
+            for d in result["cleaned_displays"]:
+                print(f"Cleaned display: {d}")
+        print(f"Total: {result['session_count']} sessions, {result['display_count']} displays cleaned")
+
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="RuneLite client manager",
+        usage="./runelite <command> [options]"
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Command to run")
+
+    # start
+    p_start = subparsers.add_parser("start", help="Start RuneLite for an account")
+    p_start.add_argument("account", nargs="?", default="main", help="Account alias (default: main)")
+    p_start.add_argument("-d", "--display", help="X display to use (e.g. :2, :3)")
+    p_start.add_argument("-p", "--proxy", help="Proxy URL (e.g. socks5://user:pass@host:port)")
+    p_start.add_argument("-f", "--force", action="store_true", help="Force restart if already running")
+
+    # stop
+    p_stop = subparsers.add_parser("stop", help="Stop RuneLite for an account")
+    p_stop.add_argument("account", nargs="?", default="main", help="Account alias (default: main)")
+    p_stop.add_argument("--all", action="store_true", help="Stop all instances")
+
+    # status
+    subparsers.add_parser("status", help="Show running instances")
+
+    # accounts
+    subparsers.add_parser("accounts", help="List configured accounts")
+
+    # cleanup
+    subparsers.add_parser("cleanup", help="Clean up stale sessions")
+
+    args = parser.parse_args()
+
+    if not args.command:
+        parser.print_help()
+        return 1
+
+    commands = {
+        "start": cmd_start,
+        "stop": cmd_stop,
+        "status": cmd_status,
+        "accounts": cmd_accounts,
+        "cleanup": cmd_cleanup,
+    }
+
+    return commands[args.command](args)
+
+
+if __name__ == "__main__":
+    sys.exit(main() or 0)

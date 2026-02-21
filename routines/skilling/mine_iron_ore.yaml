@@ -1,0 +1,241 @@
+# Mine Iron Ore - Mining Guild
+# Mine iron ore and bank at Falador East Bank
+# 27 iron ore per trip (28 slots - 1 pickaxe)
+
+name: "Mine Iron Ore - Mining Guild"
+type: skilling
+skill: mining
+description: |
+  Mine iron ore in the F2P section of the Mining Guild and bank at Falador East Bank.
+  27 iron per trip. Mining 69 + guild's invisible +7 boost = effective 76 mining.
+
+  XP rates (approximate):
+  - Mining: ~35-40k/hr (iron only, fast respawn)
+
+  Run with --loops 100 for ~2700 iron ore.
+
+# Requirements
+requirements:
+  mining_level: 60  # Mining Guild entrance
+  items:
+    - "Pickaxe in inventory or equipped"
+
+# Pre-run checklist
+pre_run_checklist:
+  - "Start at Falador East Bank OR underground (use --start-step 8 if underground)"
+  - "Pickaxe in inventory"
+  - "Bank any valuables (natures, bars) before starting if needed"
+
+# Starting location
+start_location:
+  name: "Falador East Bank"
+  x: 3012
+  y: 3355
+  plane: 0
+  validated: true
+
+# Key locations
+locations:
+  falador_east_bank:
+    x: 3012
+    y: 3355
+    plane: 0
+    validated: true
+
+  mining_guild_entrance:
+    x: 3019
+    y: 3339
+    plane: 0
+    validated: true
+
+  iron_rocks_guild:
+    x: 3029
+    y: 9739
+    plane: 0
+    description: "Iron rocks in F2P section of Mining Guild"
+    validated: true
+
+  ladder_underground:
+    x: 3019
+    y: 9739
+    plane: 0
+    description: "Ladder position underground"
+    validated: true
+
+steps:
+  # ========== PHASE 1: BANK ==========
+  - id: 1
+    phase: "banking"
+    action: GOTO
+    args: "3012 3355 0"
+    description: "Walk to Falador East Bank"
+    await_condition: "location:3012,3355"
+    timeout_ms: 30000
+
+  - id: 2
+    phase: "banking"
+    action: BANK_OPEN
+    args: ""
+    description: "Open bank"
+    delay_after_ms: 1000
+
+  - id: 3
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Iron_ore"
+    description: "Deposit iron ore"
+    delay_after_ms: 500
+
+  - id: 3b
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Steel_bar"
+    description: "Deposit any leftover steel bars from previous session"
+    delay_after_ms: 500
+
+  - id: 3c
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Coal"
+    description: "Deposit any leftover coal"
+    delay_after_ms: 500
+
+  - id: 3d
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Nature_rune"
+    description: "Bank nature runes (not needed for iron mining)"
+    delay_after_ms: 500
+
+  - id: 3e
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_emerald"
+    description: "Deposit gem drops"
+    delay_after_ms: 500
+
+  - id: 3f
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_ruby"
+    description: "Deposit gem drops"
+    delay_after_ms: 500
+
+  - id: 3g
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_sapphire"
+    description: "Deposit gem drops"
+    delay_after_ms: 500
+
+  - id: 3h
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Uncut_diamond"
+    description: "Deposit gem drops"
+    delay_after_ms: 500
+
+  - id: 4
+    phase: "banking"
+    action: BANK_CLOSE
+    args: ""
+    description: "Close bank"
+    delay_after_ms: 500
+
+  # ========== PHASE 2: TRAVEL TO MINE ==========
+  - id: 5
+    phase: "travel"
+    action: GOTO
+    args: "3019 3350 0"
+    description: "Walk toward Mining Guild (waypoint)"
+    await_condition: "location:3019,3350"
+    timeout_ms: 20000
+
+  - id: 5b
+    phase: "travel"
+    action: GOTO
+    args: "3019 3339 0"
+    description: "Walk to Mining Guild entrance"
+    await_condition: "location:3019,3339"
+    timeout_ms: 15000
+
+  - id: 6
+    phase: "travel"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb down ladder into Mining Guild"
+    await_condition: "location:3019,9739"
+    timeout_ms: 10000
+
+  - id: 6b
+    phase: "setup"
+    action: CAMERA_STABILIZE
+    args: "350 FAR"
+    description: "Set camera for good mining visibility"
+    delay_after_ms: 1000
+
+  # ========== PHASE 3: MINE IRON (inner loop) ==========
+  - id: 7
+    phase: "mining"
+    action: MINE_ORE
+    args: "iron 1"
+    description: "Mine one iron ore"
+    timeout_ms: 45000
+    notes: "MINE_ORE is blocking - no await_condition needed. Handles pathfinding to iron rocks internally."
+
+  # ========== PHASE 4: EXIT MINE ==========
+  - id: 8
+    phase: "exit"
+    action: GOTO
+    args: "3019 9739 0"
+    description: "Walk to ladder underground"
+    await_condition: "location:3019,9739"
+    timeout_ms: 15000
+
+  - id: 9
+    phase: "exit"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb up ladder to surface"
+    await_condition: "location:3019,3339"
+    timeout_ms: 10000
+
+# Loop configuration
+loop:
+  # Inner loop: Mine iron until inventory full
+  inner:
+    enabled: true
+    start_step: 7
+    end_step: 7
+    exit_conditions:
+      - "inventory_full"
+    on_exit: "goto_step:8"
+
+  # Outer loop: Bank and repeat
+  outer:
+    enabled: true
+    start_step: 1
+    end_step: 9
+    exit_conditions: []
+    notes: |
+      Run with --loops 100 for ~2700 iron ore (27 per trip x 100 trips).
+      After last trip, iron remains in inventory - bank manually or add one more loop.
+
+notes: |
+  IRON MINING WORKFLOW:
+
+  Inventory per trip:
+  - 1 slot: Rune pickaxe
+  - 27 slots: Iron ore
+  - Total: 28/28 when full
+
+  First trip behavior:
+  - If starting underground (--start-step 8): exits mine, banks, returns
+  - If starting at bank: deposits any leftover items, travels down, mines
+
+  Iron ore respawns every 3 ticks (~1.8s) in Mining Guild.
+  The +7 invisible mining boost speeds up mining significantly.
+  Iron is rarely contested vs coal - expect consistent 4-5 ticks per ore.
+
+  For 2700 iron ore: --loops 100
+  Estimated time: ~4 hours at ~40k mining XP/hr
