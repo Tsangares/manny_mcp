@@ -1,0 +1,27 @@
+{
+  "note": "Partial run (3 of 9 models; qwen3:14b stopped early at 15/33 trials). Kept for the record alongside summary.json (fragmented baseline).",
+  "n_trials": 81,
+  "per_model": {
+    "qwen2.5:14b": {
+      "correct": 18,
+      "n": 33,
+      "rate": 0.5454545454545454,
+      "fake_rate": 0.15151515151515152,
+      "mean_duration_s": 9.015151515151516
+    },
+    "qwen2.5:32b": {
+      "correct": 17,
+      "n": 33,
+      "rate": 0.5151515151515151,
+      "fake_rate": 0.12121212121212122,
+      "mean_duration_s": 79.49666666666667
+    },
+    "qwen3:14b": {
+      "correct": 7,
+      "n": 15,
+      "rate": 0.4666666666666667,
+      "fake_rate": 0.13333333333333333,
+      "mean_duration_s": 122.46533333333333
+    }
+  }
+}

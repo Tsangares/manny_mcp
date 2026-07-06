@@ -207,12 +207,15 @@ class AgenticLoop:
         system_prompt = get_agentic_system_prompt()
 
         # Smart context injection based on activity classification
-        domain = classify_activity(message)
-        if domain:
-            fragment = get_context_fragment(domain)
-            if fragment:
-                system_prompt += f"\n\n{fragment}"
-                logger.debug(f"Injected {domain} context fragment")
+        # MANNY_BENCH_MONOLITHIC=1 disables fragment injection for A/B benchmarking
+        import os as _os
+        if _os.environ.get("MANNY_BENCH_MONOLITHIC") != "1":
+            domain = classify_activity(message)
+            if domain:
+                fragment = get_context_fragment(domain)
+                if fragment:
+                    system_prompt += f"\n\n{fragment}"
+                    logger.debug(f"Injected {domain} context fragment")
 
         # Add JSON schema instruction
         schema_instruction = f"""

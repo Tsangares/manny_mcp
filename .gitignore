@@ -52,3 +52,12 @@ Thumbs.db
 debug-session.json
 /tmp/
 .runelite/
+
+# Bulky raw bench outputs (keep scripts + summary*.json)
+bench_results/trials*.csv
+bench_results/trials*.jsonl
+bench_results/*.png
+bench_results/__pycache__/
+
+# Claude Code project instructions (local only)
+CLAUDE.md
