@@ -23,7 +23,7 @@ ok()   { echo "  PASS: $1"; PASS=$((PASS+1)); }
 bad()  { echo "  FAIL: $1"; FAIL=$((FAIL+1)); }
 now_ms() { date +%s%3N; }
 
-rid() { printf '%08x' $(( (RANDOM<<16) ^ RANDOM ^ $(date +%N) & 0xffffffff )); }
+rid() { printf '%08x' $(( ((RANDOM<<16) ^ (RANDOM<<3) ^ 10#$(date +%N)) & 0x7fffffff )); }
 
 # send <command-with-args> -> echoes the rid used; waits up to <timeout_ms> for a
 # response whose request_id matches, printing round-trip latency.

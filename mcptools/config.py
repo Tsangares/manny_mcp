@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 
 import yaml
 
+from .credentials import credential_manager
+
 logger = logging.getLogger(__name__)
 
 
@@ -71,9 +73,36 @@ class ServerConfig:
     accounts: Dict[str, AccountConfig] = field(default_factory=dict)
     default_account: str = "default"
 
+    def resolve_account_id(self, account_id: str = None) -> str:
+        """
+        Resolve `account_id=None` to a single, consistent concrete alias.
+
+        This is the ONE shared resolver for "no account specified" semantics.
+        Previously, `start_instance()` resolved `None` via
+        `credential_manager.default` (e.g. "main"/"new") while the file-path
+        helpers below resolved `None` via `self.default_account` (hardcoded
+        "default"). That mismatch meant a command sent without an explicit
+        account_id could be written to `/tmp/manny_command.txt` while the
+        running plugin (launched with `MANNY_ACCOUNT_ID=new`) only reads
+        `/tmp/manny_new_command.txt` -- the command was silently never seen.
+
+        Resolution order:
+          1. Explicit `account_id`, if given.
+          2. `credential_manager.default`, if it has been explicitly set to
+             a real alias (i.e. not the unset sentinel "default").
+          3. `self.default_account` (defaults to "default"), preserving
+             backward-compatible un-suffixed `/tmp/manny_*` behavior when no
+             credentials.yaml default has been configured.
+        """
+        if account_id:
+            return account_id
+        if credential_manager.default and credential_manager.default != "default":
+            return credential_manager.default
+        return self.default_account
+
     def get_account_config(self, account_id: str = None) -> AccountConfig:
         """Get account config, falling back to default if not specified"""
-        account_id = account_id or self.default_account
+        account_id = self.resolve_account_id(account_id)
         if account_id in self.accounts:
             return self.accounts[account_id]
         # Return default config based on top-level settings
@@ -86,26 +115,30 @@ class ServerConfig:
 
     def get_command_file(self, account_id: str = None) -> str:
         """Get command file path for account"""
-        if account_id and account_id != "default":
+        account_id = self.resolve_account_id(account_id)
+        if account_id != "default":
             return f"/tmp/manny_{account_id}_command.txt"
         return self.command_file
 
     def get_state_file(self, account_id: str = None) -> str:
         """Get state file path for account"""
-        if account_id and account_id != "default":
+        account_id = self.resolve_account_id(account_id)
+        if account_id != "default":
             return f"/tmp/manny_{account_id}_state.json"
         return self.state_file
 
     def get_response_file(self, account_id: str = None) -> str:
         """Get response file path for account"""
-        if account_id and account_id != "default":
+        account_id = self.resolve_account_id(account_id)
+        if account_id != "default":
             return f"/tmp/manny_{account_id}_response.json"
         # Default response file path
         return self.state_file.replace("state.json", "response.json")
 
     def get_location_history_file(self, account_id: str = None) -> str:
         """Get location history file path for account"""
-        if account_id and account_id != "default":
+        account_id = self.resolve_account_id(account_id)
+        if account_id != "default":
             return f"/tmp/manny_{account_id}_location_history.json"
         return "/tmp/manny_location_history.json"
 

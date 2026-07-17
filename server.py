@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import uuid
+from typing import Optional
 
 from dotenv import load_dotenv
 from mcp.server import Server
@@ -78,11 +79,46 @@ class ResponseFileMonitor:
             def __init__(self, monitor):
                 self.monitor = monitor
 
+            @staticmethod
+            def _matches(path: Optional[str]) -> bool:
+                """Match any manny response file (default or account-suffixed).
+
+                e.g. "manny_response.json" or "manny_<account>_response.json".
+                Broad matching (rather than the single default filename) lets
+                one shared monitor wake waiters for every account; each
+                waiter re-validates against its own response file/request_id
+                via _check_response() before returning, so a spurious wakeup
+                from a different account's file is harmless.
+                """
+                if not path:
+                    return False
+                name = os.path.basename(path)
+                return name.startswith("manny") and name.endswith("_response.json")
+
+            def _notify(self):
+                # Signal waiting coroutines
+                if self.monitor._loop:
+                    self.monitor._loop.call_soon_threadsafe(self.monitor.event.set)
+
             def on_modified(self, event):
-                if event.src_path.endswith(self.monitor.file_name):
-                    # Signal waiting coroutines
-                    if self.monitor._loop:
-                        self.monitor._loop.call_soon_threadsafe(self.monitor.event.set)
+                if self._matches(event.src_path):
+                    self._notify()
+
+            def on_created(self, event):
+                # Some filesystems/edit patterns emit create instead of modify.
+                if self._matches(event.src_path):
+                    self._notify()
+
+            def on_moved(self, event):
+                # The plugin publishes responses via an atomic rename
+                # (response.json.tmp -> response.json), which watchdog
+                # delivers as a FileMovedEvent (dest_path = final response
+                # file), NOT a FileModifiedEvent. Without this handler the
+                # rename is invisible to the monitor and every awaited
+                # command silently waits out the full timeout.
+                dest_path = getattr(event, "dest_path", None)
+                if self._matches(dest_path) or self._matches(event.src_path):
+                    self._notify()
 
         self.handler = ResponseFileHandler(self)
         self.observer = Observer()
@@ -176,7 +212,11 @@ async def send_command_with_response(command: str, timeout_ms: int = 3000, accou
             return response
 
         # THEN: Wait for file change event or poll
-        if _response_monitor and (account_id is None or account_id == config.default_account):
+        # The monitor watches /tmp broadly and its handler matches any
+        # manny*_response.json file (see ResponseFileHandler._matches), so
+        # it's usable for every account, not just the default one -- each
+        # waiter still validates the response is its own via _check_response().
+        if _response_monitor:
             remaining_time = timeout_sec - (time.time() - start)
             if remaining_time <= 0:
                 break
@@ -189,7 +229,7 @@ async def send_command_with_response(command: str, timeout_ms: int = 3000, accou
                     return response
                 break
         else:
-            # Fallback to polling for non-default accounts
+            # Fallback to polling if the monitor failed to initialize
             await asyncio.sleep(0.05)
 
     return {

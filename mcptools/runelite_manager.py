@@ -10,6 +10,7 @@ Credential Flow:
 """
 import logging
 import os
+import re
 import subprocess
 import threading
 import time
@@ -23,6 +24,11 @@ from .credentials import credential_manager
 from .session_manager import session_manager
 
 logger = logging.getLogger(__name__)
+
+# Matches the leading "YYYY-MM-DD HH:MM:SS" timestamp that RuneLite/logback
+# prefixes each log line with (e.g. "2026-07-17 15:11:03 PDT [main] INFO  ...").
+# Continuation lines (stack trace frames, multi-line messages) don't match.
+_LOG_TIMESTAMP_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
 
 
 class RuneLiteInstance:
@@ -317,6 +323,38 @@ tcp_connect_time_out 8000
         """Check if this instance is running."""
         return self.process is not None and self.process.poll() is None
 
+    def _read_log_tail_lines(self) -> List[str]:
+        """
+        Read the on-disk log file, capped to the last `log_buffer_size` lines.
+
+        start() redirects the RuneLite process's stdout/stderr directly to
+        self.log_file_path (to avoid a PIPE deadlock), so process.stdout is
+        never available for a background thread to read -- log_thread is
+        never started and log_buffer stays empty forever. This reads the
+        actual log content from disk instead.
+        """
+        if not self.log_file_path or not os.path.exists(self.log_file_path):
+            return []
+        try:
+            with open(self.log_file_path, "r", errors="replace") as f:
+                # deque(maxlen=...) tails the file without holding the whole
+                # thing in memory at once, mirroring the old buffer's cap.
+                return list(deque(f, maxlen=self.config.log_buffer_size))
+        except OSError as e:
+            logger.debug("Could not read log file for %s: %s", self.account_id, e)
+            return []
+
+    @staticmethod
+    def _parse_log_timestamp(line: str) -> Optional[float]:
+        """Parse the leading timestamp of a log line, or None for continuation lines."""
+        match = _LOG_TIMESTAMP_RE.match(line)
+        if not match:
+            return None
+        try:
+            return datetime.strptime(match.group(1), "%Y-%m-%d %H:%M:%S").timestamp()
+        except ValueError:
+            return None
+
     def get_logs(
         self,
         level: str = "WARN",
@@ -325,7 +363,7 @@ tcp_connect_time_out 8000
         max_lines: int = 100,
         plugin_only: bool = True
     ) -> Dict[str, Any]:
-        """Get filtered logs from this instance."""
+        """Get filtered logs from this instance (tails self.log_file_path on disk)."""
         level_priority = {"DEBUG": 0, "INFO": 1, "WARN": 2, "ERROR": 3, "ALL": -1}
         min_level = level_priority.get(level.upper(), 2)
 
@@ -335,39 +373,46 @@ tcp_connect_time_out 8000
         matching_lines = []
         total_matching = 0
 
-        with self.log_lock:
-            for timestamp_str, line in self.log_buffer:
-                try:
-                    ts = datetime.fromisoformat(timestamp_str).timestamp()
-                except (ValueError, TypeError):
-                    ts = 0
+        # Continuation lines (e.g. stack trace frames) have no timestamp of
+        # their own; inherit the timestamp of the log entry they belong to.
+        last_ts = 0.0
+        for raw_line in self._read_log_tail_lines():
+            line = raw_line.rstrip("\n")
+            if not line:
+                continue
 
-                if ts < cutoff_time:
+            ts = self._parse_log_timestamp(line)
+            if ts is not None:
+                last_ts = ts
+            else:
+                ts = last_ts
+
+            if ts and ts < cutoff_time:
+                continue
+
+            if min_level >= 0:
+                line_level = -1
+                if "[DEBUG]" in line or " DEBUG " in line:
+                    line_level = 0
+                elif "[INFO]" in line or " INFO " in line:
+                    line_level = 1
+                elif "[WARN]" in line or " WARN " in line:
+                    line_level = 2
+                elif "[ERROR]" in line or " ERROR " in line:
+                    line_level = 3
+
+                if line_level < min_level:
                     continue
 
-                if min_level >= 0:
-                    line_level = -1
-                    if "[DEBUG]" in line or " DEBUG " in line:
-                        line_level = 0
-                    elif "[INFO]" in line or " INFO " in line:
-                        line_level = 1
-                    elif "[WARN]" in line or " WARN " in line:
-                        line_level = 2
-                    elif "[ERROR]" in line or " ERROR " in line:
-                        line_level = 3
+            if plugin_only and plugin_prefix.lower() not in line.lower():
+                continue
 
-                    if line_level < min_level:
-                        continue
+            if grep and grep.lower() not in line.lower():
+                continue
 
-                if plugin_only and plugin_prefix.lower() not in line.lower():
-                    continue
-
-                if grep and grep.lower() not in line.lower():
-                    continue
-
-                total_matching += 1
-                if len(matching_lines) < max_lines:
-                    matching_lines.append(line)
+            total_matching += 1
+            if len(matching_lines) < max_lines:
+                matching_lines.append(line)
 
         return {
             "account_id": self.account_id,
@@ -527,12 +572,12 @@ class MultiRuneLiteManager:
         # Reload config to pick up any changes (e.g., use_exec_java toggle)
         self.config = ServerConfig.load()
 
-        # Resolve account_id: credential_manager.default -> config.default_account -> "default"
-        if account_id is None:
-            if credential_manager.default and credential_manager.default != "default":
-                account_id = credential_manager.default
-            else:
-                account_id = self.config.default_account
+        # Resolve account_id via the single shared resolver (config.resolve_account_id),
+        # the same one used by the command/state/response file path helpers and by
+        # get_instance()/stop_instance() below. This keeps "no account specified" mapped
+        # to the same concrete alias everywhere, so a launched instance's MANNY_ACCOUNT_ID
+        # always matches the files tools read/write for account_id=None.
+        account_id = self.config.resolve_account_id(account_id)
 
         # Use stored proxy if none provided
         if not proxy:
@@ -635,7 +680,7 @@ class MultiRuneLiteManager:
 
     def stop_instance(self, account_id: str = None) -> Dict[str, Any]:
         """Stop a specific RuneLite instance and end session tracking."""
-        account_id = account_id or self.config.default_account
+        account_id = self.config.resolve_account_id(account_id)
 
         if account_id not in self.instances:
             # Still try to end any session tracking
@@ -653,7 +698,7 @@ class MultiRuneLiteManager:
 
     def get_instance(self, account_id: str = None) -> Optional[RuneLiteInstance]:
         """Get instance by account ID."""
-        account_id = account_id or self.config.default_account
+        account_id = self.config.resolve_account_id(account_id)
         return self.instances.get(account_id)
 
     def list_instances(self) -> List[Dict[str, Any]]:

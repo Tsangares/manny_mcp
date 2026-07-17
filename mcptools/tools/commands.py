@@ -118,8 +118,42 @@ async def handle_send_command(arguments: dict) -> dict:
     try:
         with open(command_file, "w") as f:
             f.write(command + "\n")
+
+        # Verify delivery: the plugin polls the command file every ~500ms and
+        # DELETES it upon receipt. Poll for that deletion for a short window
+        # so we don't silently report success when the client is down, the
+        # account namespace is wrong, or the file was lost to the single-slot
+        # overwrite.
+        DELIVERY_TIMEOUT_SEC = 1.5
+        DELIVERY_POLL_INTERVAL_SEC = 0.5
+        delivered = False
+        waited = 0.0
+        while waited < DELIVERY_TIMEOUT_SEC:
+            await asyncio.sleep(DELIVERY_POLL_INTERVAL_SEC)
+            waited += DELIVERY_POLL_INTERVAL_SEC
+            if not os.path.exists(command_file):
+                delivered = True
+                break
+
+        if not delivered:
+            error_msg = ("command not consumed within 1.5s — client may be down, "
+                         "logged-out-processor-idle, or wrong account_id")
+            if recorder.is_active():
+                recorder.record_error(command, error_msg)
+            result = {
+                "dispatched": False,
+                "delivered": False,
+                "command": command,
+                "error": error_msg,
+                "command_file": command_file
+            }
+            if account_id:
+                result["account_id"] = account_id
+            return result
+
         result = {
             "dispatched": True,
+            "delivered": True,
             "command": command,
             "note": "Command queued. Use get_logs() or get_command_response() to verify execution.",
             "command_file": command_file

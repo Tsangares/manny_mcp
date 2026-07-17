@@ -114,7 +114,13 @@ class TestServerConfigValidation:
 
 
 class TestServerConfigHelpers:
-    def test_get_command_file_default(self, config_file):
+    def test_get_command_file_default(self, config_file, monkeypatch):
+        # Isolate the credential_manager singleton: with no credentials.yaml
+        # default configured, an unspecified account falls back to the
+        # un-suffixed path. (On a real box with `default: new`, the resolver
+        # correctly returns /tmp/manny_new_command.txt instead.)
+        from mcptools import credentials
+        monkeypatch.setattr(credentials.credential_manager, "default", "default")
         config = ServerConfig.load(config_file)
         assert config.get_command_file() == "/tmp/manny_command.txt"
 
@@ -122,7 +128,9 @@ class TestServerConfigHelpers:
         config = ServerConfig.load(config_file)
         assert config.get_command_file("alt1") == "/tmp/manny_alt1_command.txt"
 
-    def test_get_state_file_default(self, config_file):
+    def test_get_state_file_default(self, config_file, monkeypatch):
+        from mcptools import credentials
+        monkeypatch.setattr(credentials.credential_manager, "default", "default")
         config = ServerConfig.load(config_file)
         assert config.get_state_file() == "/tmp/manny_state.json"
 
