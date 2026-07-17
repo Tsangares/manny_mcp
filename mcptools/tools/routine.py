@@ -7,7 +7,6 @@ import json
 import os
 import re
 import time
-import uuid
 
 from ..registry import registry
 from ..utils import maybe_truncate_response
@@ -40,13 +39,13 @@ def set_dependencies(send_command_func, server_config, manager=None):
 
 async def execute_simple_command(command: str, timeout_ms: int = 10000, account_id: str = None) -> dict:
     """
-    Execute a command and poll for response confirmation.
+    Execute a command and wait for response confirmation.
 
     Unlike send_and_await, this doesn't check game state conditions - it just
-    verifies the plugin processed the command by watching for a new response.
-
-    REQUEST ID CORRELATION: Appends --rid=xxx to command for unique request/response matching.
-    This prevents race conditions when multiple commands of the same type are sent rapidly.
+    verifies the plugin processed the command by watching for a matching
+    response. Delegates to ``transport.send_command`` (the ONE canonical,
+    rid-correlated, atomic-write transport); this adapts its return to the
+    ``{success, response, elapsed_ms, error}`` shape callers expect.
 
     Args:
         command: The command to send
@@ -56,74 +55,31 @@ async def execute_simple_command(command: str, timeout_ms: int = 10000, account_
     Returns:
         dict with success, response, elapsed_ms, error
     """
-    command_file = config.get_command_file(account_id)
-    response_file = config.get_response_file(account_id)
+    from .. import transport
 
-    # Generate unique request ID for correlation
-    request_id = uuid.uuid4().hex[:8]
-
-    # Get current response timestamp before sending
-    old_ts = 0
-    try:
-        with open(response_file) as f:
-            old_response = json.load(f)
-            old_ts = old_response.get("timestamp", 0)
-    except (FileNotFoundError, json.JSONDecodeError):
-        pass
-
-    # Send command with request ID appended
-    command_with_rid = f"{command} --rid={request_id}"
-    try:
-        with open(command_file, "w") as f:
-            f.write(command_with_rid + "\n")
-    except Exception as e:
-        return {"success": False, "error": f"Failed to write command: {e}"}
-
-    # Poll for NEW response (different timestamp)
     start_time = time.time()
-    timeout_sec = timeout_ms / 1000.0
-    poll_interval = 0.3  # 300ms between checks
-
-    while (time.time() - start_time) < timeout_sec:
-        try:
-            with open(response_file) as f:
-                response = json.load(f)
-
-            new_ts = response.get("timestamp", 0)
-            if new_ts > old_ts:
-                # PRIMARY: Match by request_id (bulletproof correlation)
-                if response.get("request_id") == request_id:
-                    elapsed_ms = int((time.time() - start_time) * 1000)
-                    return {
-                        "success": response.get("status") == "success",
-                        "response": response,
-                        "elapsed_ms": elapsed_ms,
-                        "error": response.get("error") if response.get("status") != "success" else None
-                    }
-                # FALLBACK: For backwards compat with old Java plugin, match by command name
-                # (only if response has no request_id)
-                if response.get("request_id") is None:
-                    resp_cmd = response.get("command", "").upper()
-                    our_cmd = command.split()[0].upper()
-                    if resp_cmd == our_cmd:
-                        elapsed_ms = int((time.time() - start_time) * 1000)
-                        return {
-                            "success": response.get("status") == "success",
-                            "response": response,
-                            "elapsed_ms": elapsed_ms,
-                            "error": response.get("error") if response.get("status") != "success" else None
-                        }
-        except (FileNotFoundError, json.JSONDecodeError):
-            pass
-
-        await asyncio.sleep(poll_interval)
-
-    # Timeout
+    response = await transport.send_command(
+        command,
+        account_id=account_id,
+        await_response=True,
+        timeout=timeout_ms / 1000.0,
+    )
     elapsed_ms = int((time.time() - start_time) * 1000)
+
+    # Transport signals non-delivery / timeout via explicit flags.
+    if response.get("timeout") or response.get("delivered") is False:
+        return {
+            "success": False,
+            "error": response.get("error", "No response received"),
+            "elapsed_ms": elapsed_ms,
+        }
+
+    success = response.get("status") == "success"
     return {
-        "success": False,
-        "error": f"Timeout after {elapsed_ms}ms waiting for response",
-        "elapsed_ms": elapsed_ms
+        "success": success,
+        "response": response,
+        "elapsed_ms": elapsed_ms,
+        "error": response.get("error") if not success else None,
     }
 
 

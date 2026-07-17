@@ -97,50 +97,26 @@ class OSRSBot(commands.Bot):
         if self._tools_loaded:
             return
 
+        from mcptools import transport
         from mcptools.tools import monitoring, commands as cmd_tools, routine, screenshot
         from mcptools.config import ServerConfig
         from mcptools.runelite_manager import MultiRuneLiteManager
 
         # Initialize dependencies
         config = ServerConfig.load()
+        transport.set_config(config)
         manager = MultiRuneLiteManager(config)
 
-        # Create a simple send_command_with_response wrapper for tools that need it
+        # Canonical command transport (rid-correlated, atomic write, delivery
+        # check) — replaces the bot's old hand-rolled poll-by-timestamp sender.
         async def send_command_with_response(command: str, timeout_ms: int = 10000, account_id: str = None):
-            """Simple command sender - writes to file and polls for response."""
-            import json
-            import time
-            import asyncio
-
-            command_file = config.get_command_file(account_id)
-            response_file = config.get_response_file(account_id)
-
-            # Get current response timestamp
-            old_ts = 0
-            try:
-                with open(response_file) as f:
-                    old_response = json.load(f)
-                    old_ts = old_response.get("timestamp", 0)
-            except:
-                pass
-
-            # Send command
-            with open(command_file, "w") as f:
-                f.write(command + "\n")
-
-            # Poll for response
-            start = time.time()
-            while (time.time() - start) < (timeout_ms / 1000.0):
-                try:
-                    with open(response_file) as f:
-                        response = json.load(f)
-                    if response.get("timestamp", 0) > old_ts:
-                        return response
-                except:
-                    pass
-                await asyncio.sleep(0.3)
-
-            return {"status": "timeout", "error": "No response received"}
+            """Send a command and await its response via the shared transport."""
+            return await transport.send_command(
+                command,
+                account_id=account_id,
+                await_response=True,
+                timeout=timeout_ms / 1000.0,
+            )
 
         # Set up tool dependencies
         monitoring.set_dependencies(manager, config)

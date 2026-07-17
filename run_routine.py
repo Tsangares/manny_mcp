@@ -23,20 +23,27 @@ load_dotenv()
 
 async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '1', account_id: str = None):
     """Run a YAML routine and return results."""
+    from mcptools import transport
     from mcptools.config import ServerConfig
     from mcptools.tools import commands, monitoring, routine
 
     config = ServerConfig.load()
+    transport.set_config(config)
 
-    async def send_cmd(cmd, timeout, account=None):
-        with open(config.get_command_file(account), 'w') as f:
-            f.write(cmd + '\n')
-        await asyncio.sleep(0.1)
-        try:
-            with open(config.get_response_file(account)) as f:
-                return json.load(f)
-        except:
-            return {"status": "sent"}
+    async def send_cmd(cmd, timeout=10000, account=None):
+        """Canonical command transport (rid-correlated, atomic write).
+
+        Replaces the old sleep-0.1s-then-read shim which returned STALE
+        responses: the plugin only polls the command file every ~500ms, so a
+        0.1s wait read the PREVIOUS response. transport.send_command waits for a
+        request-id-matched response instead.
+        """
+        return await transport.send_command(
+            cmd,
+            account_id=account,
+            await_response=True,
+            timeout=timeout / 1000.0,
+        )
 
     # Initialize dependencies in correct order
     commands.set_dependencies(send_cmd, config)
