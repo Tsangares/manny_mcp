@@ -15,7 +15,7 @@ runelite_jar: /home/wil/runelite.jar
 use_exec_java: false
 
 # Java executable
-java_path: java
+java_path: /usr/lib/jvm/java-21-openjdk/bin/java
 
 # RuneLite CLI args (passed via -Dexec.args when using exec:java)
 # Note: JX_* env vars handle auto-login, no extra args needed
@@ -29,7 +29,7 @@ runelite_args: []
 
 # X11 display for RuneLite
 # Using weston's XWayland on :2 for GPU-accelerated rendering
-display: ":2"
+display: ":0"  # was ":2" (gamescope not installed yet — pacman -S gamescope to restore multi-display)
 
 # VirtualGL settings (not needed with weston - it provides GPU via XWayland)
 use_virtualgl: false
@@ -45,7 +45,7 @@ command_file: /tmp/manny_command.txt
 state_file: /tmp/manny_state.json
 
 # Session persistence
-session_file: /home/wil/manny-mcp/debug-session.json
+session_file: /home/wil/Desktop/manny_mcp/debug-session.json
 
 # Video streaming configuration (dashboard)
 video_streaming:
