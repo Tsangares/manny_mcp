@@ -1,13 +1,12 @@
 """
 Command execution tools for sending commands and input to the plugin.
 """
-import os
-import json
-import time
 import asyncio
-import subprocess
-from ..registry import registry
+import json
+import os
+import time
 
+from ..registry import registry
 
 # Dependencies
 send_command_with_response = None
@@ -362,7 +361,7 @@ async def handle_send_and_await(arguments: dict) -> dict:
                 "condition": condition_str,
                 "diagnosis": "NO_STATE_FILE"
             }
-    except Exception as e:
+    except Exception:
         # Don't block on pre-flight check failures, just proceed
         pass
 
@@ -904,8 +903,9 @@ The routine writes config to /tmp/manny_combat_config.json and sends KILL_LOOP_C
 })
 async def handle_execute_combat_routine(arguments: dict) -> dict:
     """Execute a combat routine from YAML config."""
-    import yaml
     from pathlib import Path
+
+    import yaml
 
     routine_path = arguments.get("routine_path", "")
     kills_override = arguments.get("kills")

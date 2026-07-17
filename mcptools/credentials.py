@@ -23,7 +23,8 @@ import logging
 import os
 import stat
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 import yaml
 
 logger = logging.getLogger(__name__)

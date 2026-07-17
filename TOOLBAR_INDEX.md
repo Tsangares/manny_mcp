@@ -288,7 +288,7 @@ get_screenshot()
 ## Files in This Collection
 
 ```
-/home/wil/manny-mcp/
+/home/wil/Desktop/manny_mcp/
 ├── TOOLBAR_INDEX.md                    (this file - overview & navigation)
 ├── TOOLBAR_FINDINGS_SUMMARY.md         (complete discovery summary)
 ├── TOOLBAR_WIDGETS_REFERENCE.md        (detailed technical reference)

@@ -1,4 +1,4 @@
-#!/home/wil/manny-mcp/venv/bin/python
+#!/home/wil/Desktop/manny_mcp/venv/bin/python
 """
 Caching Layer for MCP Tools (Phase 3)
 
@@ -11,11 +11,11 @@ Provides in-memory caching for frequently accessed data like:
 Implements TTL-based expiration and LRU eviction.
 """
 
-import time
-from typing import Any, Optional, Dict
-from collections import OrderedDict
 import hashlib
 import json
+import time
+from collections import OrderedDict
+from typing import Any, Dict, Optional
 
 
 class CacheEntry:

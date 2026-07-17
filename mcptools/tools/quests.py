@@ -6,10 +6,9 @@ Supports F2P filtering and various status filters.
 """
 
 import json
-from typing import Optional, Dict, Any
+from typing import Any, Dict
 
 from ..registry import registry
-
 
 # Dependencies injected at startup
 runelite_manager = None

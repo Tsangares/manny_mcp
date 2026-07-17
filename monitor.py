@@ -1,4 +1,4 @@
-#!/home/wil/manny-mcp/venv/bin/python
+#!/home/wil/Desktop/manny_mcp/venv/bin/python
 """
 Performance Monitoring Tool for Manny MCP Optimizations
 
@@ -19,13 +19,12 @@ Usage:
 """
 
 import argparse
-import time
 import json
-from pathlib import Path
-from typing import Dict, List, Optional
-from datetime import datetime
-import subprocess
 import os
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Dict
 
 # Import optimization modules
 try:

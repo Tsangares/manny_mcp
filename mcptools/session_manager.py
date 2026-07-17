@@ -26,7 +26,8 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
+
 import yaml
 
 logger = logging.getLogger(__name__)
@@ -727,52 +728,6 @@ class SessionManager:
         """Filter accounts to those under the playtime limit."""
         return [a for a in account_ids if self.is_under_playtime_limit(a)]
 
-    def cleanup_stale_sessions(self) -> Dict[str, Any]:
-        """
-        Close any open sessions whose processes are no longer running.
-        This prevents stale sessions from inflating playtime calculations.
-        """
-        closed = []
-        for account_id, sessions in self.playtime.items():
-            for session in sessions:
-                if session.get("end") is not None:
-                    continue
-
-                # Check if there's actually a running process for this account
-                display = self.get_display_for_account(account_id)
-                if display and self.displays.get(display):
-                    pid = self.displays[display].get("pid")
-                    if pid:
-                        try:
-                            os.kill(pid, 0)  # Check if process exists
-                            continue  # Process is alive, session is valid
-                        except OSError:
-                            pass
-
-                # No running process found - close the session using state file mtime
-                end_time = self._get_active_end_time(account_id)
-                session["end"] = end_time.isoformat()
-
-                # Calculate approximate active_seconds (conservative: use 80% of wall-clock)
-                start = datetime.fromisoformat(session["start"])
-                wall_seconds = (end_time - start).total_seconds()
-                session["active_seconds"] = wall_seconds * 0.8
-
-                closed.append({
-                    "account": account_id,
-                    "start": session["start"],
-                    "end": session["end"],
-                    "reason": "process_not_running"
-                })
-
-        if closed:
-            self._save()
-
-        return {
-            "closed_sessions": len(closed),
-            "details": closed
-        }
-
     def get_active_sessions(self) -> List[Dict[str, Any]]:
         """Get all currently active sessions."""
         active = []
@@ -816,11 +771,15 @@ class SessionManager:
         Clean up sessions where the process is no longer running.
         Call this periodically to free up displays from crashed clients.
 
+        Also closes any open playtime sessions whose processes are no longer
+        running, so stale sessions don't inflate playtime calculations.
+
         Args:
             cleanup_displays: Also clean up stale Xvfb processes and sockets
         """
         cleaned_sessions = []
         cleaned_displays = []
+        closed_playtime_sessions = []
 
         # Clean up stale sessions (processes that died)
         for display, session in list(self.displays.items()):
@@ -844,6 +803,40 @@ class SessionManager:
                     # Process exists but we can't signal it (still running)
                     pass
 
+        # Close any open playtime sessions whose processes are no longer running.
+        # This prevents stale sessions from inflating playtime calculations.
+        for account_id, sessions in self.playtime.items():
+            for session in sessions:
+                if session.get("end") is not None:
+                    continue
+
+                # Check if there's actually a running process for this account
+                display = self.get_display_for_account(account_id)
+                if display and self.displays.get(display):
+                    pid = self.displays[display].get("pid")
+                    if pid:
+                        try:
+                            os.kill(pid, 0)  # Check if process exists
+                            continue  # Process is alive, session is valid
+                        except OSError:
+                            pass
+
+                # No running process found - close the session using state file mtime
+                end_time = self._get_active_end_time(account_id)
+                session["end"] = end_time.isoformat()
+
+                # Calculate approximate active_seconds (conservative: use 80% of wall-clock)
+                start = datetime.fromisoformat(session["start"])
+                wall_seconds = (end_time - start).total_seconds()
+                session["active_seconds"] = wall_seconds * 0.8
+
+                closed_playtime_sessions.append({
+                    "account": account_id,
+                    "start": session["start"],
+                    "end": session["end"],
+                    "reason": "process_not_running"
+                })
+
         # Optionally clean up stale display servers
         if cleanup_displays:
             for i in range(self.MIN_DISPLAY, self.MIN_DISPLAY + self.MAX_DISPLAYS):
@@ -857,11 +850,16 @@ class SessionManager:
                     if self._cleanup_stale_display(display):
                         cleaned_displays.append(display)
 
+        if closed_playtime_sessions:
+            self._save()
+
         return {
             "cleaned_sessions": cleaned_sessions,
             "cleaned_displays": cleaned_displays,
             "session_count": len(cleaned_sessions),
-            "display_count": len(cleaned_displays)
+            "display_count": len(cleaned_displays),
+            "closed_playtime_sessions": closed_playtime_sessions,
+            "closed_playtime_session_count": len(closed_playtime_sessions)
         }
 
     def get_display_status(self) -> Dict[str, Any]:
@@ -946,7 +944,7 @@ class SessionManager:
             "success": True,
             "account": account_id,
             "previous_display": old_display,
-            "note": f"Display assignment cleared. Next start_runelite will assign a new display."
+            "note": "Display assignment cleared. Next start_runelite will assign a new display."
         }
 
     def reassign_account_display(self, account_id: str, new_display: str) -> Dict[str, Any]:

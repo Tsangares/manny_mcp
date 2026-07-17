@@ -10,13 +10,14 @@ Provides tools for:
 """
 import json
 import os
-import yaml
-from pathlib import Path
-from typing import List, Dict, Any, Optional
 from collections import Counter
+from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from ..registry import registry
+import yaml
+
 from ..config import ServerConfig
+from ..registry import registry
 
 # Load config
 config = ServerConfig.load()
@@ -26,7 +27,7 @@ COLLISION_DIR = Path("/home/wil/Desktop/manny/data/collision")
 OUTPUT_DIR = Path("/tmp/collision_viz")
 
 # Location knowledge directory
-LOCATIONS_DIR = Path("/home/wil/manny-mcp/data/locations")
+LOCATIONS_DIR = Path("/home/wil/Desktop/manny_mcp/data/locations")
 
 # Cache for loaded location data
 _location_cache: Optional[Dict] = None

@@ -36,7 +36,7 @@ command_file: /tmp/manny_command.txt
 state_file: /tmp/manny_state.json
 
 # Session persistence
-session_file: /home/wil/manny-mcp/debug-session.json
+session_file: /home/wil/Desktop/manny_mcp/debug-session.json
 
 # Video streaming configuration (dashboard)
 video_streaming:

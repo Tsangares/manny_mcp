@@ -7,10 +7,8 @@ Handles conversion between:
 - Relative paths: utility/File.java
 """
 
-import os
 from pathlib import Path
 from typing import Union
-
 
 # Project root (where manny-mcp lives)
 MCP_ROOT = Path(__file__).parent.parent.absolute()

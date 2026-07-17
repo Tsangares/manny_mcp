@@ -9,6 +9,7 @@ and provides visual validation for mobile layouts.
 import asyncio
 import sys
 from pathlib import Path
+
 from playwright.async_api import async_playwright
 
 # Common mobile device resolutions (width x height in CSS pixels)
@@ -68,7 +69,7 @@ async def test_all_devices(url: str = "http://localhost:8080", output_dir: str =
     output_path.mkdir(exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"Mobile Dashboard Testing Tool (Playwright)")
+    print("Mobile Dashboard Testing Tool (Playwright)")
     print(f"{'='*60}\n")
     print(f"Testing URL: {url}")
     print(f"Output directory: {output_dir}\n")
@@ -118,7 +119,7 @@ async def test_all_devices(url: str = "http://localhost:8080", output_dir: str =
     print(f"\n{'='*60}\n")
     print("To view screenshots:")
     print(f"  cd {output_dir}")
-    print(f"  ls -lh *.png")
+    print("  ls -lh *.png")
     print(f"\n{'='*60}\n")
 
     return results

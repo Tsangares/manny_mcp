@@ -5,47 +5,85 @@ Provides context bundling, navigation, code generation, routine validation,
 and command discovery helpers for the manny RuneLite plugin codebase.
 """
 from mcp.types import TextContent
-from ..registry import registry
+
+from manny_tools import (
+    CHECK_ANTI_PATTERNS_TOOL,
+    FIND_BLOCKING_PATTERNS_TOOL,
+    FIND_COMMAND_TOOL,
+    FIND_PATTERN_TOOL,
+    FIND_SIMILAR_FIX_TOOL,
+    GENERATE_COMMAND_REFERENCE_TOOL,
+    GENERATE_COMMAND_TEMPLATE_TOOL,
+    GENERATE_DEBUG_INSTRUMENTATION_TOOL,
+    GET_BLOCKING_TRACE_TOOL,
+    GET_CLASS_SUMMARY_TOOL,
+    GET_COMMAND_EXAMPLES_TOOL,
+    GET_MANNY_GUIDELINES_TOOL,
+    GET_PLUGIN_CONTEXT_TOOL,
+    GET_SECTION_TOOL,
+    GET_TELEPORT_INFO_TOOL,
+    GET_THREADING_PATTERNS_TOOL,
+    LIST_AVAILABLE_COMMANDS_TOOL,
+    VALIDATE_ROUTINE_DEEP_TOOL,
+)
+from manny_tools import (
+    check_anti_patterns as _check_anti_patterns,
+)
+from manny_tools import (
+    find_blocking_patterns as _find_blocking_patterns,
+)
+from manny_tools import (
+    find_command as _find_command,
+)
+from manny_tools import (
+    find_pattern_in_plugin as _find_pattern_in_plugin,
+)
+from manny_tools import (
+    find_similar_fix as _find_similar_fix,
+)
+from manny_tools import (
+    generate_command_reference as _generate_command_reference,
+)
+from manny_tools import (
+    generate_command_template as _generate_command_template,
+)
+from manny_tools import (
+    generate_debug_instrumentation as _generate_debug_instrumentation,
+)
+from manny_tools import (
+    get_blocking_trace as _get_blocking_trace,
+)
+from manny_tools import (
+    get_class_summary as _get_class_summary,
+)
+from manny_tools import (
+    get_command_examples as _get_command_examples,
+)
 
 # Import the actual implementations
 from manny_tools import (
     get_manny_guidelines as _get_manny_guidelines,
-    get_plugin_context as _get_plugin_context,
-    get_section as _get_section,
-    find_command as _find_command,
-    find_pattern_in_plugin as _find_pattern_in_plugin,
-    generate_command_template as _generate_command_template,
-    check_anti_patterns as _check_anti_patterns,
-    get_class_summary as _get_class_summary,
-    find_similar_fix as _find_similar_fix,
-    get_threading_patterns as _get_threading_patterns,
-    find_blocking_patterns as _find_blocking_patterns,
-    generate_debug_instrumentation as _generate_debug_instrumentation,
-    get_blocking_trace as _get_blocking_trace,
-    list_available_commands as _list_available_commands,
-    get_command_examples as _get_command_examples,
-    validate_routine_deep as _validate_routine_deep,
-    generate_command_reference as _generate_command_reference,
-    get_teleport_info as _get_teleport_info,
-    GET_MANNY_GUIDELINES_TOOL,
-    GET_PLUGIN_CONTEXT_TOOL,
-    GET_SECTION_TOOL,
-    FIND_COMMAND_TOOL,
-    FIND_PATTERN_TOOL,
-    GENERATE_COMMAND_TEMPLATE_TOOL,
-    CHECK_ANTI_PATTERNS_TOOL,
-    GET_CLASS_SUMMARY_TOOL,
-    FIND_SIMILAR_FIX_TOOL,
-    GET_THREADING_PATTERNS_TOOL,
-    FIND_BLOCKING_PATTERNS_TOOL,
-    GENERATE_DEBUG_INSTRUMENTATION_TOOL,
-    GET_BLOCKING_TRACE_TOOL,
-    LIST_AVAILABLE_COMMANDS_TOOL,
-    GET_COMMAND_EXAMPLES_TOOL,
-    VALIDATE_ROUTINE_DEEP_TOOL,
-    GENERATE_COMMAND_REFERENCE_TOOL,
-    GET_TELEPORT_INFO_TOOL,
 )
+from manny_tools import (
+    get_plugin_context as _get_plugin_context,
+)
+from manny_tools import (
+    get_section as _get_section,
+)
+from manny_tools import (
+    get_teleport_info as _get_teleport_info,
+)
+from manny_tools import (
+    get_threading_patterns as _get_threading_patterns,
+)
+from manny_tools import (
+    list_available_commands as _list_available_commands,
+)
+from manny_tools import (
+    validate_routine_deep as _validate_routine_deep,
+)
+
+from ..registry import registry
 
 # Dependencies injected from server.py
 config = None

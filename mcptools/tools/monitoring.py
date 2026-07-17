@@ -3,12 +3,12 @@ Monitoring tools for RuneLite process.
 Handles logs, game state, and health checks.
 Supports multi-client via account_id parameter.
 """
+import json
 import logging
 import os
-import json
 import subprocess
 import time
-from pathlib import Path
+
 from ..registry import registry
 from ..session_manager import session_manager
 from ..utils import maybe_truncate_response
@@ -810,7 +810,7 @@ def _xdotool_click(x: int, y: int, display: str = ":2") -> bool:
             check=True
         )
         return True
-    except Exception as e:
+    except Exception:
         return False
 
 

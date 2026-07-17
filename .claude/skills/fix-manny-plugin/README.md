@@ -46,6 +46,6 @@ Guides you through the complete 8-step code fix workflow:
 ## Documentation
 
 - Instructions: See `instructions.md` in this directory
-- Quick Reference: `/home/wil/manny-mcp/QUICK_REFERENCE.md`
-- Example: `/home/wil/manny-mcp/EXAMPLE_WORKFLOW.md`
-- Full Details: `/home/wil/manny-mcp/IMPLEMENTATION_SUMMARY.md`
+- Quick Reference: `/home/wil/Desktop/manny_mcp/QUICK_REFERENCE.md`
+- Example: `/home/wil/Desktop/manny_mcp/EXAMPLE_WORKFLOW.md`
+- Full Details: `/home/wil/Desktop/manny_mcp/IMPLEMENTATION_SUMMARY.md`

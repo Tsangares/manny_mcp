@@ -9,12 +9,12 @@ import os
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import yaml
 
-from ..registry import registry
 from ..config import ServerConfig
+from ..registry import registry
 
 # Load config
 config = ServerConfig.load()
@@ -511,12 +511,12 @@ async def handle_generate_routine(arguments: dict) -> dict:
         f.write(f"# Generated Routine: {routine_name}\n")
         f.write(f"# Generated: {datetime.now().isoformat()}\n")
         f.write(f"# Source: {time_range_minutes} minutes of gameplay\n")
-        f.write(f"#\n")
-        f.write(f"# IMPORTANT: Review before use!\n")
-        f.write(f"# - Verify object names use underscores (Spinning_wheel, not Spinning wheel)\n")
-        f.write(f"# - Check await_conditions are appropriate\n")
-        f.write(f"# - Test with execute_routine() before production\n")
-        f.write(f"#\n\n")
+        f.write("#\n")
+        f.write("# IMPORTANT: Review before use!\n")
+        f.write("# - Verify object names use underscores (Spinning_wheel, not Spinning wheel)\n")
+        f.write("# - Check await_conditions are appropriate\n")
+        f.write("# - Test with execute_routine() before production\n")
+        f.write("#\n\n")
 
         # Write YAML content
         yaml.dump(routine, f, default_flow_style=False, sort_keys=False, allow_unicode=True)

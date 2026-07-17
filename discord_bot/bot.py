@@ -1177,7 +1177,7 @@ class OSRSBot(commands.Bot):
                 category = arguments.get("category", "")
                 try:
                     result = subprocess.run(
-                        ["/home/wil/manny-mcp/manny/manny-cli", "--list"],
+                        ["/home/wil/Desktop/manny_mcp/manny/manny-cli", "--list"],
                         capture_output=True, text=True, timeout=5
                     )
                     output = result.stdout
@@ -1196,7 +1196,7 @@ class OSRSBot(commands.Bot):
                 command = arguments.get("command", "").upper()
                 try:
                     result = subprocess.run(
-                        ["/home/wil/manny-mcp/manny/manny-cli", command, "--help"],
+                        ["/home/wil/Desktop/manny_mcp/manny/manny-cli", command, "--help"],
                         capture_output=True, text=True, timeout=5
                     )
                     return {"command": command, "help": result.stdout or result.stderr}

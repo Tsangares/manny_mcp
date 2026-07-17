@@ -2,12 +2,12 @@
 Spatial awareness tools for indoor navigation.
 Provides environment scanning with direction labels and room detection.
 """
-import logging
-import os
 import json
+import logging
 import math
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Any, Dict, List, Optional
+
 from ..registry import registry
 
 logger = logging.getLogger(__name__)

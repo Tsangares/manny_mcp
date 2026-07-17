@@ -118,7 +118,7 @@ Don't just report problems - **provide the exact fix:**
 **Example: Slow builds**
 ```bash
 # Fix 1: Check offline mode is enabled
-grep "\-o" /home/wil/manny-mcp/server.py
+grep "\-o" /home/wil/Desktop/manny_mcp/server.py
 
 # Fix 2: Clear Maven cache
 rm -rf ~/.m2/repository

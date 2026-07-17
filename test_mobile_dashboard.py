@@ -7,8 +7,8 @@ and provides visual validation for mobile layouts.
 """
 
 import subprocess
-import time
 import sys
+import time
 from pathlib import Path
 
 # Common mobile device resolutions (width x height in CSS pixels)
@@ -91,7 +91,7 @@ def test_all_devices(url: str = "http://localhost:8080", output_dir: str = "/tmp
     output_path.mkdir(exist_ok=True)
 
     print(f"\n{'='*60}")
-    print(f"Mobile Dashboard Testing Tool")
+    print("Mobile Dashboard Testing Tool")
     print(f"{'='*60}\n")
     print(f"Testing URL: {url}")
     print(f"Output directory: {output_dir}\n")

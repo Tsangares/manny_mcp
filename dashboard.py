@@ -10,23 +10,21 @@ Provides:
 """
 
 import asyncio
-import base64
-import io
 import json
 import os
+import struct
 import subprocess
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Optional, Any
+from typing import Any, Optional
 
-from fastapi import FastAPI, Response, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse, StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import struct
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse
 
 
 @dataclass
@@ -1059,7 +1057,7 @@ class DashboardBackgroundTasks:
             time.sleep(5)
 
 
-def run_dashboard(config: dict, host: str = "0.0.0.0", port: int = 8080):
+def run_dashboard(config: dict, host: str = "127.0.0.1", port: int = 8080):
     """Run the dashboard server standalone."""
     global background_tasks
     background_tasks = DashboardBackgroundTasks(config)
@@ -1077,5 +1075,5 @@ if __name__ == "__main__":
     with open(config_path) as f:
         config = yaml.safe_load(f)
 
-    print("Starting Manny MCP Dashboard on http://0.0.0.0:8080")
+    print("Starting Manny MCP Dashboard on http://127.0.0.1:8080")
     run_dashboard(config)

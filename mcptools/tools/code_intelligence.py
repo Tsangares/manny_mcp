@@ -10,11 +10,12 @@ import re
 import subprocess
 from pathlib import Path
 from typing import Optional
-from mcp.types import Tool, TextContent
+
+from mcp.types import TextContent
 
 from ..config import ServerConfig
+from ..path_utils import normalize_path, to_symlink_path
 from ..registry import registry
-from ..path_utils import normalize_path, to_symlink_path, list_java_files
 from ..utils import maybe_truncate_response
 
 logger = logging.getLogger(__name__)

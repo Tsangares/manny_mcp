@@ -12,7 +12,7 @@ Complete setup guide for running OSRS bot on a headless VPS with Xvfb + VNC.
 ### Files to Transfer from Laptop
 ```bash
 # From laptop to VPS
-rsync -avz ~/manny-mcp/ user@vps:~/manny-mcp/
+rsync -avz ~/Desktop/manny_mcp/ user@vps:~/Desktop/manny_mcp/
 scp ~/.manny/credentials.yaml user@vps:~/.manny/
 scp ~/path/to/runelite-fat.jar user@vps:~/runelite.jar
 ```
@@ -67,7 +67,7 @@ sudo pacman -S gamescope
 ## Step 2: Configure manny-mcp
 
 ### Update config.yaml for VPS
-Edit `~/manny-mcp/config.yaml`:
+Edit `~/Desktop/manny_mcp/config.yaml`:
 
 ```yaml
 # RuneLite MCP Server Configuration (VPS)
@@ -86,7 +86,7 @@ use_exec_java: false
 ```
 
 ### Set up .env with account credentials
-Edit `~/manny-mcp/.env`:
+Edit `~/Desktop/manny_mcp/.env`:
 
 ```bash
 # Game credentials (aux account example)
@@ -101,7 +101,7 @@ DISCORD_BOT_TOKEN=your_token_here
 
 ### Set up Python virtual environment
 ```bash
-cd ~/manny-mcp
+cd ~/Desktop/manny_mcp
 python -m venv venv
 ./venv/bin/pip install -r requirements.txt
 ```
@@ -215,8 +215,8 @@ Requires=xvfb.service
 [Service]
 Type=simple
 Environment=DISPLAY=:2
-EnvironmentFile=/home/wil/manny-mcp/.env
-WorkingDirectory=/home/wil/manny-mcp
+EnvironmentFile=/home/wil/Desktop/manny_mcp/.env
+WorkingDirectory=/home/wil/Desktop/manny_mcp
 ExecStart=/usr/bin/java -Xmx768m -XX:+UseG1GC -Dsun.java2d.opengl=false -jar /home/wil/runelite.jar
 Restart=on-failure
 RestartSec=10
@@ -235,9 +235,9 @@ Wants=gamescope.service
 
 [Service]
 Type=simple
-EnvironmentFile=/home/wil/manny-mcp/.env
-WorkingDirectory=/home/wil/manny-mcp
-ExecStart=/home/wil/manny-mcp/venv/bin/python /home/wil/manny-mcp/run_discord.py --account aux --provider ollama
+EnvironmentFile=/home/wil/Desktop/manny_mcp/.env
+WorkingDirectory=/home/wil/Desktop/manny_mcp
+ExecStart=/home/wil/Desktop/manny_mcp/venv/bin/python /home/wil/Desktop/manny_mcp/run_discord.py --account aux --provider ollama
 Restart=on-failure
 RestartSec=10
 
@@ -325,7 +325,7 @@ Xvfb :2 -screen 0 1024x768x24 &
 x11vnc -display :2 -forever -viewonly -passwd manny123 -rfbport 5902 &
 
 # Start RuneLite manually
-cd ~/manny-mcp
+cd ~/Desktop/manny_mcp
 source .env
 DISPLAY=:2 java -Xmx768m -XX:+UseG1GC -Dsun.java2d.opengl=false -jar ~/runelite.jar &
 ```
@@ -351,10 +351,10 @@ echo "GOTO 3253 3266 0" > /tmp/manny_command.txt
 
 | File | Purpose |
 |------|---------|
-| `~/manny-mcp/` | MCP server code |
-| `~/manny-mcp/.env` | Account credentials, API keys |
-| `~/manny-mcp/config.yaml` | MCP configuration |
-| `~/manny-mcp/routines/` | YAML automation routines |
+| `~/Desktop/manny_mcp/` | MCP server code |
+| `~/Desktop/manny_mcp/.env` | Account credentials, API keys |
+| `~/Desktop/manny_mcp/config.yaml` | MCP configuration |
+| `~/Desktop/manny_mcp/routines/` | YAML automation routines |
 | `~/.manny/credentials.yaml` | OSRS login credentials |
 | `~/runelite.jar` | Fat jar with Manny plugin |
 | `~/.runelite/logs/client.log` | RuneLite/Manny logs |
@@ -403,7 +403,7 @@ Total expected memory usage: ~2-2.5GB with RuneLite + system
 
 ## Next Steps
 
-1. Set up Discord bot in `~/manny-mcp/discord/`
+1. Set up Discord bot in `~/Desktop/manny_mcp/discord/`
 2. Configure LLM integration (Gemini API key in .env)
 3. Create systemd service for Discord bot
 4. Test full loop: Discord -> LLM -> MCP -> Game

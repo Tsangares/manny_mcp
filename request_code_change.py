@@ -11,7 +11,6 @@ a subagent handles the actual code modifications.
 """
 
 import os
-import json
 import subprocess
 import time
 from pathlib import Path

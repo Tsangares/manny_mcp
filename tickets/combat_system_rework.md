@@ -196,7 +196,7 @@ Improvements:
 - `manny_src/utility/PlayerHelpers.java` - KILL_LOOP handler (lines 17750-17900)
 - `manny_src/utility/CombatSystem.java` - Core combat logic
 - `manny_src/utility/InteractionSystem.java` - NPC/object interactions
-- `/home/wil/manny-mcp/routines/combat/hill_giants_loot.yaml` - Example routine
+- `/home/wil/Desktop/manny_mcp/routines/combat/hill_giants_loot.yaml` - Example routine
 
 ## Session Notes
 

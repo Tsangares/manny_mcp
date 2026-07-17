@@ -5,10 +5,9 @@ Tracks recent commands per account and compares game state snapshots.
 If the same command is sent repeatedly with no meaningful state change,
 warns and eventually blocks to prevent bot-like behavior loops.
 """
-import os
+import hashlib
 import json
 import time
-import hashlib
 from collections import defaultdict
 from typing import Dict, Optional, Tuple
 

@@ -156,7 +156,7 @@ Collect interaction data to fine-tune a smaller model (7B) that reliably execute
 |--------|----------|--------|
 | Discord interactions | `~/.manny/training_data/training_YYYY-MM-DD.jsonl` | JSONL |
 | Raw commands | `/tmp/manny_sessions/commands_YYYY-MM-DD.yaml` | YAML |
-| Conversation logs | `~/manny-mcp/logs/conversations/` | JSONL |
+| Conversation logs | `~/Desktop/manny_mcp/logs/conversations/` | JSONL |
 | Claude Code sessions | `~/.claude/projects/-home-wil-manny-mcp/*.jsonl` | JSONL |
 
 ### Training Data Format
@@ -213,8 +213,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/home/wil/manny-mcp
-ExecStart=/home/wil/manny-mcp/venv/bin/python /home/wil/manny-mcp/run_discord.py --account aux --provider ollama
+WorkingDirectory=/home/wil/Desktop/manny_mcp
+ExecStart=/home/wil/Desktop/manny_mcp/venv/bin/python /home/wil/Desktop/manny_mcp/run_discord.py --account aux --provider ollama
 Restart=always
 RestartSec=10
 MemoryHigh=1.7G
@@ -234,7 +234,7 @@ journalctl --user -u discord-bot -f
 
 ## Configuration
 
-### ~/manny-mcp/.env
+### ~/Desktop/manny_mcp/.env
 ```bash
 # Ollama (via WireGuard)
 OLLAMA_HOST=http://10.66.66.10:11434

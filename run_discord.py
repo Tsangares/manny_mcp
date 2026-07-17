@@ -18,11 +18,10 @@ Environment variables:
     OPENAI_API_KEY - Required if using OpenAI.
     BOT_OWNER_ID - Optional. Discord user ID to restrict access.
 """
+import argparse
+import logging
 import os
 import sys
-import argparse
-import asyncio
-import logging
 
 # Ensure we can import from the package
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

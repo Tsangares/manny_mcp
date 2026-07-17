@@ -68,10 +68,10 @@ Instead of every tile, show walk segments:
 
 ## Relevant Files
 
-- `/home/wil/manny-mcp/mcptools/tools/location_history.py` - Python MCP tool
-- `/home/wil/manny-mcp/mcptools/tools/routine_generator.py` - Routine generation from history
-- `/home/wil/manny-mcp/server.py` - Server integration
-- `/home/wil/manny-mcp/mcptools/config.py` - Config
+- `/home/wil/Desktop/manny_mcp/mcptools/tools/location_history.py` - Python MCP tool
+- `/home/wil/Desktop/manny_mcp/mcptools/tools/routine_generator.py` - Routine generation from history
+- `/home/wil/Desktop/manny_mcp/server.py` - Server integration
+- `/home/wil/Desktop/manny_mcp/mcptools/config.py` - Config
 - `journals/event_recording_routine_generation_2026-01-26.md` - Related journal entry
 - Java plugin code that writes events to the JSON file
 

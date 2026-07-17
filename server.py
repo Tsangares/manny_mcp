@@ -1,16 +1,16 @@
-#!/home/wil/manny-mcp/venv/bin/python
+#!/home/wil/Desktop/manny_mcp/venv/bin/python
 """RuneLite Debug MCP Server - Modular Architecture"""
 
 import asyncio
 import json
 import os
 import uuid
-from dotenv import load_dotenv
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 
+from dotenv import load_dotenv
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 # Import modular components
 from mcptools.config import ServerConfig
@@ -18,7 +18,17 @@ from mcptools.registry import registry
 from mcptools.runelite_manager import MultiRuneLiteManager
 
 # Import tool modules (they register themselves on import)
-from mcptools.tools import core, monitoring, screenshot, routine, commands, code_intelligence, testing, spatial, session, quests, sessions, location_history, routine_generator, code_changes, manny_navigation
+from mcptools.tools import (
+    code_changes,
+    commands,
+    core,
+    manny_navigation,
+    monitoring,
+    quests,
+    routine,
+    screenshot,
+    spatial,
+)
 
 # Load environment variables (for GEMINI_API_KEY, session credentials)
 load_dotenv()

@@ -2,15 +2,15 @@
 Routine building tools for widget/dialogue interaction.
 Used for building multi-step game automations.
 """
-import os
-import json
-import time
 import asyncio
-import uuid
+import json
+import os
 import re
+import time
+import uuid
+
 from ..registry import registry
 from ..utils import maybe_truncate_response
-
 
 # Dependencies (send_command_with_response function and config)
 send_command_with_response = None
@@ -907,8 +907,6 @@ async def handle_list_plugin_commands(arguments: dict) -> dict:
 
 
 import yaml
-import asyncio
-import time
 
 # Late-import handlers from other modules (set in set_dependencies)
 _handle_send_and_await = None
@@ -1484,6 +1482,7 @@ async def check_client_health(account_id: str = None, max_stale_seconds: float =
 
 
 import logging
+
 _routine_logger = logging.getLogger("routine.auto_restart")
 
 

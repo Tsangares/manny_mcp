@@ -1,0 +1,12 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+exclude = ["venv", "journals", "manny_driver/legacy", "data", ".ruff_cache"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # line-too-long handled by formatter, not worth churning legacy code
+
+[tool.pytest.ini_options]
+# Playwright/mobile UI tests require a browser + playwright install not present in this venv.
+addopts = "--ignore=test_mobile_dashboard_playwright.py --ignore=test_mobile_dashboard.py"

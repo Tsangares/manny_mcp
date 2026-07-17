@@ -13,7 +13,6 @@ Usage:
 """
 
 import sys
-import os
 from pathlib import Path
 
 # Color codes for terminal output
@@ -58,10 +57,10 @@ def check_imports():
     # Check core modules
     try:
         from request_code_change import (
+            _extract_commands_from_problem,
             prepare_code_change,
             validate_code_change,
             validate_with_anti_pattern_check,
-            _extract_commands_from_problem
         )
         print_success("request_code_change imports OK")
     except ImportError as e:
@@ -69,17 +68,13 @@ def check_imports():
         all_ok = False
 
     try:
-        from manny_tools import (
-            check_anti_patterns,
-            _COMPILED_ANTI_PATTERNS,
-            get_plugin_context
-        )
+        from manny_tools import _COMPILED_ANTI_PATTERNS, check_anti_patterns, get_plugin_context
         print_success("manny_tools imports OK")
 
         # Check pattern count
         pattern_count = len(_COMPILED_ANTI_PATTERNS)
         if pattern_count == 11:
-            print_success(f"All 11 anti-pattern rules loaded")
+            print_success("All 11 anti-pattern rules loaded")
         else:
             print_warning(f"Expected 11 patterns, got {pattern_count}")
     except ImportError as e:

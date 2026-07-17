@@ -60,8 +60,8 @@ Requires=xvfb.service
 [Service]
 Type=simple
 Environment=DISPLAY=:2
-EnvironmentFile=/home/wil/manny-mcp/.env
-WorkingDirectory=/home/wil/manny-mcp
+EnvironmentFile=/home/wil/Desktop/manny_mcp/.env
+WorkingDirectory=/home/wil/Desktop/manny_mcp
 ExecStart=/usr/bin/java -Xmx512m -Xms256m -XX:+UseG1GC -XX:MaxMetaspaceSize=128m -Dsun.java2d.opengl=false -jar /home/wil/runelite.jar
 Restart=on-failure
 RestartSec=10
@@ -83,9 +83,9 @@ Wants=xvfb.service
 
 [Service]
 Type=simple
-EnvironmentFile=/home/wil/manny-mcp/.env
-WorkingDirectory=/home/wil/manny-mcp
-ExecStart=/home/wil/manny-mcp/venv/bin/python /home/wil/manny-mcp/run_discord.py --account aux --provider ollama
+EnvironmentFile=/home/wil/Desktop/manny_mcp/.env
+WorkingDirectory=/home/wil/Desktop/manny_mcp
+ExecStart=/home/wil/Desktop/manny_mcp/venv/bin/python /home/wil/Desktop/manny_mcp/run_discord.py --account aux --provider ollama
 Restart=on-failure
 RestartSec=10
 MemoryMax=2G
@@ -211,4 +211,4 @@ ssh -L 5902:localhost:5902 wil@vps-ip
 
 - System created via ansible playbook (not included)
 - `~/runelite.jar` and `~/.runelite/` are temporary/regenerable
-- Credentials in `~/.manny/` and `~/manny-mcp/.env` are sensitive
+- Credentials in `~/.manny/` and `~/Desktop/manny_mcp/.env` are sensitive

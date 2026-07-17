@@ -1,4 +1,4 @@
-#!/home/wil/manny-mcp/venv/bin/python3
+#!/home/wil/Desktop/manny_mcp/venv/bin/python3
 """
 CLI to run YAML routines.
 
@@ -10,20 +10,21 @@ Usage:
 import argparse
 import asyncio
 import json
-import sys
 import os
+import sys
 
 # Add project to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 
 async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '1', account_id: str = None):
     """Run a YAML routine and return results."""
-    from mcptools.tools import routine, commands, monitoring
     from mcptools.config import ServerConfig
+    from mcptools.tools import commands, monitoring, routine
 
     config = ServerConfig.load()
 
@@ -119,7 +120,7 @@ def print_results(result: dict):
             print(f"  {skill}: +{xp}")
 
     # Final state
-    print(f"\nFinal State:")
+    print("\nFinal State:")
     print(f"  Plane: {result.get('final_plane')}")
     print(f"  Inventory items: {result.get('final_items')}")
 

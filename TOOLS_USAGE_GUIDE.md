@@ -144,7 +144,7 @@ steps:
 
 ```python
 validate_routine_deep(
-    routine_path="/home/wil/manny-mcp/routines/fishing_draynor.yaml",
+    routine_path="/home/wil/Desktop/manny_mcp/routines/fishing_draynor.yaml",
     check_commands=True,
     suggest_fixes=True
 )

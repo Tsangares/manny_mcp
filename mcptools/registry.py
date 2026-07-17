@@ -2,9 +2,10 @@
 Tool registry pattern for MCP server.
 Eliminates dual definition of tool schemas + handlers.
 """
-from typing import Callable, Dict, Any, List
-from mcp.types import Tool, TextContent, ImageContent
 import json
+from typing import Any, Callable, Dict, List
+
+from mcp.types import TextContent, Tool
 
 
 class ToolRegistry:

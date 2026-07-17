@@ -2,11 +2,12 @@
 Server configuration management.
 """
 import logging
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Dict, List, Optional
+
 import yaml
-import os
 
 logger = logging.getLogger(__name__)
 

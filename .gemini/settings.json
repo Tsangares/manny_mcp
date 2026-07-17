@@ -2,7 +2,7 @@
   "mcpServers": {
     "runelite": {
       "command": "python",
-      "args": ["/home/wil/manny-mcp/server.py"],
+      "args": ["/home/wil/Desktop/manny_mcp/server.py"],
       "env": {
         "PYTHONUNBUFFERED": "1"
       }

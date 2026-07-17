@@ -4,9 +4,9 @@ Session management MCP tools.
 Provides tools for managing multi-client sessions, display allocation,
 and playtime tracking.
 """
+from ..credentials import credential_manager
 from ..registry import registry
 from ..session_manager import session_manager
-from ..credentials import credential_manager
 
 
 @registry.register({

@@ -199,10 +199,10 @@ validate_with_anti_pattern_check(modified_files=[...])
 
 ## Resources
 
-- **Full Documentation**: `/home/wil/manny-mcp/CLAUDE.md`
-- **Implementation Details**: `/home/wil/manny-mcp/IMPLEMENTATION_SUMMARY.md`
-- **Test Results**: `/home/wil/manny-mcp/TEST_RESULTS.md`
-- **Improvement Proposal**: `/home/wil/manny-mcp/improvements_proposal.md`
+- **Full Documentation**: `/home/wil/Desktop/manny_mcp/CLAUDE.md`
+- **Implementation Details**: `/home/wil/Desktop/manny_mcp/IMPLEMENTATION_SUMMARY.md`
+- **Test Results**: `/home/wil/Desktop/manny_mcp/TEST_RESULTS.md`
+- **Improvement Proposal**: `/home/wil/Desktop/manny_mcp/improvements_proposal.md`
 - **Plugin Guidelines**: `/home/wil/Desktop/manny/CLAUDE.md`
 
 ## Quick Commands

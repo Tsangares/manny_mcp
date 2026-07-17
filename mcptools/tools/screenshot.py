@@ -2,16 +2,16 @@
 Screenshot and visual analysis tools.
 Supports multi-client via account_id parameter.
 """
+import base64
 import os
 import subprocess
-import time
-import base64
 import tempfile
-from pathlib import Path
+import time
+
 from mcp.types import ImageContent, TextContent
+
 from ..registry import registry
 from ..session_manager import session_manager
-
 
 # Dependencies (MultiRuneLiteManager injected at startup)
 runelite_manager = None

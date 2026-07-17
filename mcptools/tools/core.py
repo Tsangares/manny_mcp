@@ -5,10 +5,9 @@ Supports multi-client via account_id parameter.
 """
 import subprocess
 import time
-from pathlib import Path
-from ..registry import registry
-from ..utils import parse_gradle_errors, parse_gradle_warnings, maybe_truncate_response
 
+from ..registry import registry
+from ..utils import maybe_truncate_response, parse_gradle_errors, parse_gradle_warnings
 
 # Note: runelite_manager (MultiRuneLiteManager) will be injected when server starts
 runelite_manager = None

@@ -262,9 +262,9 @@ private boolean handleCommand(String args) {
 - Use `validate_with_anti_pattern_check()` instead of two separate calls
 
 ### Documentation
-- Quick lookup: `/home/wil/manny-mcp/QUICK_REFERENCE.md`
-- Example: `/home/wil/manny-mcp/EXAMPLE_WORKFLOW.md`
-- Full details: `/home/wil/manny-mcp/IMPLEMENTATION_SUMMARY.md`
+- Quick lookup: `/home/wil/Desktop/manny_mcp/QUICK_REFERENCE.md`
+- Example: `/home/wil/Desktop/manny_mcp/EXAMPLE_WORKFLOW.md`
+- Full details: `/home/wil/Desktop/manny_mcp/IMPLEMENTATION_SUMMARY.md`
 - Plugin guidelines: `/home/wil/Desktop/manny/CLAUDE.md`
 
 ## Success Criteria

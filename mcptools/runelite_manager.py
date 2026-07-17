@@ -16,8 +16,9 @@ import time
 from collections import deque
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-from .config import ServerConfig, AccountConfig
+from typing import Any, Dict, List, Optional
+
+from .config import ServerConfig
 from .credentials import credential_manager
 from .session_manager import session_manager
 
@@ -69,9 +70,9 @@ class RuneLiteInstance:
         Returns path to config file, or None if setup fails.
         """
         try:
-            from urllib.parse import urlparse
             import shutil
             import socket
+            from urllib.parse import urlparse
 
             # Check if proxychains is installed
             if not shutil.which("proxychains4"):
@@ -173,7 +174,7 @@ tcp_connect_time_out 8000
                 "account_id": self.account_id,
                 "pid": None,
                 "status": "error",
-                "error": f"No RuneLite JAR found. Build with 'build_plugin' first or configure runelite_jar path."
+                "error": "No RuneLite JAR found. Build with 'build_plugin' first or configure runelite_jar path."
             }
 
         base_cmd = [self.config.java_path, "-jar", str(runelite_jar)]

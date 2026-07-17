@@ -9,10 +9,11 @@ PHASE 3 OPTIMIZATION: Uses unified search engine for O(1) code lookups.
 
 import os
 import re
-import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+
+import yaml
 
 # Phase 3: Import search engine for 100x faster lookups
 try:
@@ -1547,7 +1548,7 @@ def find_blocking_patterns(plugin_dir: str, file_path: str = None) -> dict:
                     })
                     files_with_issues.add(str(java_file.name))
 
-        except Exception as e:
+        except Exception:
             pass  # Skip files that can't be read
 
     # Count by severity
@@ -2329,7 +2330,7 @@ def categorize_command(cmd_name: str) -> str:
 
 def get_command_examples(
     command: str,
-    routines_dir: str = "/home/wil/manny-mcp/routines"
+    routines_dir: str = "/home/wil/Desktop/manny_mcp/routines"
 ) -> dict:
     """
     Find real usage examples of a command in routine YAML files.
@@ -2376,7 +2377,7 @@ def get_command_examples(
                         "notes": step.get('notes'),
                         "expected_result": step.get('expected_result')
                     })
-        except Exception as e:
+        except Exception:
             # Skip files that can't be parsed
             pass
 
@@ -2782,7 +2783,7 @@ def generate_markdown_reference(by_category: dict, commands: list) -> str:
                     lines.append(f"> *Note: {ex['notes']}*")
 
             elif cmd.get("example_count", 0) > 0:
-                lines.append(f"")
+                lines.append("")
                 lines.append(f"*({cmd['example_count']} usage examples found in routines)*")
             else:
                 lines.append("")

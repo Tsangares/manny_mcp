@@ -25,16 +25,16 @@ Usage:
     stop_session_recording()  # Returns filepath
 """
 
-import yaml
 import json
 import os
 import time
-from datetime import datetime, date
+from datetime import date, datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Set
+from typing import Any, Dict, List, Optional
+
+import yaml
 
 from ..registry import registry
-
 
 # ============================================================================
 # Always-On Command Log (lightweight, daily files)
@@ -452,7 +452,7 @@ async def handle_start_session_recording(arguments: dict) -> dict:
     return {
         "success": True,
         "session_id": session_id,
-        "message": f"Recording started. Use stop_session_recording() when done.",
+        "message": "Recording started. Use stop_session_recording() when done.",
         "output_path": f"/tmp/manny_sessions/session_{session_id}.yaml"
     }
 

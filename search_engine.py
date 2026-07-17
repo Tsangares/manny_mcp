@@ -1,4 +1,4 @@
-#!/home/wil/manny-mcp/venv/bin/python
+#!/home/wil/Desktop/manny_mcp/venv/bin/python
 """
 Unified Search Engine for Manny Plugin Code Navigation (Phase 3)
 
@@ -13,12 +13,12 @@ Index structure:
 - section:SECTION_4_SKILLING → [(file, line_start, line_end)]
 """
 
+import hashlib
 import re
 import time
-from pathlib import Path
-from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
-import hashlib
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 
 class CodeSearchIndex:

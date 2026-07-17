@@ -6,28 +6,44 @@ Provides a staging workflow for plugin development:
 2. validate_code_change - Compile to verify changes
 3. deploy_code_change   - Real build + restart signal
 """
-import json
-from ..registry import registry
+from request_code_change import (
+    BACKUP_FILES_TOOL,
+    DEPLOY_CODE_CHANGE_TOOL,
+    DIAGNOSE_ISSUES_TOOL,
+    FIND_RELEVANT_FILES_TOOL,
+    PREPARE_CODE_CHANGE_TOOL,
+    ROLLBACK_CODE_CHANGE_TOOL,
+    VALIDATE_CODE_CHANGE_TOOL,
+    VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL,
+)
+from request_code_change import (
+    backup_files as _backup_files,
+)
+from request_code_change import (
+    deploy_code_change as _deploy_code_change,
+)
+from request_code_change import (
+    diagnose_issues as _diagnose_issues,
+)
+from request_code_change import (
+    find_relevant_files as _find_relevant_files,
+)
 
 # Import the actual implementations
 from request_code_change import (
     prepare_code_change as _prepare_code_change,
-    validate_code_change as _validate_code_change,
-    deploy_code_change as _deploy_code_change,
-    validate_with_anti_pattern_check as _validate_with_anti_pattern_check,
-    find_relevant_files as _find_relevant_files,
-    backup_files as _backup_files,
-    rollback_code_change as _rollback_code_change,
-    diagnose_issues as _diagnose_issues,
-    PREPARE_CODE_CHANGE_TOOL,
-    VALIDATE_CODE_CHANGE_TOOL,
-    DEPLOY_CODE_CHANGE_TOOL,
-    VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL,
-    FIND_RELEVANT_FILES_TOOL,
-    BACKUP_FILES_TOOL,
-    ROLLBACK_CODE_CHANGE_TOOL,
-    DIAGNOSE_ISSUES_TOOL,
 )
+from request_code_change import (
+    rollback_code_change as _rollback_code_change,
+)
+from request_code_change import (
+    validate_code_change as _validate_code_change,
+)
+from request_code_change import (
+    validate_with_anti_pattern_check as _validate_with_anti_pattern_check,
+)
+
+from ..registry import registry
 
 # Dependencies injected from server.py
 config = None

@@ -4,17 +4,16 @@ Testing tools for manny plugin development.
 Provides test execution, coverage analysis, and test generation.
 """
 
-import subprocess
 import re
+import subprocess
 from pathlib import Path
 from typing import Optional
-from mcp.types import Tool, TextContent
+
+from mcp.types import TextContent
 
 from ..config import ServerConfig
 from ..registry import registry
-from ..path_utils import normalize_path, to_symlink_path
 from ..utils import maybe_truncate_response
-
 
 # =============================================================================
 # RUN_TESTS
@@ -182,7 +181,7 @@ async def run_tests(pattern: Optional[str] = None, timeout: int = 60) -> list[Te
         output = "# Test Results\n\n"
         if result.get('pattern'):
             output += f"**Pattern:** {result['pattern']}\n\n"
-        output += f"**Summary:**\n"
+        output += "**Summary:**\n"
         output += f"- Tests run: {result['tests_run']}\n"
         output += f"- Failures: {result['failures']}\n"
         output += f"- Errors: {result['errors']}\n"
@@ -202,7 +201,7 @@ async def run_tests(pattern: Optional[str] = None, timeout: int = 60) -> list[Te
     if result.get('pattern'):
         output += f"**Pattern:** {result['pattern']}\n\n"
 
-    output += f"**Summary:**\n"
+    output += "**Summary:**\n"
     output += f"- Tests run: {result['tests_run']}\n"
     output += f"- Failures: {result['failures']}\n"
     output += f"- Errors: {result['errors']}\n"

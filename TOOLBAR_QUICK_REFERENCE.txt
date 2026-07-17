@@ -90,6 +90,6 @@ Group 160-170 - Other UI interface widgets
 
 
 ================================================================================
-Document: /home/wil/manny-mcp/TOOLBAR_WIDGETS_REFERENCE.md (full reference)
+Document: /home/wil/Desktop/manny_mcp/TOOLBAR_WIDGETS_REFERENCE.md (full reference)
 Updated: 2026-01-18
 ================================================================================

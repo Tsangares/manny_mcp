@@ -136,7 +136,7 @@ Each example captures the full interaction loop:
 - **Discord training data**: `~/.manny/training_data/training_YYYY-MM-DD.jsonl`
 - **Raw commands**: `/tmp/manny_sessions/commands_YYYY-MM-DD.yaml`
 - **Claude Code sessions**: `~/.claude/projects/-home-wil-manny-mcp/*.jsonl`
-- **Conversation logs**: `~/manny-mcp/logs/conversations/conversations_YYYY-MM-DD.jsonl`
+- **Conversation logs**: `~/Desktop/manny_mcp/logs/conversations/conversations_YYYY-MM-DD.jsonl`
 
 ---
 
