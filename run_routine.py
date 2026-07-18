@@ -101,10 +101,18 @@ async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '
     """Run a YAML routine and return results."""
     from mcptools import transport
     from mcptools.config import ServerConfig
+    from mcptools.runelite_manager import MultiRuneLiteManager
     from mcptools.tools import commands, monitoring, routine
 
     config = ServerConfig.load()
     transport.set_config(config)
+
+    # Same MultiRuneLiteManager instance server.py wires in (server.py:89-95) --
+    # without this, routine.py's crash-restart path (_auto_restart_client) and
+    # the disconnect-relogin escalation path have no way to stop/start the
+    # client and silently no-op ("No runelite_manager available, cannot
+    # restart"). See journals/ENGINE_DISCONNECT_RECOVERY_SPEC.md section (a).
+    manager = MultiRuneLiteManager(config)
 
     async def send_cmd(cmd, timeout=10000, account=None):
         """Canonical command transport (rid-correlated, atomic write).
@@ -121,10 +129,13 @@ async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '
             timeout=timeout / 1000.0,
         )
 
-    # Initialize dependencies in correct order
+    # Initialize dependencies in correct order (mirrors server.py:92-96 --
+    # manager must be passed to both monitoring and routine so the
+    # crash-restart / disconnect-relogin paths are reachable from the CLI,
+    # not just from the MCP server entrypoint).
     commands.set_dependencies(send_cmd, config)
-    monitoring.set_dependencies(None, config)
-    routine.set_dependencies(send_cmd, config)
+    monitoring.set_dependencies(manager, config)
+    routine.set_dependencies(send_cmd, config, manager)
 
     # Get initial state for XP tracking
     initial_xp = {}

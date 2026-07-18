@@ -1139,6 +1139,23 @@ async def handle_execute_routine(arguments: dict) -> dict:
         # Health check at start of each outer loop
         health = await check_client_health(account_id, max_stale_seconds=60)
         if not health["alive"]:
+            if health.get("category") == "disconnect":
+                # Legitimate disconnect/login gap, NOT a crash -- relogin
+                # instead, and don't burn a restart-budget attempt on it.
+                _routine_logger.warning(
+                    "[ROUTINE] Client disconnected (status=%s), attempting relogin...",
+                    health.get("connection_status"))
+                recovered = await _attempt_relogin(account_id)
+                if recovered:
+                    results["errors"].append(
+                        f"Recovered from disconnect (status={health.get('connection_status')})")
+                    continue  # Retry this outer loop iteration; current_step_idx untouched
+                results["success"] = False
+                results["disconnect_detected"] = True
+                results["crash_error"] = health["error"]
+                results["stale_seconds"] = health.get("stale_seconds")
+                return results
+
             if restart_attempts < max_restart_attempts:
                 restart_attempts += 1
                 _routine_logger.warning("[ROUTINE] Client crash detected (attempt %d/%d), auto-restarting...",
@@ -1199,6 +1216,24 @@ async def handle_execute_routine(arguments: dict) -> dict:
                 steps_since_health_check = 0
                 health = await check_client_health(account_id, max_stale_seconds=60)
                 if not health["alive"]:
+                    if health.get("category") == "disconnect":
+                        # Legitimate disconnect/login gap, NOT a crash --
+                        # relogin instead of burning a restart-budget attempt.
+                        _routine_logger.warning(
+                            "[ROUTINE] Client disconnected at step %s (status=%s), attempting relogin...",
+                            step_id, health.get("connection_status"))
+                        recovered = await _attempt_relogin(account_id)
+                        if recovered:
+                            results["errors"].append(
+                                f"Recovered from disconnect at step {step_id} "
+                                f"(status={health.get('connection_status')})")
+                            break  # Break inner step loop, re-enter outer loop; current_step_idx untouched
+                        results["success"] = False
+                        results["disconnect_detected"] = True
+                        results["crash_error"] = health["error"]
+                        results["crashed_at_step"] = step_id
+                        return results
+
                     if restart_attempts < max_restart_attempts:
                         restart_attempts += 1
                         _routine_logger.warning("[ROUTINE] Client crash at step %s (attempt %d/%d), auto-restarting...",
@@ -1705,45 +1740,160 @@ async def get_game_state(account_id: str = None) -> dict:
         return {}
 
 
+async def _get_connection_status(account_id: str = None, timeout_ms: int = 5000) -> dict:
+    """
+    Query GET_GAME_STATE over the existing command IPC channel -- the
+    discriminator between "disconnected/logging-in" and "genuinely stuck".
+
+    The plugin's GET_GAME_STATE command (manny_src/utility/commands/
+    GetGameStateCommand.java) reads client.getGameState() via a ClientThread
+    round-trip that is NOT gated by the GameTick stream, so it keeps
+    responding even when the state-file writer (which IS GameTick-driven)
+    has legitimately frozen during CONNECTION_LOST/LOGIN_SCREEN/character
+    creation. See journals/ENGINE_DISCONNECT_RECOVERY_SPEC.md section (b).
+
+    Returns:
+        dict with:
+        - responded: bool - False if the command channel itself didn't
+          answer (timeout / no send_command_with_response wired up) --
+          the one case state-file staleness is still a valid signal.
+        - status: "LOGGED_IN" | "LOGGING_IN" | "DISCONNECTED" | "UNKNOWN" | None
+        - is_connected: bool | None
+        - can_send_commands: bool | None
+        - has_local_player: bool | None
+    """
+    not_responded = {
+        "responded": False, "status": None,
+        "is_connected": None, "can_send_commands": None, "has_local_player": None,
+    }
+
+    if send_command_with_response is None:
+        return not_responded
+
+    try:
+        response = await send_command_with_response("GET_GAME_STATE", timeout_ms, account_id)
+    except Exception:
+        return not_responded
+
+    if not isinstance(response, dict) or response.get("timeout") or response.get("status") != "success":
+        return not_responded
+
+    result = response.get("result") or {}
+    return {
+        "responded": True,
+        "status": result.get("status"),
+        "is_connected": result.get("isConnected"),
+        "can_send_commands": result.get("canSendCommands"),
+        "has_local_player": result.get("hasLocalPlayer"),
+    }
+
+
 async def check_client_health(account_id: str = None, max_stale_seconds: float = 60) -> dict:
     """
-    Check if the client is alive by checking state file freshness.
+    Check if the client is alive, discriminating a genuine crash/freeze from
+    a legitimate disconnect/login/loading gap.
+
+    State-file mtime staleness ALONE is never sufficient to declare a crash:
+    the state writer (StateExporter.onGameTick) legitimately stops updating
+    during CONNECTION_LOST/LOGIN_SCREEN/character creation because GameTick
+    itself stops firing then -- that is expected behavior, not a hang. This
+    queries GET_GAME_STATE (see _get_connection_status) as the authoritative
+    signal and only falls back to mtime staleness when that command itself
+    doesn't respond (the one case staleness alone is still valid: the whole
+    command channel being dead does mean the client crashed).
+    See journals/ENGINE_DISCONNECT_RECOVERY_SPEC.md sections (a)/(b).
 
     Returns:
         dict with:
         - alive: bool - True if client appears healthy
-        - stale_seconds: float - How old the state file is
+        - category: "healthy" | "disconnect" | "crash"
+        - stale_seconds: float | None - How old the state file is
+        - connection_status: str | None - raw GET_GAME_STATE status field
         - error: str - Error message if not alive
     """
     state_file = config.get_state_file(account_id) if config else "/tmp/manny_state.json"
 
+    state_file_exists = True
+    age_seconds = None
     try:
         stat = os.stat(state_file)
         age_seconds = time.time() - stat.st_mtime
-
-        if age_seconds > max_stale_seconds:
-            return {
-                "alive": False,
-                "stale_seconds": age_seconds,
-                "error": f"State file stale for {age_seconds:.0f}s (>{max_stale_seconds}s) - client likely crashed"
-            }
-
-        return {
-            "alive": True,
-            "stale_seconds": age_seconds
-        }
     except FileNotFoundError:
-        return {
-            "alive": False,
-            "stale_seconds": None,
-            "error": "State file not found - client not running"
-        }
+        state_file_exists = False
     except Exception as e:
         return {
             "alive": False,
+            "category": "crash",
             "stale_seconds": None,
-            "error": f"Error checking state file: {e}"
+            "connection_status": None,
+            "error": f"Error checking state file: {e}",
         }
+
+    conn = await _get_connection_status(account_id)
+
+    if not conn["responded"]:
+        # Command channel itself didn't answer -- this is the one case plain
+        # mtime staleness is still a valid enough signal that the client is
+        # actually dead (not merely disconnected from the game world).
+        if not state_file_exists:
+            return {
+                "alive": False,
+                "category": "crash",
+                "stale_seconds": None,
+                "connection_status": None,
+                "error": "State file not found and command channel unresponsive - client not running",
+            }
+        return {
+            "alive": False,
+            "category": "crash",
+            "stale_seconds": age_seconds,
+            "connection_status": None,
+            "error": (f"Command channel unresponsive and state file stale for "
+                      f"{age_seconds:.0f}s - client likely crashed"),
+        }
+
+    status = conn["status"]
+
+    if status == "LOGGED_IN" and conn["can_send_commands"]:
+        if age_seconds is not None and age_seconds > max_stale_seconds:
+            # Fully connected per GET_GAME_STATE, yet the state-file writer
+            # is stuck -- a genuine freeze, not a disconnect.
+            return {
+                "alive": False,
+                "category": "crash",
+                "stale_seconds": age_seconds,
+                "connection_status": status,
+                "error": (f"State file stale for {age_seconds:.0f}s (>{max_stale_seconds}s) "
+                          f"while LOGGED_IN - plugin likely frozen"),
+            }
+        return {
+            "alive": True,
+            "category": "healthy",
+            "stale_seconds": age_seconds,
+            "connection_status": status,
+        }
+
+    if status in ("LOGGING_IN", "DISCONNECTED", "UNKNOWN"):
+        # Legitimate disconnect/login/character-creation gap -- NOT a crash.
+        # The state file freezing here is expected; recover via relogin and
+        # do not count it against the crash-restart budget.
+        return {
+            "alive": False,
+            "category": "disconnect",
+            "stale_seconds": age_seconds,
+            "connection_status": status,
+            "error": f"Client disconnected (GET_GAME_STATE status={status})",
+        }
+
+    # status == "LOGGED_IN" but canSendCommands is False (e.g. mid-LOADING,
+    # no local player yet) -- treat conservatively as disconnect-first.
+    return {
+        "alive": False,
+        "category": "disconnect",
+        "stale_seconds": age_seconds,
+        "connection_status": status,
+        "error": f"Client not ready (GET_GAME_STATE status={status}, canSendCommands=False)",
+    }
 
 
 import logging
@@ -1771,8 +1921,13 @@ async def _auto_restart_client(account_id: str = None) -> bool:
 
     _routine_logger.info("[AUTO-RESTART] Starting client for account '%s'...", account_id or "default")
     try:
+        # start_instance returns {"pid": ..., "status": ...} on success (no
+        # "success" key) and {"success": False, ...} on failure -- checking
+        # "success" here would always default-False on the success path and
+        # report every restart as failed. Same fix already applied in
+        # monitoring.py's auto_reconnect/restart_if_frozen (Wave 5 P4).
         start_result = await asyncio.to_thread(runelite_manager.start_instance, account_id)
-        if not start_result.get("success", False):
+        if not start_result.get("pid"):
             _routine_logger.error("[AUTO-RESTART] Start failed: %s", start_result)
             return False
     except Exception as e:
@@ -1790,4 +1945,77 @@ async def _auto_restart_client(account_id: str = None) -> bool:
 
     _routine_logger.error("[AUTO-RESTART] Client did not become healthy within 120s")
     return False
+
+
+async def _attempt_relogin(account_id: str = None, max_wait_seconds: float = 60) -> bool:
+    """
+    Recover from a detected disconnect (check_client_health category
+    "disconnect") WITHOUT a full client relaunch.
+
+    Reuses the existing primitives rather than reinventing them:
+    1. monitoring.py's ``_xdotool_click`` to dismiss the "You were
+       disconnected" Ok dialog -- works even when the command channel is
+       unresponsive, since xdotool talks to X directly, not IPC.
+    2. The plugin's existing ``LOGIN`` command (PlayerHelpers.java, "LOGIN"
+       case) to trigger the login-button click routine.
+    3. Polls ``_get_connection_status`` (GET_GAME_STATE) until
+       status == "LOGGED_IN" and canSendCommands, bounded by
+       ``max_wait_seconds`` (mirrors monitoring.auto_reconnect's default 60s).
+    4. Escalates to ``_auto_restart_client`` (full relaunch via
+       runelite_manager) only if the bounded wait expires -- this is the
+       same escalation target the freeze/crash path already uses, so restart
+       accounting stays in one place.
+
+    Deliberately does NOT touch current_step_idx -- a mere relogin doesn't
+    change in-world position/inventory, so the routine should resume at the
+    step it was on (same as the existing restart path already does).
+    See journals/ENGINE_DISCONNECT_RECOVERY_SPEC.md section (c).
+
+    Returns True if the client is confirmed reachable again (either via
+    relogin or the restart escalation), False otherwise.
+    """
+    from . import monitoring as monitoring_mod
+
+    display = None
+    try:
+        from ..session_manager import session_manager
+        default_account = config.default_account if config else None
+        display = session_manager.get_display_for_account(account_id or default_account)
+    except Exception:
+        pass
+    if not display:
+        display = config.display if config else ":2"
+
+    # Step 1: best-effort dismiss of the disconnect dialog's Ok button.
+    try:
+        await asyncio.to_thread(monitoring_mod._xdotool_click, 770, 604, display)
+    except Exception as e:
+        _routine_logger.debug("[RELOGIN] xdotool click failed (non-fatal): %s", e)
+
+    await asyncio.sleep(1.0)
+
+    # Step 2: trigger the plugin's own LOGIN command (clicks Play button).
+    # Best-effort -- if the command channel is still unresponsive this is a
+    # no-op and the poll loop below will simply keep waiting.
+    if send_command_with_response is not None:
+        try:
+            await send_command_with_response("LOGIN", 5000, account_id)
+        except Exception as e:
+            _routine_logger.debug("[RELOGIN] LOGIN command failed (non-fatal): %s", e)
+
+    # Step 3: poll GET_GAME_STATE until reconnected, bounded wait.
+    _routine_logger.info("[RELOGIN] Waiting up to %ds for reconnect...", max_wait_seconds)
+    start = time.time()
+    while (time.time() - start) < max_wait_seconds:
+        await asyncio.sleep(3)
+        conn = await _get_connection_status(account_id)
+        if conn["responded"] and conn["status"] == "LOGGED_IN" and conn["can_send_commands"]:
+            _routine_logger.info("[RELOGIN] Reconnected after %.0fs", time.time() - start)
+            return True
+
+    # Step 4: relogin didn't resolve it within the bounded wait -- escalate
+    # to the same full-restart path the freeze/crash branch uses.
+    _routine_logger.warning(
+        "[RELOGIN] Did not recover within %ds, escalating to full restart", max_wait_seconds)
+    return await _auto_restart_client(account_id)
 
