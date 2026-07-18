@@ -132,9 +132,57 @@ do_temp() {
 do_run() {
   # run_routine.py ON the host (IPC stays local to the client). All args after
   # the routine path are forwarded (--loops, --account, ...).
+  #
+  # DEFAULT: launch DETACHED (setsid, </dev/null, stdout+stderr -> host log) so
+  # the grind survives an SSH disconnect (no SIGHUP kills a long unattended run).
+  # Use --attach (alias --foreground) to keep the old blocking behavior instead.
+  local attach=""
+  case "${1:-}" in
+    --attach|--foreground) attach=1; shift ;;
+  esac
   [ $# -ge 1 ] || die "run needs a routine path, e.g.: mannyctl $HOST run routines/combat/x.yaml --account new"
+
+  # Derive a log filename: prefer the account (--account <id>), else the routine
+  # basename. Purely for a stable, discoverable host-side log path.
+  local routine="$1"
+  local acct="" prev=""
+  for tok in "$@"; do
+    [ "$prev" = "--account" ] && { acct="$tok"; break; }
+    prev="$tok"
+  done
+  local logname
+  if [ -n "$acct" ]; then
+    logname="manny_run_${acct}"
+  else
+    local base; base="$(basename "$routine")"; base="${base%.yaml}"
+    logname="manny_routine_${base}"
+  fi
+  # Sanitize to a safe filename (alnum, dot, dash, underscore).
+  logname="$(printf '%s' "$logname" | tr -c 'A-Za-z0-9._-' '_')"
+  local log="/tmp/${logname}.log"
+
   local args; args="$(printf '%q ' "$@")"
-  run_on_host "cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") run_routine.py $args"
+
+  if [ -n "$attach" ]; then
+    run_on_host "cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") run_routine.py $args"
+    return
+  fi
+
+  echo "launching routine DETACHED on $HOST (survives SSH disconnect) ..."
+  # setsid detaches into a new session; </dev/null + >log 2>&1 sever the tty so a
+  # dropped SSH connection can't SIGHUP it. We capture the PID, give it a moment,
+  # then confirm it's still alive so the launch confirmation stays meaningful.
+  # NOTE: this reuses do_viewer's proven detach construction (setsid + disown).
+  run_on_host "cd $(printf %q "$H_STAGING") && setsid $(printf %q "$H_VENVPY") run_routine.py $args </dev/null >$(printf %q "$log") 2>&1 & pid=\$!; disown; sleep 1; if kill -0 \$pid 2>/dev/null; then echo \"MANNY_RUN_STARTED pid=\$pid\"; else echo \"MANNY_RUN_FAILED (process exited immediately; see log)\" >&2; echo '--- tail of log ---' >&2; tail -n 20 $(printf %q "$log") >&2 || true; exit 1; fi"
+  local rc=$?
+  if [ $rc -eq 0 ]; then
+    echo "routine detached on $HOST. log: $log"
+    echo "follow it with:"
+    echo "  mannyctl $HOST exec tail -f $log"
+    echo "  mannyctl $HOST logs        # client log"
+    echo "  mannyctl $HOST status      # thermal + client status"
+  fi
+  return $rc
 }
 
 do_cmd() {
