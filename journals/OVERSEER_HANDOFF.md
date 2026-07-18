@@ -17,8 +17,9 @@ one, open the doc named in its row.
 | 2 | **Off-thread defect cluster** (DEFECT-3 class) | ✅ **DONE** — DEFECT-15/16/17/18 fixed+gated; **remnants** queued for diort | REFACTOR_CAMPAIGN_LESSONS.md |
 | 3 | **Navigation** (DEFECT-19/19b) | ✅ code FIXED (char walks); **full-walk live gate owed on diort** | manny/journals/DEFECT19_NAVIGATION_DIAGNOSIS.md |
 | 4 | **Routines phase** | 🔄 groundwork DONE; **live grind proof blocked on a cool host** | GRIND_ROUTINE_READINESS_*.md, ROUTINE_CORPUS_HARDENING_*.md |
-| 5 | **diort migration** (thermal-stable run host) | ✅ **STAGED + thermally GREEN**; only **cred/login + gate** remains (USER-approved "go") | DIORT_MIGRATION_PLAN.md + §DIORT BRING-UP below |
-| 6 | **Machine-agnostic remote-client** | ✅ **PROTOTYPE done** — `scripts/remote/mannyctl` + hosts.yaml + provision.sh (Phase 1 = use it to bring up diort) | REMOTE_CLIENT_ARCHITECTURE.md |
+| 5 | **diort migration** (thermal-stable run host) | ✅✅ **PROVEN LIVE (2026-07-18)** — remote login+nav+sustained chicken grind; **~70°C plateau vs laptop 90°C/crash. Thermal crash SOLVED.** | 2026-07-18_diort_bringup_parallel.md |
+| 6 | **Machine-agnostic remote-client** | ✅ **PROTOTYPE + validated live** — `scripts/remote/mannyctl` drives diort end-to-end (fish SSH-quoting bug fixed, commit 16b410e) | REMOTE_CLIENT_ARCHITECTURE.md |
+| 7 | **Grind robustness** (NEW next phase) | 🔄 nav-follower stalls on obstacles on long routes (DEFECT-19 follower-side); do_run should detach; tutorial 05/06 + GOTO awaits | ROUTINE_AUDIT_2026-07-18.md, task #21 |
 
 ### Why the pivot to #5/#6 (the crux)
 The whole software campaign (#1–#4) is essentially DONE. The ONLY blocker to the end-goal (an unattended
@@ -52,22 +53,25 @@ Overseer launched a 4-track parallel stage to finish the diort bring-up + adjace
   (mannyctl, hosts.yaml, provision.sh, client_remote.sh). All 3 agents complete; nothing left in flight.
 - `a6237f80b1def8a38` — session journal — ✅ **DONE** → journals/2026-07-18_multiproject_session.md (352 lines).
 
-## ⭐ DIORT BRING-UP — this is projects #5+#6 converging (USER approved "go on diort") ⭐
-diort is staged (jdk21 + jar + code + venv + perf config) and thermally green. Use the NEW `scripts/remote/mannyctl`
-tool (project #6) to finish — it codifies all the steps. ORCHESTRATOR/FORK runs this; creds are NOT delegated
-to a subagent and JX tokens are never printed. First validate mannyctl's flagged live-TODOs as you go (SSH
-`${var@Q}` quoting across the hop, whether the shipped `config.yaml` has laptop-only paths that break
-`ServerConfig.load()` on diort, and diort temp reads via the coretemp hwmon fallback).
-1. **`mannyctl diort provision`** — idempotent re-stage (safe; confirms jdk21/jar/code/venv/perf-config).
-2. **`mannyctl diort push-creds`** — typed-`yes` gate; scp ONLY credentials.yaml, chmod 600. (The one account-affecting step.)
-3. **`mannyctl diort start new`** — launches client on diort:2; watch `/tmp/runelite.log` for `Game state is now LOGGED_IN` + temp.
-4. **[DEFECT-19b full gate]** `mannyctl diort cmd new "GOTO 3235 3295 0"` — must walk the FULL 76 tiles; expect
-   `[NAV-API] ...LINE OF SIGHT CLEAR - directional walk` and NO `[Global A*]` churn. (Live gate owed from project #3.)
-5. **[grind proof]** `mannyctl diort run routines/combat/chicken_killer_training.yaml --loops 3 --account new` —
-   monitor diort temp throughout: the REAL gameplay-load thermal test + first unattended money-maker proof.
-6. Then on diort: fix+gate GameEngine off-thread remnants; tutorial-04 + disconnect-recovery verify; add a 2nd host (should be zero-code).
-NOTE: if mannyctl hits a live snag, fall back to the manual steps in DIORT_MIGRATION_PLAN.md (cred scp, config.yaml
-java_path→jdk21 + display→:2, jar at `~/manny/client-...jar`). Phase 2 later collapses client_remote.sh into client.sh.
+## ✅ DIORT BRING-UP — DONE (2026-07-18). Projects #5+#6 converged and PROVEN LIVE.
+Ran end-to-end via `scripts/remote/mannyctl`: `push-creds` (creds shipped, chmod 600, proxy included) →
+`provision` (jar→runelite_libs reconciled, venv, perf-config already GPU-off) → `start new` (login in 26s)
+→ `cmd new "GOTO 3235 3295 0"` (Pathfinder API reachable on diort → 7ms path, arrived) → `cmd new
+"KILL_LOOP Chicken"` (sustained kills, HP 10/10). **Thermal: 68–74°C plateau over 30+ kills/13+ min vs
+laptop 90°C/2min-crash → THE thermal crash is solved.** Full writeup: journals/2026-07-18_diort_bringup_parallel.md.
+
+**Operational notes learned:** (a) diort login shell is FISH — mannyctl now wraps remote cmds in
+`bash -lc $(printf %q ...)` (commit 16b410e); inline `ssh diort '<bash>'` still breaks on `for/do/done`
+and heredocs, so scp scripts instead. (b) diort default java is 26; jdk21 is installed & mannyctl uses it.
+(c) **NEVER issue commands / write `/tmp/manny_<acct>_command.txt` for an account another routine is
+grinding — a concurrent write cancels the running command.** Guard: `STOP_PROCESSOR`/`START_PROCESSOR`.
+(d) `do_run` runs `run_routine.py` foreground over SSH — for a long unattended grind, launch it detached
+(setsid) so a dropped SSH doesn't kill it.
+
+**Remaining (project #7 — grind robustness, NOT infra):** the minimap waypoint-FOLLOWER stalls on
+obstacles on some long routes → A*-recovery fails on uncached tiles (DEFECT-19 class, follower-side;
+KILL_LOOP short-hop approach still reaches the coop). Then: Track B GameEngine collision/tile live gate;
+tutorial 05/06 double-run + 6 fire-and-forget GOTOs (need a fresh-tutorial-account pass); add a 2nd host.
 
 ---
 
