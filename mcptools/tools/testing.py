@@ -4,6 +4,7 @@ Testing tools for manny plugin development.
 Provides test execution, coverage analysis, and test generation.
 """
 
+import asyncio
 import re
 import subprocess
 from pathlib import Path
@@ -168,7 +169,7 @@ def run_tests_impl(pattern: Optional[str] = None, timeout: int = 60, plugin_dir:
 )
 async def run_tests(pattern: Optional[str] = None, timeout: int = 60) -> list[TextContent]:
     """MCP tool: Execute Gradle tests"""
-    result = run_tests_impl(pattern=pattern, timeout=timeout)
+    result = await asyncio.to_thread(run_tests_impl, pattern=pattern, timeout=timeout)
 
     if "error" in result:
         return [TextContent(type="text", text=f"Error: {result['error']}")]

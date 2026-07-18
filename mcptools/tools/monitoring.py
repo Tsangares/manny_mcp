@@ -3,6 +3,7 @@ Monitoring tools for RuneLite process.
 Handles logs, game state, and health checks.
 Supports multi-client via account_id parameter.
 """
+import asyncio
 import json
 import logging
 import os
@@ -413,7 +414,8 @@ async def handle_check_health(arguments: dict) -> dict:
     try:
         env = os.environ.copy()
         env["DISPLAY"] = display
-        result = subprocess.run(
+        result = await asyncio.to_thread(
+            subprocess.run,
             ["xdotool", "search", "--name", "RuneLite"],
             env=env,
             capture_output=True,
@@ -424,7 +426,8 @@ async def handle_check_health(arguments: dict) -> dict:
             health["window"]["exists"] = True
             window_id = result.stdout.strip().split('\n')[0]
             # Get window geometry
-            geom_result = subprocess.run(
+            geom_result = await asyncio.to_thread(
+                subprocess.run,
                 ["xdotool", "getwindowgeometry", window_id],
                 env=env,
                 capture_output=True,
@@ -865,8 +868,6 @@ Use this when you detect a disconnect or as a recovery step.""",
 })
 async def handle_auto_reconnect(arguments: dict) -> dict:
     """Automatically handle disconnection using xdotool clicks."""
-    import asyncio
-
     account_id = arguments.get("account_id")
     max_wait = arguments.get("max_wait_seconds", 60)
     restart_on_timeout = arguments.get("restart_on_timeout", True)
@@ -904,13 +905,13 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
         # Skip click attempts entirely - go straight to restart
         try:
             # Stop existing instance
-            runelite_manager.stop_instance(account_id)
+            await asyncio.to_thread(runelite_manager.stop_instance, account_id)
             await asyncio.sleep(2)
 
             # Start fresh instance
             # start_instance returns {"pid": ..., "status": ...} on success
             # (no "success" key) and {"success": False, ...} on failure.
-            result = runelite_manager.start_instance(account_id)
+            result = await asyncio.to_thread(runelite_manager.start_instance, account_id)
             if result.get("pid"):
                 # Wait for new instance to connect
                 restart_start = time.time()
@@ -959,7 +960,7 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
         # Step 2: Click OK button on disconnect dialog
         # Uses xdotool which works even when plugin command processor is inactive
         ok_x, ok_y = 770, 604
-        if _xdotool_click(ok_x, ok_y, display):
+        if await asyncio.to_thread(_xdotool_click, ok_x, ok_y, display):
             clicks_made.append(f"Ok button ({ok_x}, {ok_y})")
         else:
             return {
@@ -972,14 +973,14 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
 
         # Step 3: Click "Play Now" on first login screen
         play_now_x, play_now_y = 670, 450
-        if _xdotool_click(play_now_x, play_now_y, display):
+        if await asyncio.to_thread(_xdotool_click, play_now_x, play_now_y, display):
             clicks_made.append(f"Play Now ({play_now_x}, {play_now_y})")
 
         await asyncio.sleep(2.0)
 
         # Step 4: Click "CLICK HERE TO PLAY" on Welcome to Gielinor screen
         click_to_play_x, click_to_play_y = 670, 530
-        if _xdotool_click(click_to_play_x, click_to_play_y, display):
+        if await asyncio.to_thread(_xdotool_click, click_to_play_x, click_to_play_y, display):
             clicks_made.append(f"Click Here To Play ({click_to_play_x}, {click_to_play_y})")
 
         await asyncio.sleep(2.0)
@@ -1014,13 +1015,13 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
     if restart_on_timeout:
         try:
             # Stop existing instance
-            runelite_manager.stop_instance(account_id)
+            await asyncio.to_thread(runelite_manager.stop_instance, account_id)
             await asyncio.sleep(2)
 
             # Start fresh instance
             # start_instance returns {"pid": ..., "status": ...} on success
             # (no "success" key) and {"success": False, ...} on failure.
-            result = runelite_manager.start_instance(account_id)
+            result = await asyncio.to_thread(runelite_manager.start_instance, account_id)
             if result.get("pid"):
                 # Wait for new instance to connect
                 restart_start = time.time()
@@ -1098,8 +1099,6 @@ the plugin is responsive before starting a routine.""",
 })
 async def handle_restart_if_frozen(arguments: dict) -> dict:
     """Check if plugin is frozen and restart if needed."""
-    import asyncio
-
     account_id = arguments.get("account_id")
     stale_threshold = arguments.get("stale_threshold_seconds", 30)
     startup_timeout = arguments.get("startup_timeout_seconds", 90)
@@ -1132,12 +1131,12 @@ async def handle_restart_if_frozen(arguments: dict) -> dict:
 
     # Plugin is frozen - restart
     try:
-        runelite_manager.stop_instance(account_id)
+        await asyncio.to_thread(runelite_manager.stop_instance, account_id)
         await asyncio.sleep(2)
 
         # start_instance returns {"pid": ..., "status": ...} on success
         # (no "success" key) and {"success": False, ...} on failure.
-        result = runelite_manager.start_instance(account_id)
+        result = await asyncio.to_thread(runelite_manager.start_instance, account_id)
         if not result.get("pid"):
             return {
                 "success": False,

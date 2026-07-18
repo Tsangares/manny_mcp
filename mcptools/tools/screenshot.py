@@ -2,6 +2,7 @@
 Screenshot and visual analysis tools.
 Supports multi-client via account_id parameter.
 """
+import asyncio
 import base64
 import os
 import subprocess
@@ -172,7 +173,7 @@ async def handle_get_screenshot(arguments: dict):
     """Capture screenshot for specified account."""
     output_path = arguments.get("output_path")
     account_id = arguments.get("account_id")
-    result = _take_screenshot(output_path, account_id=account_id)
+    result = await asyncio.to_thread(_take_screenshot, output_path, account_id=account_id)
 
     if result["success"]:
         # Return both image and metadata
@@ -221,7 +222,7 @@ async def handle_analyze_screenshot(arguments: dict) -> dict:
 
     # Take screenshot if not provided (fullscreen for better context)
     if screenshot_path is None:
-        screenshot_result = _take_screenshot(mode="fullscreen", account_id=account_id)
+        screenshot_result = await asyncio.to_thread(_take_screenshot, mode="fullscreen", account_id=account_id)
         if not screenshot_result["success"]:
             return {"success": False, "error": f"Failed to take screenshot: {screenshot_result.get('error')}"}
         screenshot_path = screenshot_result["path"]
@@ -390,5 +391,5 @@ async def handle_capture_gif(arguments: dict) -> dict:
     fps = arguments.get("fps", 10)
     account_id = arguments.get("account_id")
 
-    result = _capture_gif(duration=duration, fps=fps, account_id=account_id)
+    result = await asyncio.to_thread(_capture_gif, duration=duration, fps=fps, account_id=account_id)
     return result

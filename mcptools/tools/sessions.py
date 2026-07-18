@@ -5,6 +5,8 @@ Wave-5 consolidation: two canonical tools for multi-client session management.
 - session_status  (read):  sessions, displays, per-account playtime/availability
 - manage_session  (write): end sessions, cleanup, display reset/reassign
 """
+import asyncio
+
 from ..credentials import credential_manager
 from ..registry import registry
 from ..session_manager import session_manager
@@ -79,8 +81,10 @@ async def handle_session_status(arguments: dict) -> dict:
             [d for d, s in session_manager.displays.items() if s is None])
 
     if include_displays:
-        # Detailed display diagnostics (absorbs get_display_status)
-        status["displays"] = session_manager.get_display_status()
+        # Detailed display diagnostics (absorbs get_display_status).
+        # get_display_status() shells out (xdpyinfo per display, up to ~20s) -
+        # keep it off the event loop.
+        status["displays"] = await asyncio.to_thread(session_manager.get_display_status)
 
     return status
 
@@ -131,7 +135,10 @@ async def handle_manage_session(arguments: dict) -> dict:
         return session_manager.end_session(account_id=account_id, display=display)
 
     if action == "cleanup":
-        return session_manager.cleanup_stale_sessions(
+        # Shells out (pkill/xdpyinfo) and sleeps when reaping stale displays -
+        # keep it off the event loop.
+        return await asyncio.to_thread(
+            session_manager.cleanup_stale_sessions,
             cleanup_displays=arguments.get("cleanup_displays", True))
 
     if action == "reset_display":

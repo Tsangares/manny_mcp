@@ -1575,7 +1575,7 @@ async def _auto_restart_client(account_id: str = None) -> bool:
 
     _routine_logger.info("[AUTO-RESTART] Stopping client for account '%s'...", account_id or "default")
     try:
-        runelite_manager.stop_instance(account_id)
+        await asyncio.to_thread(runelite_manager.stop_instance, account_id)
     except Exception as e:
         _routine_logger.warning("[AUTO-RESTART] Stop failed (may already be dead): %s", e)
 
@@ -1583,7 +1583,7 @@ async def _auto_restart_client(account_id: str = None) -> bool:
 
     _routine_logger.info("[AUTO-RESTART] Starting client for account '%s'...", account_id or "default")
     try:
-        start_result = runelite_manager.start_instance(account_id)
+        start_result = await asyncio.to_thread(runelite_manager.start_instance, account_id)
         if not start_result.get("success", False):
             _routine_logger.error("[AUTO-RESTART] Start failed: %s", start_result)
             return False

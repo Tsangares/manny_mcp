@@ -317,7 +317,29 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
   5s throw-on-timeout everywhere converted (CookAll's old 12s scan now 5s — watch for flakiness).
   Live gate green: relaunch, login 12s, smoke 5/5, QUERY_INVENTORY on converted path = same
   clean "Inventory not available" failure at character creator.
-- **HELD BACK**: W5-P2 (de-async) until W5-P1 finishes (file overlap in mcptools/).
+- **W5-P1 ✅ + W5-P4 ✅ COMMITTED `e09d5ba` (2026-07-17 ~19:45) and pushed.** Tool surface now 39
+  (was 78 registered/~105 defined); see TOOL_RENAME_MAP.md for every old→new mapping. click_widget
+  is the single click tool (atomic CLICK_AT — the old bounds path's MOUSE_MOVE+CLICK race is gone).
+  P1 flag verified stale: monitoring.py already uses stop_instance/start_instance (P4 fixed it).
+  Dead-Gemini imports now raise a clear RuntimeError (not migrated); server.py still uses
+  deprecated google.generativeai for analyze_screenshot → Wave 7 candidate. Possible later merges:
+  check_health/is_alive and auto_reconnect/restart_if_frozen (39→37).
+- **W5-P2 (sonnet) 🔄 dispatched** after P1 freed mcptools/: async-blocking sweep
+  (subprocess/time.sleep → asyncio.to_thread at the boundary), fresh inventory (old line numbers
+  dead post-P1), tool surface must stay 39, routines/ and discord_bot/ and manny_driver/ excluded.
+  Commit separately when green → completes Wave 5 with the Java latch commit `7a651c8`.
+- **Routine repairs ✅ committed `6cb7ac7`:** DIALOGUE_CONTINUE→CLICK_CONTINUE,
+  DIALOGUE_SELECT→CLICK_DIALOGUE, EAT_FOOD→EAT in the 4 broken routines. NEW FOLLOW-UPS
+  from that agent (queue after W5-P2 frees mcptools/tools/):
+  1. `validate_routine_deep`/`list_available_commands` static index is SYSTEMICALLY stale —
+     it regex-scans PlayerHelpers `case "X":` labels, but post-Wave-3/4 nearly everything lives
+     in commandRegistry.put(); validator flags even GOTO as unknown. Fix = parse register()
+     calls + LEGACY_SWITCH_COMMANDS (or query live plugin). Wave 7 candidate at latest.
+  2. `repeat: N` field in routine YAML is NEVER read by the executor (_execute_single_step) —
+     silent no-op used by quest routines. Real bug: implement or strip.
+  3. ROUTINE_CATALOG.md lists bare `ATTACK` which doesn't exist (docs-only, Wave 7 regen).
+  4. EAT has no HP-threshold gating (old EAT_FOOD "25" semantics unrepresentable in YAML —
+     no HP-based await/skip condition exists). Design gap for the routine engine.
 - **W5-P4 ✅ (2026-07-17 ~19:20, uncommitted — commit with P1 as Wave 5):** pyproject.toml created
   (core deps + extras [discord]/[driver]/[dashboard]/[dev]; Pillow declared; google-genai dupe
   dropped, google-generativeai kept); sessions.yaml writes under reentrant flock

@@ -4,6 +4,7 @@ Code intelligence tools for manny plugin development.
 Provides IDE-like features: find usages, call graph, go-to-definition, etc.
 """
 
+import asyncio
 import json
 import logging
 import re
@@ -149,7 +150,7 @@ def find_usages_impl(symbol: str, context_lines: int = 3, plugin_dir: str = None
 )
 async def find_usages(symbol: str, context_lines: int = 3) -> list[TextContent]:
     """MCP tool: Find all usages of a symbol"""
-    result = find_usages_impl(symbol=symbol, context_lines=context_lines)
+    result = await asyncio.to_thread(find_usages_impl, symbol=symbol, context_lines=context_lines)
 
     if "error" in result:
         return [TextContent(type="text", text=f"Error: {result['error']}")]
@@ -289,7 +290,7 @@ def find_definition_impl(symbol: str, symbol_type: Optional[str] = None, plugin_
 )
 async def find_definition(symbol: str, symbol_type: Optional[str] = None) -> list[TextContent]:
     """MCP tool: Find the definition of a symbol"""
-    result = find_definition_impl(symbol=symbol, symbol_type=symbol_type)
+    result = await asyncio.to_thread(find_definition_impl, symbol=symbol, symbol_type=symbol_type)
 
     if "error" in result:
         return [TextContent(
@@ -462,7 +463,7 @@ def get_call_graph_impl(method: str, depth: int = 2, plugin_dir: str = None) -> 
 )
 async def get_call_graph(method: str, depth: int = 2) -> list[TextContent]:
     """MCP tool: Get call graph for a method"""
-    result = get_call_graph_impl(method=method, depth=depth)
+    result = await asyncio.to_thread(get_call_graph_impl, method=method, depth=depth)
 
     output = f"# Call Graph: {result['method']}\n\n"
 

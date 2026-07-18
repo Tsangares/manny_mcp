@@ -3,6 +3,7 @@ Core RuneLite control tools.
 Handles building, starting, stopping, and checking status.
 Supports multi-client via account_id parameter.
 """
+import asyncio
 import subprocess
 import time
 
@@ -60,7 +61,8 @@ async def handle_build_plugin(arguments: dict) -> dict:
         "-x", "pmdMain"
     ])
 
-    result = subprocess.run(
+    result = await asyncio.to_thread(
+        subprocess.run,
         cmd,
         cwd=str(config.runelite_root),
         capture_output=True,
@@ -128,7 +130,10 @@ async def handle_start_runelite(arguments: dict) -> dict:
     account_id = arguments.get("account_id")
     display = arguments.get("display")
     proxy = arguments.get("proxy")
-    return runelite_manager.start_instance(account_id=account_id, developer_mode=developer_mode, display=display, proxy=proxy)
+    return await asyncio.to_thread(
+        runelite_manager.start_instance,
+        account_id=account_id, developer_mode=developer_mode, display=display, proxy=proxy
+    )
 
 
 @registry.register({
@@ -144,7 +149,7 @@ async def handle_start_runelite(arguments: dict) -> dict:
 async def handle_stop_runelite(arguments: dict) -> dict:
     """Stop RuneLite process for specified account."""
     account_id = arguments.get("account_id")
-    return runelite_manager.stop_instance(account_id)
+    return await asyncio.to_thread(runelite_manager.stop_instance, account_id)
 
 
 # ============================================================================

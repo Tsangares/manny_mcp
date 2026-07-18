@@ -12,6 +12,8 @@ Pruned in the Wave-5 tool consolidation:
   removed from the MCP surface (use git + direct file access; the underlying
   functions remain importable from request_code_change).
 """
+import asyncio
+
 from request_code_change import (
     DEPLOY_CODE_CHANGE_TOOL,
     PREPARE_CODE_CHANGE_TOOL,
@@ -81,13 +83,16 @@ _VALIDATE_TOOL["description"] = (
 async def handle_validate_code_change(arguments: dict) -> dict:
     modified_files = arguments.get("modified_files")
     if arguments.get("check_anti_patterns") and modified_files:
-        # Merged path (absorbs the old validate_with_anti_pattern_check tool)
-        return _validate_with_anti_pattern_check(
+        # Merged path (absorbs the old validate_with_anti_pattern_check tool).
+        # Runs a Gradle compile (subprocess, up to 180s) - keep off the event loop.
+        return await asyncio.to_thread(
+            _validate_with_anti_pattern_check,
             runelite_root=config.runelite_root,
             modified_files=modified_files,
             manny_src=config.plugin_directory,
         )
-    return _validate_code_change(
+    return await asyncio.to_thread(
+        _validate_code_change,
         runelite_root=config.runelite_root,
         modified_files=modified_files,
     )
@@ -95,7 +100,9 @@ async def handle_validate_code_change(arguments: dict) -> dict:
 
 @registry.register(DEPLOY_CODE_CHANGE_TOOL)
 async def handle_deploy_code_change(arguments: dict) -> dict:
-    return _deploy_code_change(
+    # Runs a full Gradle build (subprocess, up to 300s) - keep off the event loop.
+    return await asyncio.to_thread(
+        _deploy_code_change,
         runelite_root=config.runelite_root,
         restart_after=arguments.get("restart_after", True),
     )
