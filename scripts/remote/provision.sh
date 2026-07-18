@@ -48,7 +48,14 @@ H_STAGING="$(hf staging_dir)"
 H_LIBS="$(hf runelite_libs)"
 
 is_local() { [ "$H_LOCAL" = "True" ] || [ "$H_LOCAL" = "true" ]; }
-onhost()   { if is_local; then bash -lc "$1"; else ssh -o BatchMode=yes "$H_SSH" "bash -lc $(printf %q "$1")"; fi; }
+# Feed the command to the remote bash via stdin (`bash -s`) rather than as an
+# ssh argument. This avoids the target LOGIN shell (fish on diort) ever parsing
+# it: `printf %q` emits bash `$'...\n...'` ANSI-C quoting for any multi-line or
+# special-char command, which fish rejects ("Expected a variable name after $").
+# `ssh host bash -s <<<"$1"` hands the script straight to bash's stdin, so it is
+# shell-agnostic for both single-line and multi-line commands. Exit code of the
+# remote command still propagates through ssh (used by the `test -x` guards).
+onhost()   { if is_local; then bash -lc "$1"; else ssh -o BatchMode=yes "$H_SSH" bash -s <<<"$1"; fi; }
 
 echo "=== provisioning host '$HOST' (local=$H_LOCAL ssh=$H_SSH) ==="
 
