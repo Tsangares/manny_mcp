@@ -499,15 +499,21 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
   last checkpoint: COMBAT PASSED (~00:40), next = exit ladder (~3111,9526) → banking (09).
   10 defects logged total (see TUTORIAL_TEST_DEFECTS; priority for tutorial driving:
   DEFECT-8 modal CLICK_CONTINUE > DEFECT-7 GOTO exact > DEFECT-1 fixed-awaiting-deploy).
-  **FREEZE-LIFT EXECUTION (in progress ~01:25):** Xvfb :2 restarted ✅; shadowJar rebuilt
-  from clean 2fcb602 ✅ (BUILD SUCCESSFUL, 0 stale sources — jar now CONTAINS the DEFECT-1
-  fix + J1 + J2-1/2/3/9). NEXT STEPS (resume here if interrupted): (1) launch client via
-  standard recipe (account `new`), grep 'Command processor started' then 'Game state is now
-  LOGGED_IN'; (2) ipc_smoke.sh new → 5/5; (3) live-gate spot checks: PING, LIST_COMMANDS
-  (expect 131), INTERACT_OBJECT on a door (DEFECT-1 fix validation — should no longer throw
-  IllegalStateException); (4) dispatch driver v3 (fable fork) to finish banking + prayer/
-  magic + advisor on the NEW jar, appending to the defect journal; (5) after island done,
-  dispatch J2-4 with its own live gate.
+  **FREEZE-LIFT ✅ EXECUTED (~01:25-01:30):** Xvfb :2 restarted; shadowJar rebuilt from
+  clean 2fcb602 (0 stale sources); client launched, login 12s (tokens survived crash #3
+  too); smoke 5/5; **LIVE GATE GREEN: INTERACT_OBJECT Door Open → success, 0 client-thread
+  exceptions in new log — DEFECT-1 fix VALIDATED LIVE.** The banked batch (J1 `c01219c` +
+  fix `73c7256` + J2-1 `bc4838c` + J2-9 `4080b11` + J2-2 `ebeb3c0` + J2-3 `2fcb602`) is
+  deployed and live-gated. Journals committed through `747cccd`.
+- **IN FLIGHT (~01:30 07-18): driver v3 (fable fork)** — finishing the island on the NEW
+  jar: banking (09) → prayer/magic (10) → advisor → Lumbridge. Doubles as regression check:
+  uses INTERACT_OBJECT normally (failure = critical defect), re-tests DEFECT-2/7/8 repro.
+  Appends "Driver #3 (new jar 2fcb602)" sections to TUTORIAL_TEST_DEFECTS. OWNS the client —
+  freeze rules apply again until it finishes. AFTER island: dispatch J2-4 (nav extraction,
+  own live gate), then the unblocked post-freeze Python queue (bugs a/b/c, validator
+  mcp_tool+reference-file fixes, DEFECT-8/7 command fixes per driver priority).
+  Hourly cron nudge = job `2aa5788b` (:23, session-only — RECREATE after any restart;
+  prompt includes freeze rules + post-driver sequence + "use subagents to parallelize").
 - **REMAINING (ALL user-gated or sequenced):** W6-J1 Actions retirement (fable; NEEDS user
   answer on strategy Q1 — ScenarioEngine replay retire vs keep), W6-J2 PlayerHelpers split
   (fable, after J1; 115 latches + full helper extraction + stats-tracker merge + BURY_ALL
