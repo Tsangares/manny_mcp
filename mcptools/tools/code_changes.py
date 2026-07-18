@@ -3,38 +3,27 @@ Code change tools - registry wrappers for request_code_change.py functions.
 
 Provides a staging workflow for plugin development:
 1. prepare_code_change  - Gather context for code-writing subagent
-2. validate_code_change - Compile to verify changes
+2. validate_code_change - Compile to verify changes (optionally with anti-pattern scan)
 3. deploy_code_change   - Real build + restart signal
+
+Pruned in the Wave-5 tool consolidation:
+- validate_with_anti_pattern_check -> validate_code_change(check_anti_patterns=true)
+- find_relevant_files / backup_files / rollback_code_change / diagnose_issues ->
+  removed from the MCP surface (use git + direct file access; the underlying
+  functions remain importable from request_code_change).
 """
 from request_code_change import (
-    BACKUP_FILES_TOOL,
     DEPLOY_CODE_CHANGE_TOOL,
-    DIAGNOSE_ISSUES_TOOL,
-    FIND_RELEVANT_FILES_TOOL,
     PREPARE_CODE_CHANGE_TOOL,
-    ROLLBACK_CODE_CHANGE_TOOL,
     VALIDATE_CODE_CHANGE_TOOL,
-    VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL,
-)
-from request_code_change import (
-    backup_files as _backup_files,
 )
 from request_code_change import (
     deploy_code_change as _deploy_code_change,
-)
-from request_code_change import (
-    diagnose_issues as _diagnose_issues,
-)
-from request_code_change import (
-    find_relevant_files as _find_relevant_files,
 )
 
 # Import the actual implementations
 from request_code_change import (
     prepare_code_change as _prepare_code_change,
-)
-from request_code_change import (
-    rollback_code_change as _rollback_code_change,
 )
 from request_code_change import (
     validate_code_change as _validate_code_change,
@@ -69,11 +58,38 @@ async def handle_prepare_code_change(arguments: dict) -> dict:
     )
 
 
-@registry.register(VALIDATE_CODE_CHANGE_TOOL)
+# Extend the imported schema with the merged anti-pattern option
+_VALIDATE_TOOL = dict(VALIDATE_CODE_CHANGE_TOOL)
+_VALIDATE_TOOL["inputSchema"] = {
+    **VALIDATE_CODE_CHANGE_TOOL.get("inputSchema", {"type": "object", "properties": {}}),
+}
+_VALIDATE_TOOL["inputSchema"]["properties"] = {
+    **_VALIDATE_TOOL["inputSchema"].get("properties", {}),
+    "check_anti_patterns": {
+        "type": "boolean",
+        "description": "Also scan modified_files for known anti-patterns before compiling (default: false). Requires modified_files.",
+        "default": False,
+    },
+}
+_VALIDATE_TOOL["description"] = (
+    _VALIDATE_TOOL.get("description", "")
+    + " Pass check_anti_patterns=true to also run the anti-pattern scan on modified_files."
+)
+
+
+@registry.register(_VALIDATE_TOOL)
 async def handle_validate_code_change(arguments: dict) -> dict:
+    modified_files = arguments.get("modified_files")
+    if arguments.get("check_anti_patterns") and modified_files:
+        # Merged path (absorbs the old validate_with_anti_pattern_check tool)
+        return _validate_with_anti_pattern_check(
+            runelite_root=config.runelite_root,
+            modified_files=modified_files,
+            manny_src=config.plugin_directory,
+        )
     return _validate_code_change(
         runelite_root=config.runelite_root,
-        modified_files=arguments.get("modified_files"),
+        modified_files=modified_files,
     )
 
 
@@ -82,42 +98,4 @@ async def handle_deploy_code_change(arguments: dict) -> dict:
     return _deploy_code_change(
         runelite_root=config.runelite_root,
         restart_after=arguments.get("restart_after", True),
-    )
-
-
-@registry.register(VALIDATE_WITH_ANTI_PATTERN_CHECK_TOOL)
-async def handle_validate_with_anti_pattern_check(arguments: dict) -> dict:
-    return _validate_with_anti_pattern_check(
-        runelite_root=config.runelite_root,
-        modified_files=arguments["modified_files"],
-        manny_src=config.plugin_directory,
-    )
-
-
-@registry.register(FIND_RELEVANT_FILES_TOOL)
-async def handle_find_relevant_files(arguments: dict) -> dict:
-    return _find_relevant_files(
-        manny_src=config.plugin_directory,
-        search_term=arguments.get("search_term"),
-        class_name=arguments.get("class_name"),
-        error_message=arguments.get("error_message"),
-    )
-
-
-@registry.register(BACKUP_FILES_TOOL)
-async def handle_backup_files(arguments: dict) -> dict:
-    return _backup_files(file_paths=arguments["file_paths"])
-
-
-@registry.register(ROLLBACK_CODE_CHANGE_TOOL)
-async def handle_rollback_code_change(arguments: dict) -> dict:
-    return _rollback_code_change(file_paths=arguments.get("file_paths"))
-
-
-@registry.register(DIAGNOSE_ISSUES_TOOL)
-async def handle_diagnose_issues(arguments: dict) -> dict:
-    return _diagnose_issues(
-        log_lines=arguments["log_lines"],
-        game_state=arguments.get("game_state"),
-        manny_src=config.plugin_directory,
     )

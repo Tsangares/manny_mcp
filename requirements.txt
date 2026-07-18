@@ -1,13 +1,10 @@
+# Core MCP server dependencies (mirrors [project].dependencies in pyproject.toml).
+# Optional stacks are extras: pip install -e ".[discord]" / ".[driver]" / ".[dashboard]" / ".[dev]"
 mcp>=1.0.0
 pyyaml>=6.0
 python-dotenv>=1.0.0
 watchdog>=3.0.0
+pillow>=10.0.0
 
-# Discord bot
-discord.py>=2.3.0
-
-# LLM providers (install what you need)
-google-generativeai>=0.3.0  # Gemini (cheapest)
-anthropic>=0.50.0           # Claude (manny-driver default)
-# openai>=1.0.0             # OpenAI (uncomment if needed)
-httpx>=0.24.0               # Ollama HTTP client
+# Gemini for analyze_screenshot (optional at runtime - server degrades gracefully without it)
+google-generativeai>=0.3.0

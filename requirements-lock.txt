@@ -7,16 +7,26 @@ mcp==1.25.0
 pyyaml==6.0.3
 python-dotenv==1.2.1
 watchdog==6.0.0
+pillow==12.2.0
 
 # Discord bot
 discord.py==2.6.4
 
 # LLM providers
+# NOTE: google-genai (new SDK) removed 2026-07-17 - it was never installed in the
+# working venv; the installed/imported Gemini SDK is google-generativeai (server.py).
+# manny_driver/llm_client.py and discord_bot/llm_client.py still import `from google
+# import genai` (google-genai) - those code paths are non-functional in this venv
+# and need either a migration to google-generativeai or a deliberate re-add.
 google-generativeai==0.8.6
-google-genai==1.62.0
 anthropic==0.78.0
 httpx==0.28.1
 ollama==0.6.1
+
+# Dev / test
+pytest==9.1.1
+pytest-asyncio==1.4.0
+ruff==0.15.22
 
 # Transitive dependencies (pinned for reproducibility)
 aiohappyeyeballs==2.6.1

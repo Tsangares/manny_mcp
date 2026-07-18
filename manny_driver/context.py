@@ -159,7 +159,7 @@ send_command("INTERACT_NPC Chicken Attack")  # ❌ Repeating manually
 
 - Fishing spots are **NPCs**, not objects
 - KILL_LOOP food param: use `none` if not eating
-- Indoor navigation requires opening doors first - use get_transitions() to find them
+- Indoor navigation requires opening doors first - use scan_environment(transitions_only=True) to find them
 - If a command fails silently, check logs immediately
 - After GOTO, verify arrival with get_game_state before next action
 

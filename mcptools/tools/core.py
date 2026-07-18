@@ -147,49 +147,6 @@ async def handle_stop_runelite(arguments: dict) -> dict:
     return runelite_manager.stop_instance(account_id)
 
 
-@registry.register({
-    "name": "runelite_status",
-    "description": "[RuneLite] Check if RuneLite is currently running.",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "account_id": ACCOUNT_ID_SCHEMA,
-            "list_all": {
-                "type": "boolean",
-                "description": "If true, list all running instances instead of checking specific account",
-                "default": False
-            }
-        }
-    }
-})
-async def handle_runelite_status(arguments: dict) -> dict:
-    """Check RuneLite status for specified account or list all instances."""
-    list_all = arguments.get("list_all", False)
-    account_id = arguments.get("account_id")
-
-    if list_all:
-        instances = runelite_manager.list_instances()
-        return {
-            "instances": instances,
-            "count": len(instances)
-        }
-
-    # Check specific account
-    instance = runelite_manager.get_instance(account_id)
-    if instance:
-        return {
-            "account_id": instance.account_id,
-            "running": instance.is_running(),
-            "pid": instance.process.pid if instance.process else None
-        }
-    else:
-        return {
-            "account_id": account_id or config.default_account,
-            "running": False,
-            "pid": None
-        }
-
-
 # ============================================================================
 # CREDENTIAL MANAGEMENT TOOLS
 # ============================================================================
@@ -218,159 +175,96 @@ async def handle_list_accounts(arguments: dict) -> dict:
 
 
 @registry.register({
-    "name": "add_account",
-    "description": "[Credentials] Add or update an account's credentials. Get tokens by running RuneLite with --insecure-write-credentials flag after logging in via Jagex Launcher.",
+    "name": "manage_account",
+    "description": """[Credentials] Canonical account management tool. One tool for all credential-store changes.
+
+Actions:
+- manage_account(action="add", alias=..., display_name=...)  - add/update an account (jx_character_id / jx_session_id from Bolt creds)
+- manage_account(action="import", alias=..., display_name=...) - import from ~/.runelite/credentials.properties (after Bolt login)
+- manage_account(action="remove", alias=...)                 - remove an account
+- manage_account(action="set_proxy", alias=..., proxy=...)   - set/clear proxy (empty proxy clears)
+- manage_account(action="set_default", alias=...)            - set the default account
+
+Use list_accounts() to view configured accounts. Never exposes token secrets.""",
     "inputSchema": {
         "type": "object",
         "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["add", "import", "remove", "set_proxy", "set_default"],
+                "description": "What to do"
+            },
             "alias": {
                 "type": "string",
-                "description": "Account alias (e.g., 'main', 'alt1', 'fishing_bot')"
+                "description": "Account alias (e.g., 'main', 'alt1')"
             },
             "display_name": {
                 "type": "string",
-                "description": "In-game display name for this account"
+                "description": "In-game display name (required for add/import)"
             },
             "jx_character_id": {
                 "type": "string",
-                "description": "JX_CHARACTER_ID from Bolt credentials (~/.local/share/bolt-launcher/creds)",
+                "description": "JX_CHARACTER_ID from Bolt credentials (add only)",
                 "default": ""
             },
             "jx_session_id": {
                 "type": "string",
-                "description": "JX_SESSION_ID from Bolt credentials (~/.local/share/bolt-launcher/creds)",
+                "description": "JX_SESSION_ID from Bolt credentials (add only)",
                 "default": ""
             },
             "proxy": {
                 "type": "string",
-                "description": "Optional: Proxy URL (e.g., 'socks5://user:pass@host:port'). Used automatically when starting this account.",
+                "description": "Proxy URL (e.g., 'socks5://user:pass@host:port'). For set_proxy; empty string clears.",
                 "default": ""
             },
             "set_default": {
                 "type": "boolean",
-                "description": "Make this the default account",
+                "description": "Also make this the default account (add/import only)",
                 "default": False
             }
         },
-        "required": ["alias", "display_name"]
+        "required": ["action", "alias"]
     }
 })
-async def handle_add_account(arguments: dict) -> dict:
-    """Add or update account credentials."""
-    result = credential_manager.add_account(
-        alias=arguments["alias"],
-        display_name=arguments["display_name"],
-        character_id=arguments.get("jx_character_id", ""),
-        session_id=arguments.get("jx_session_id", ""),
-        proxy=arguments.get("proxy", "")
-    )
+async def handle_manage_account(arguments: dict) -> dict:
+    """Canonical credential-store management (merges add/remove/set_proxy/set_default/import)."""
+    action = arguments.get("action")
+    alias = arguments.get("alias")
 
-    if arguments.get("set_default") and result.get("success"):
-        credential_manager.set_default(arguments["alias"])
-        result["is_default"] = True
+    if action == "add":
+        if not arguments.get("display_name"):
+            return {"success": False, "error": "display_name is required for action=add"}
+        result = credential_manager.add_account(
+            alias=alias,
+            display_name=arguments["display_name"],
+            character_id=arguments.get("jx_character_id", ""),
+            session_id=arguments.get("jx_session_id", ""),
+            proxy=arguments.get("proxy", "")
+        )
+        if arguments.get("set_default") and result.get("success"):
+            credential_manager.set_default(alias)
+            result["is_default"] = True
+        return result
 
-    return result
+    if action == "import":
+        if not arguments.get("display_name"):
+            return {"success": False, "error": "display_name is required for action=import"}
+        result = credential_manager.import_from_properties(
+            alias=alias,
+            display_name=arguments["display_name"]
+        )
+        if arguments.get("set_default") and result.get("success"):
+            credential_manager.set_default(alias)
+            result["is_default"] = True
+        return result
 
+    if action == "remove":
+        return credential_manager.remove_account(alias)
 
-@registry.register({
-    "name": "remove_account",
-    "description": "[Credentials] Remove an account from the credential store.",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "alias": {
-                "type": "string",
-                "description": "Account alias to remove"
-            }
-        },
-        "required": ["alias"]
-    }
-})
-async def handle_remove_account(arguments: dict) -> dict:
-    """Remove an account from the credential store."""
-    return credential_manager.remove_account(arguments["alias"])
+    if action == "set_proxy":
+        return credential_manager.set_proxy(alias, arguments.get("proxy", ""))
 
+    if action == "set_default":
+        return credential_manager.set_default(alias)
 
-@registry.register({
-    "name": "set_account_proxy",
-    "description": "[Credentials] Set or remove proxy for an existing account. The proxy will be used automatically when starting this account.",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "alias": {
-                "type": "string",
-                "description": "Account alias to update"
-            },
-            "proxy": {
-                "type": "string",
-                "description": "Proxy URL (e.g., 'socks5://user:pass@host:port'). Leave empty to remove proxy."
-            }
-        },
-        "required": ["alias", "proxy"]
-    }
-})
-async def handle_set_account_proxy(arguments: dict) -> dict:
-    """Set or remove proxy for an existing account."""
-    return credential_manager.set_proxy(arguments["alias"], arguments["proxy"])
-
-
-@registry.register({
-    "name": "import_credentials",
-    "description": "[Credentials] Import credentials from ~/.runelite/credentials.properties. Use after logging in via Bolt launcher.",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "alias": {
-                "type": "string",
-                "description": "Account alias to save as (e.g., 'main', 'alt1')"
-            },
-            "display_name": {
-                "type": "string",
-                "description": "In-game display name for this account"
-            },
-            "set_default": {
-                "type": "boolean",
-                "description": "Make this the default account",
-                "default": False
-            }
-        },
-        "required": ["alias", "display_name"]
-    }
-})
-async def handle_import_credentials(arguments: dict) -> dict:
-    """
-    Import credentials from the current credentials.properties file.
-
-    Workflow:
-    1. Log into account via Bolt launcher
-    2. Call this tool to import and save the credentials
-    """
-    result = credential_manager.import_from_properties(
-        alias=arguments["alias"],
-        display_name=arguments["display_name"]
-    )
-
-    if arguments.get("set_default") and result.get("success"):
-        credential_manager.set_default(arguments["alias"])
-        result["is_default"] = True
-
-    return result
-
-
-@registry.register({
-    "name": "set_default_account",
-    "description": "[Credentials] Set the default account used when no account_id is specified.",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "alias": {
-                "type": "string",
-                "description": "Account alias to make default"
-            }
-        },
-        "required": ["alias"]
-    }
-})
-async def handle_set_default_account(arguments: dict) -> dict:
-    """Set the default account."""
-    return credential_manager.set_default(arguments["alias"])
+    return {"success": False, "error": f"Unknown action: {action}"}

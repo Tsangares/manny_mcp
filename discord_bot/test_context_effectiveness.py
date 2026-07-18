@@ -128,7 +128,7 @@ TEST_CASES = [
     TestCase(
         message="Teleport home to Lumbridge",
         domain="navigation",
-        expected_tools=["send_command", "teleport_home"],
+        expected_tools=["send_command"],
         expected_commands=["HOME_TELEPORT", "TELEPORT"],
         description="Should use home teleport command"
     ),
@@ -318,9 +318,12 @@ def get_mock_tools() -> List[dict]:
         {
             "type": "function",
             "function": {
-                "name": "teleport_home",
-                "description": "Cast home teleport spell",
-                "parameters": {"type": "object", "properties": {}}
+                "name": "send_and_await",
+                "description": "Send a command and wait for a game-state condition (e.g. TELEPORT_HOME then location:3222,3218)",
+                "parameters": {"type": "object", "properties": {
+                    "command": {"type": "string"},
+                    "await_condition": {"type": "string"}
+                }}
             }
         }
     ]

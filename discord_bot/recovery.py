@@ -22,7 +22,7 @@ VALID_TOOLS = {
     "send_command", "get_game_state", "lookup_location", "check_health",
     "get_screenshot", "start_runelite", "stop_runelite", "restart_runelite",
     "auto_reconnect", "run_routine", "list_routines", "get_logs",
-    "switch_account", "list_accounts", "list_plugin_commands",
+    "switch_account", "list_accounts", "list_commands",
     "get_command_help", "queue_on_level"
 }
 

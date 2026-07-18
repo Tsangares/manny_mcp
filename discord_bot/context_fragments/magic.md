@@ -23,8 +23,8 @@ send_command("CAST_SPELL_NPC Fire_Strike Cow")
 
 **Home Teleport (no runes required):**
 ```python
-# Use the MCP tool for home teleport
-teleport_home()  # Opens magic tab, clicks spell, waits for arrival
+# Use send_and_await for home teleport
+send_and_await("TELEPORT_HOME", "location:3222,3218")  # Opens magic tab, clicks spell, waits for arrival
 ```
 
 **Standard teleports require runes:**

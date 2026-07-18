@@ -9,10 +9,9 @@ get_game_state()
 ```
 
 ### 2. Backup Files
-```python
-backup_files(file_paths=[
-    "/home/wil/Desktop/manny/utility/PlayerHelpers.java"
-])
+```bash
+# backup_files has been removed; use git for backup/rollback instead
+git -C /home/wil/Desktop/manny stash push -- utility/PlayerHelpers.java
 ```
 
 ### 3. Gather Context (with smart sectioning!)
@@ -56,7 +55,7 @@ validate_code_change(modified_files=["utility/PlayerHelpers.java"])
 check_anti_patterns(file_path="/home/wil/Desktop/manny/utility/PlayerHelpers.java")
 
 # Option B: Combined validation (RECOMMENDED)
-validate_with_anti_pattern_check(modified_files=["utility/PlayerHelpers.java"])
+validate_code_change(modified_files=["utility/PlayerHelpers.java"], check_anti_patterns=True)
 # ✅ Checks BOTH compilation AND anti-patterns
 # ✅ Blocks deployment if error-severity issues found
 ```
@@ -69,9 +68,9 @@ start_runelite()
 ```
 
 ### 8. Test
-```python
-# If fix doesn't work:
-rollback_code_change()
+```bash
+# If fix doesn't work, rollback_code_change has been removed; use git instead:
+git -C /home/wil/Desktop/manny checkout -- utility/PlayerHelpers.java
 # Then return to step 3
 ```
 
@@ -114,7 +113,7 @@ validate_code_change(...)
 check_anti_patterns(...)
 
 # Use:
-validate_with_anti_pattern_check(...)
+validate_code_change(..., check_anti_patterns=True)
 # ✅ One call
 # ✅ Blocks deployment if errors
 # ✅ Warnings don't block but are reported
@@ -178,7 +177,7 @@ prepare_code_change(
 ### Use combined validation
 ```python
 # Faster than running two separate checks
-validate_with_anti_pattern_check(modified_files=[...])
+validate_code_change(modified_files=[...], check_anti_patterns=True)
 ```
 
 ## Troubleshooting

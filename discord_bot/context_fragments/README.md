@@ -141,25 +141,25 @@ When playing to document new mechanics:
 
 1. **Start session recording**
    ```python
-   start_session_recording(goal="Document GE workflow")
+   record_session(action="start", goal="Document GE workflow")
    ```
 
 2. **Add markers at key points**
    ```python
-   add_session_marker(label="Opened GE interface")
-   add_session_marker(label="PITFALL: Need to click slot first")
+   record_session(action="marker", label="Opened GE interface")
+   record_session(action="marker", label="PITFALL: Need to click slot first")
    ```
 
 3. **Use observation tools liberally**
    ```python
-   scan_widgets(filter_text="Buy")  # Find widget IDs
+   find_widget(text="Buy")  # Find widget IDs
    query_nearby()  # Find NPCs/objects
    get_logs(grep="GE")  # See plugin behavior
    ```
 
 4. **Stop and convert**
    ```python
-   stop_session_recording()
+   record_session(action="stop")
    # Creates session file with all commands and state changes
    ```
 

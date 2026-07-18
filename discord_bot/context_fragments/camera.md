@@ -29,12 +29,12 @@ CAMERA_STABILIZE          - Reset to stable zoom and pitch (MCP tool)
 ### Stabilize Camera (Recommended)
 
 ```python
-# Use MCP tool for reliable reset
-stabilize_camera()  # Default: pitch=400, zoom=8
+# Use send_command for reliable reset
+send_command("CAMERA_STABILIZE 350 15")  # Default: pitch=350, zoom=15
 
 # Custom settings
-stabilize_camera(pitch=512)  # Max top-down for caves
-stabilize_camera(pitch=300, zoom_in_scrolls=10)  # Custom
+send_command("CAMERA_STABILIZE 512 15")  # Max top-down for caves
+send_command("CAMERA_STABILIZE 300 10")  # Custom
 ```
 
 ### Common Patterns
@@ -59,7 +59,7 @@ send_command("CAMERA_PITCH 512")  # Max top-down
 |---------|----------|
 | NPC not visible after fight | `CAMERA_STABILIZE` |
 | Can't click fishing spot | `CAMERA_RESET` |
-| Zoomed in too close | `stabilize_camera()` |
+| Zoomed in too close | `send_command("CAMERA_STABILIZE 350 15")` |
 | Can't see door in building | `CAMERA_PITCH 512` |
 
 ### Routine Pattern

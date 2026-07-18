@@ -137,8 +137,8 @@ TOOL_CATEGORIES = {
         description="Look up coordinates for a named location",
         requires_observation=False
     ),
-    "list_plugin_commands": ToolCategory(
-        name="list_plugin_commands",
+    "list_commands": ToolCategory(
+        name="list_commands",
         category="observation",
         description="List available plugin commands",
         requires_observation=False

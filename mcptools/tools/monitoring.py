@@ -10,10 +10,38 @@ import subprocess
 import time
 
 from ..registry import registry
+from ..runelite_manager import pid_is_runelite, scan_runelite_pids
 from ..session_manager import session_manager
 from ..utils import maybe_truncate_response
 
 logger = logging.getLogger(__name__)
+
+
+def _find_runelite_pid(account_id: str) -> tuple:
+    """
+    Locate the RuneLite process for an account without pattern matching.
+
+    Order (consistent with MultiRuneLiteManager._kill_all_runelite):
+      1. PID recorded by session_manager at launch time, verified via /proc
+         (pid_is_runelite: comm must be exactly "java" and cmdline must
+         reference RuneLite). A dead or recycled PID is ignored.
+      2. Exact-command /proc scan for externally started clients (reporting
+         only - never used for killing).
+
+    Returns (pid, managed) - (None, False) if nothing found.
+    """
+    display = session_manager.get_display_for_account(account_id)
+    if display:
+        session = session_manager.displays.get(display)
+        if session:
+            pid = session.get("pid")
+            if pid and pid_is_runelite(pid):
+                return pid, True
+
+    external = scan_runelite_pids()
+    if external:
+        return external[0], False
+    return None, False
 
 
 # Dependencies injected at startup (MultiRuneLiteManager)
@@ -323,25 +351,19 @@ async def handle_check_health(arguments: dict) -> dict:
         health["process"]["pid"] = instance.process.pid
         health["process"]["managed"] = True
     else:
-        # Check for externally-started RuneLite
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", "runelite"],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                pids = result.stdout.strip().split('\n')
-                health["process"]["running"] = True
-                health["process"]["pid"] = int(pids[0])
-                health["process"]["managed"] = False
-            else:
-                health["healthy"] = False
-                health["issues"].append("RuneLite process not running")
-        except Exception as e:
+        # No tracked instance: look up the session-recorded (managed) PID and
+        # verify it via /proc, falling back to an exact-command scan for
+        # externally-started clients. Replaces `pgrep -f runelite`, which
+        # matched any process whose command line mentioned "runelite"
+        # (editors, tails, our own tooling) and produced false positives.
+        pid, managed = _find_runelite_pid(account_id or config.default_account)
+        if pid:
+            health["process"]["running"] = True
+            health["process"]["pid"] = pid
+            health["process"]["managed"] = managed
+        else:
             health["healthy"] = False
-            health["issues"].append(f"Could not check for RuneLite process: {e}")
+            health["issues"].append("RuneLite process not running")
 
     # Check state file freshness for this account
     state_file = config.get_state_file(account_id)
@@ -459,19 +481,13 @@ async def handle_is_alive(arguments: dict) -> dict:
     instance = runelite_manager.get_instance(account_id)
     state_file = config.get_state_file(account_id)
 
-    # Quick process check
+    # Quick process check (managed PID / exact-command match; no pgrep patterns)
     process_alive = False
     if instance and instance.is_running():
         process_alive = True
     else:
-        try:
-            result = subprocess.run(
-                ["pgrep", "-f", "net.runelite.client.RuneLite"],
-                capture_output=True, timeout=2
-            )
-            process_alive = result.returncode == 0
-        except (subprocess.SubprocessError, OSError) as e:
-            logger.debug("Process check failed: %s", e)
+        pid, _managed = _find_runelite_pid(account_id or config.default_account)
+        process_alive = pid is not None
 
     # Quick state file check
     state_fresh = False
@@ -888,12 +904,14 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
         # Skip click attempts entirely - go straight to restart
         try:
             # Stop existing instance
-            runelite_manager.stop(account_id)
+            runelite_manager.stop_instance(account_id)
             await asyncio.sleep(2)
 
             # Start fresh instance
-            result = runelite_manager.start(account_id)
-            if result.get("success"):
+            # start_instance returns {"pid": ..., "status": ...} on success
+            # (no "success" key) and {"success": False, ...} on failure.
+            result = runelite_manager.start_instance(account_id)
+            if result.get("pid"):
                 # Wait for new instance to connect
                 restart_start = time.time()
                 while (time.time() - restart_start) < 90:  # 90 second startup timeout
@@ -996,12 +1014,14 @@ async def handle_auto_reconnect(arguments: dict) -> dict:
     if restart_on_timeout:
         try:
             # Stop existing instance
-            runelite_manager.stop(account_id)
+            runelite_manager.stop_instance(account_id)
             await asyncio.sleep(2)
 
             # Start fresh instance
-            result = runelite_manager.start(account_id)
-            if result.get("success"):
+            # start_instance returns {"pid": ..., "status": ...} on success
+            # (no "success" key) and {"success": False, ...} on failure.
+            result = runelite_manager.start_instance(account_id)
+            if result.get("pid"):
                 # Wait for new instance to connect
                 restart_start = time.time()
                 while (time.time() - restart_start) < 90:  # 90 second startup timeout
@@ -1112,11 +1132,13 @@ async def handle_restart_if_frozen(arguments: dict) -> dict:
 
     # Plugin is frozen - restart
     try:
-        runelite_manager.stop(account_id)
+        runelite_manager.stop_instance(account_id)
         await asyncio.sleep(2)
 
-        result = runelite_manager.start(account_id)
-        if not result.get("success"):
+        # start_instance returns {"pid": ..., "status": ...} on success
+        # (no "success" key) and {"success": False, ...} on failure.
+        result = runelite_manager.start_instance(account_id)
+        if not result.get("pid"):
             return {
                 "success": False,
                 "action": "restart_failed",

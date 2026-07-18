@@ -2,7 +2,7 @@
 ## What You Can Now Build Easily
 
 **Created**: 2025-12-26
-**Tools Used**: list_available_commands, get_command_examples, validate_routine_deep
+**Tools Used**: list_commands, list_commands, validate_routine_deep
 **Time to Create Each**: ~5-10 minutes (vs 45 minutes before)
 
 ---
@@ -36,12 +36,12 @@ Using the new MCP workflow, here are routines you can now create in minutes:
 **How to create**:
 ```python
 # 1. Discover commands
-list_available_commands(category="interaction")
-list_available_commands(search="DIALOGUE")
+list_commands(category="interaction")
+list_commands(search="DIALOGUE")
 
 # 2. Learn usage
-get_command_examples(command="CLICK_DIALOGUE")
-get_command_examples(command="INTERACT_OBJECT")
+list_commands(command="CLICK_DIALOGUE")
+list_commands(command="INTERACT_OBJECT")
 
 # 3. Write routine (5 min)
 # 4. Validate before running
@@ -61,7 +61,7 @@ validate_routine_deep(routine_path="...")
 | **power_mining_varrock.yaml** | POWER_MINE, GOTO (mine without banking) | ~8k |
 | **power_chopping.yaml** | POWER_CHOP, GOTO (chop without banking) | ~12k |
 
-**Discovered Commands** (via list_available_commands):
+**Discovered Commands** (via list_commands):
 - `MINE_ORE` - Mine specific ore
 - `POWER_MINE` - Mine and drop (no banking)
 - `CHOP_TREE` - Chop trees
@@ -110,11 +110,11 @@ validate_routine_deep(routine_path="...")
 
 ### Complete Command List (90 total)
 
-Use `list_available_commands()` to see all, or filter by category:
+Use `list_commands()` to see all, or filter by category:
 
 #### 🏦 Banking (7 commands)
 ```python
-list_available_commands(category="banking")
+list_commands(category="banking")
 ```
 - BANK_OPEN, BANK_CLOSE
 - BANK_DEPOSIT_ALL, BANK_DEPOSIT_ITEM, BANK_DEPOSIT_EQUIPMENT
@@ -122,7 +122,7 @@ list_available_commands(category="banking")
 
 #### ⚔️ Combat (9 commands)
 ```python
-list_available_commands(category="combat")
+list_commands(category="combat")
 ```
 - ATTACK, ATTACK_NPC
 - KILL, KILL_LOOP, KILL_COW, KILL_COW_GET_HIDES
@@ -131,7 +131,7 @@ list_available_commands(category="combat")
 
 #### 🎣 Skilling (18 commands)
 ```python
-list_available_commands(category="skilling")
+list_commands(category="skilling")
 ```
 - FISH, FISH_DROP, FISH_DRAYNOR_LOOP
 - MINE_ORE, POWER_MINE, COLLECT_LUMBRIDGE_TIN_COPPER
@@ -142,7 +142,7 @@ list_available_commands(category="skilling")
 
 #### 🗣️ Interaction (7 commands)
 ```python
-list_available_commands(category="interaction")
+list_commands(category="interaction")
 ```
 - INTERACT_NPC, INTERACT_OBJECT
 - CLICK_DIALOGUE, CLICK_CONTINUE
@@ -151,7 +151,7 @@ list_available_commands(category="interaction")
 
 #### 🎒 Inventory (11 commands)
 ```python
-list_available_commands(category="inventory")
+list_commands(category="inventory")
 ```
 - PICK_UP_ITEM, DROP_ITEM, DROP_ALL
 - EQUIP_BEST_MELEE
@@ -160,7 +160,7 @@ list_available_commands(category="inventory")
 
 #### 🧭 Movement (4 commands)
 ```python
-list_available_commands(category="movement")
+list_commands(category="movement")
 ```
 - GOTO (main navigation)
 - SAVE_LOCATION, GET_LOCATIONS
@@ -168,7 +168,7 @@ list_available_commands(category="movement")
 
 #### 🔍 Query (11 commands)
 ```python
-list_available_commands(category="query")
+list_commands(category="query")
 ```
 - QUERY_INVENTORY, QUERY_NPCS, QUERY_GROUND_ITEMS
 - SCAN_WIDGETS, SCAN_OBJECTS
@@ -268,8 +268,8 @@ steps:
 ### 1. Start with Command Discovery
 ```python
 # Always start here
-list_available_commands(search="your_task")
-list_available_commands(category="relevant_category")
+list_commands(search="your_task")
+list_commands(category="relevant_category")
 ```
 
 ### 2. Check for Specialized Commands
@@ -285,7 +285,7 @@ These save you from writing multi-step routines!
 ### 3. Use Examples to Learn Args Format
 ```python
 # Learn how others used it
-get_command_examples(command="BANK_WITHDRAW")
+list_commands(command="BANK_WITHDRAW")
 # → Shows: args format is "ItemName quantity"
 ```
 
@@ -319,10 +319,10 @@ validate_routine_deep(
 
 ```python
 # 1. Discover (30 sec)
-commands = list_available_commands(search="your_activity")
+commands = list_commands(search="your_activity")
 
 # 2. Learn (2 min)
-examples = get_command_examples(command="COMMAND_NAME")
+examples = list_commands(command="COMMAND_NAME")
 
 # 3. Create (5 min)
 # Write your_routine.yaml

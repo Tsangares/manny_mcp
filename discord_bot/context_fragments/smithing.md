@@ -84,8 +84,8 @@ send_command("GOTO 3188 3426 0")
 send_command("INTERACT_OBJECT Anvil Smith")
 
 # 3. Select item to smith (widget group 312)
-find_and_click_widget(text="Bronze dagger", action="Smith")
-# Or use click_text("Bronze dagger")
+click_widget(text="Bronze dagger", action="Smith")
+# Or use click_widget(text="Bronze dagger")
 ```
 
 **Note:** `USE_ITEM_ON_OBJECT Bronze_bar Anvil` also works to open interface.

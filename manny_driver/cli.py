@@ -48,7 +48,7 @@ def print_tool_call(name: str, args: dict[str, Any]):
     if name in ("send_command", "send_and_await", "kill_command"):
         color = C.YELLOW
     elif name in ("get_game_state", "get_logs", "check_health", "is_alive",
-                   "query_nearby", "get_dialogue", "get_transitions"):
+                   "query_nearby", "get_dialogue", "scan_environment"):
         color = C.BLUE
     elif name.startswith("start_") or name.startswith("stop_") or name.startswith("restart_"):
         color = C.RED

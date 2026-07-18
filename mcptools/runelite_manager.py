@@ -11,6 +11,7 @@ Credential Flow:
 import logging
 import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -29,6 +30,47 @@ logger = logging.getLogger(__name__)
 # prefixes each log line with (e.g. "2026-07-17 15:11:03 PDT [main] INFO  ...").
 # Continuation lines (stack trace frames, multi-line messages) don't match.
 _LOG_TIMESTAMP_RE = re.compile(r"^(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})")
+
+
+def pid_is_runelite(pid: int, proc_root: str = "/proc") -> bool:
+    """
+    Exact-match check that `pid` is a live java process running RuneLite.
+
+    Reads /proc/<pid>/comm and /proc/<pid>/cmdline directly instead of using
+    pgrep/pkill -f pattern matching, so shells, editors, log tails, or our own
+    tooling whose command line merely *mentions* "runelite" can never match.
+    A process qualifies only if its executable name is exactly "java" AND its
+    argument vector references RuneLite (main class or a runelite jar).
+    """
+    try:
+        with open(f"{proc_root}/{pid}/comm") as f:
+            comm = f.read().strip()
+        if comm != "java":
+            return False
+        with open(f"{proc_root}/{pid}/cmdline", "rb") as f:
+            args = f.read().decode(errors="replace").split("\x00")
+    except OSError:
+        return False  # process gone (or unreadable) - treat as not-RuneLite
+
+    joined = " ".join(args).lower()
+    return "net.runelite.client" in joined or ("runelite" in joined and ".jar" in joined)
+
+
+def scan_runelite_pids(proc_root: str = "/proc") -> List[int]:
+    """
+    Enumerate PIDs of RuneLite java processes via exact-command matching
+    (see pid_is_runelite). Used for health *reporting* only - kill paths must
+    go through tracked PIDs, never through this scan.
+    """
+    pids = []
+    try:
+        entries = os.listdir(proc_root)
+    except OSError:
+        return pids
+    for entry in entries:
+        if entry.isdigit() and pid_is_runelite(int(entry), proc_root=proc_root):
+            pids.append(int(entry))
+    return sorted(pids)
 
 
 class RuneLiteInstance:
@@ -431,50 +473,77 @@ class MultiRuneLiteManager:
 
     def _kill_all_runelite(self) -> Dict[str, Any]:
         """
-        Kill ALL RuneLite processes (not just tracked ones).
+        Stop every RuneLite process THIS manager launched (tracked PIDs only).
 
-        This ensures a clean slate before starting a new instance,
-        preventing credential conflicts between accounts.
+        Previously this pattern-killed (`pkill -f`) every java/RuneLite process on
+        the machine, which could take down externally launched clients (a manually
+        started shaded.jar, Bolt's client, another server's instances). It now only
+        signals:
+
+          1. Instances tracked in self.instances (via their own stop(), which
+             already handles an already-dead process gracefully).
+          2. PIDs recorded by session_manager.start_session() at launch time
+             (this manager's launches, possibly from a previous server process),
+             and only after verifying via /proc (pid_is_runelite) that the PID is
+             still a java RuneLite process. Dead or recycled PIDs are skipped.
+
+        External RuneLite processes are never touched, and no pattern-matching
+        kill (pkill/pgrep -f) is used anywhere.
         """
         killed_tracked = []
-        killed_external = 0
+        killed_session_pids = []
+        skipped = []
 
-        # Stop all tracked instances first
+        # 1. Stop all instances tracked by this manager object.
+        killed_accounts = set()
         for aid in list(self.instances.keys()):
             if self.instances[aid].is_running():
                 self.instances[aid].stop()
                 killed_tracked.append(aid)
+                killed_accounts.add(aid)
         self.instances.clear()
 
-        # Kill any external RuneLite processes (pkill by pattern)
-        try:
-            # Kill by java process running RuneLite
-            result = subprocess.run(
-                ["pkill", "-f", "net.runelite.client.RuneLite"],
-                capture_output=True,
-                text=True
-            )
-            if result.returncode == 0:
-                killed_external += 1
-        except Exception:
-            pass
-
-        try:
-            # Also try killing by RuneLite JAR pattern
-            subprocess.run(
-                ["pkill", "-f", "java.*runelite.*shaded.jar"],
-                capture_output=True,
-                text=True
-            )
-        except Exception:
-            pass
-
-        # Brief pause to ensure clean shutdown
-        time.sleep(1)
+        # 2. Session-recorded PIDs (recorded by start_instance at launch).
+        for session in session_manager.get_active_sessions():
+            pid = session.get("pid")
+            account = session.get("account")
+            display = session.get("display")
+            if not pid or account in killed_accounts:
+                continue
+            if not pid_is_runelite(pid):
+                # Dead, or PID recycled to an unrelated process - skip gracefully.
+                skipped.append({"account": account, "pid": pid, "reason": "not a live RuneLite process"})
+                continue
+            try:
+                os.kill(pid, signal.SIGTERM)
+            except OSError as e:
+                skipped.append({"account": account, "pid": pid, "reason": str(e)})
+                continue
+            # Wait briefly for graceful exit, then escalate.
+            deadline = time.time() + 5
+            dead = False
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                except ProcessLookupError:
+                    dead = True
+                    break
+                time.sleep(0.2)
+            if not dead:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            killed_session_pids.append({"account": account, "pid": pid})
+            # Free the display / close playtime tracking for the killed session.
+            session_manager.end_session(display=display)
 
         return {
             "killed_tracked": killed_tracked,
-            "killed_external": killed_external > 0
+            "killed_session_pids": killed_session_pids,
+            "skipped": skipped,
+            # Legacy key: external (untracked) processes are never killed anymore.
+            "killed_external": False
         }
 
     def _write_credentials(self, account_id: str) -> Dict[str, Any]:

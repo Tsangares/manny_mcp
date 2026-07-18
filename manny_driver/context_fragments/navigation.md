@@ -34,7 +34,7 @@ When user says "go south/north/etc." without coordinates:
 
 ### Indoor Navigation
 Buildings have doors that must be opened:
-1. **Scan**: get_transitions() to find doors with open/closed state
+1. **Scan**: scan_environment(transitions_only=True) to find doors with open/closed state
 2. **Open**: INTERACT_OBJECT Large_door Open
 3. **Walk**: GOTO to destination
 

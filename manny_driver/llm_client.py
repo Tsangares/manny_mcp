@@ -128,7 +128,14 @@ class GeminiClient(LLMClient):
     """Google Gemini with native function calling."""
 
     def __init__(self, model: str):
-        from google import genai
+        try:
+            from google import genai
+        except ImportError as e:
+            raise RuntimeError(
+                "Gemini provider requires the 'google-genai' package, which is not "
+                "installed in this venv. Use the ollama/anthropic providers, or "
+                "install google-genai to enable Gemini."
+            ) from e
         from google.genai import types
         self._genai = genai
         self._types = types

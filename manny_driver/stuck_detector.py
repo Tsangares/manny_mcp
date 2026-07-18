@@ -60,9 +60,9 @@ class StuckDetector:
     # Observation-only tools (no game side-effects)
     OBSERVATION_TOOLS = {
         "get_game_state", "get_logs", "query_nearby", "check_health",
-        "is_alive", "get_command_response", "get_dialogue", "find_widget",
-        "scan_widgets", "scan_tile_objects", "get_transitions",
-        "get_location_info", "get_screenshot",
+        "is_alive", "get_dialogue", "find_widget",
+        "scan_environment", "get_location_info", "get_screenshot",
+        "get_chat_messages", "list_commands", "list_quests",
     }
 
     def record_tool_call(self, tool_name: str):
@@ -126,7 +126,7 @@ class StuckDetector:
             return (
                 "Your position hasn't changed despite movement commands. "
                 "You might be stuck on an obstacle. Try: "
-                "1) get_transitions() to find doors/paths, "
+                "1) scan_environment(transitions_only=True) to find doors/paths, "
                 "2) GOTO to a nearby known-reachable tile, "
                 "3) TELEPORT_HOME as a last resort."
             )

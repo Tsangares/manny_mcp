@@ -47,7 +47,7 @@ EQUIP_BEST_MELEE        - Auto-equip best melee gear from inventory
 | Item Type | Discovery | Pickup Command |
 |-----------|-----------|----------------|
 | Dropped items (loot) | `query_nearby(include_ground_items=True)` | `PICK_UP_ITEM <item>` |
-| Static spawns (nets, buckets) | `scan_tile_objects(object_name="X")` | `INTERACT_OBJECT <name> Take` |
+| Static spawns (nets, buckets) | `query_nearby(object_name="X")` | `INTERACT_OBJECT <name> Take` |
 
 ### Inventory Queries
 

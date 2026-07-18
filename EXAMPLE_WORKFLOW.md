@@ -34,19 +34,15 @@ state = get_game_state()
 
 ### Step 2: Backup Files for Safety
 
-```python
-backup_files(file_paths=[
-    "/home/wil/Desktop/manny/utility/PlayerHelpers.java"
-])
+`backup_files` has been removed; use git for backup/rollback instead:
+
+```bash
+git -C /home/wil/Desktop/manny stash push -- utility/PlayerHelpers.java
 ```
 
 **Output**:
-```json
-{
-  "success": true,
-  "backed_up": ["/home/wil/Desktop/manny/utility/PlayerHelpers.java"],
-  "message": "Backed up 1 file(s)"
-}
+```
+Saved working directory and index state WIP on main: ...
 ```
 
 ✅ **Safety net in place** - can rollback if the fix doesn't work.
@@ -170,8 +166,9 @@ anti_patterns = check_anti_patterns(
 )
 
 # Option B: Combined validation (RECOMMENDED)
-combined = validate_with_anti_pattern_check(
-    modified_files=["utility/PlayerHelpers.java"]
+combined = validate_code_change(
+    modified_files=["utility/PlayerHelpers.java"],
+    check_anti_patterns=True
 )
 ```
 
@@ -226,11 +223,8 @@ start_runelite()
 # Wait for RuneLite to start
 time.sleep(10)
 
-# Test the fixed command
-send_command("BANK_OPEN")
-
-# Check response
-response = get_command_response()
+# Test the fixed command (get_command_response has been removed; prefer send_and_await)
+response = send_and_await("BANK_OPEN", "idle")
 print(response)
 
 # Check logs for errors
@@ -255,17 +249,12 @@ print(logs)
 
 If testing showed the fix didn't work:
 
+```bash
+# rollback_code_change has been removed; use git instead
+git -C /home/wil/Desktop/manny checkout -- utility/PlayerHelpers.java
+```
+
 ```python
-# Rollback to original code
-rollback_code_change()
-
-# Output:
-{
-  "success": true,
-  "restored": ["/home/wil/Desktop/manny/utility/PlayerHelpers.java"],
-  "message": "Restored 1 file(s)"
-}
-
 # Rebuild with original code
 deploy_code_change()
 stop_runelite()
@@ -332,7 +321,7 @@ Task(prompt="""
 **Step 6** (Automated Anti-Pattern Detection):
 ```python
 # NEW: Combined validation catches both types of issues
-validate_with_anti_pattern_check(modified_files=[...])
+validate_code_change(modified_files=[...], check_anti_patterns=True)
 # Benefit: Catches 11 common anti-patterns automatically
 # Examples: smartClick for NPCs, F-keys, missing interrupts
 ```

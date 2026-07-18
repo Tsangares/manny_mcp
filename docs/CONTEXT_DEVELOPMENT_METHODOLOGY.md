@@ -50,10 +50,10 @@ Before playing to document mechanics:
 
 ```python
 # 1. Start session recording
-start_session_recording(goal="Document smithing workflow")
+record_session(action="start", goal="Document smithing workflow")
 
 # 2. Ensure camera is stable
-stabilize_camera()
+send_command("CAMERA_STABILIZE 350 15")
 
 # 3. Check starting state
 get_game_state(fields=["location", "inventory", "skills"])
@@ -70,11 +70,11 @@ Use these to understand what's available:
 query_nearby(include_npcs=True, include_objects=True)
 
 # Find specific object types
-scan_tile_objects(object_name="furnace")
+query_nearby(object_name="furnace")
 
 # Find widgets (UI elements)
 find_widget(text="Smelt")
-scan_widgets(filter_text="Bronze")  # Heavy - use sparingly
+find_widget(text="Bronze")  # Heavy - use sparingly
 
 # Check dialogue state
 get_dialogue()
@@ -100,9 +100,9 @@ send_command("USE_ITEM_ON_OBJECT Bronze_bar Anvil")
 
 ```python
 # When you discover something important
-add_session_marker(label="Found: Furnace is object not NPC")
-add_session_marker(label="PITFALL: Must select bar type in interface")
-add_session_marker(label="Widget ID for bronze bar: 17694735")
+record_session(action="marker", label="Found: Furnace is object not NPC")
+record_session(action="marker", label="PITFALL: Must select bar type in interface")
+record_session(action="marker", label="Widget ID for bronze bar: 17694735")
 ```
 
 ### Key Things to Document
@@ -120,7 +120,7 @@ add_session_marker(label="Widget ID for bronze bar: 17694735")
 
 ```python
 # Stop recording
-result = stop_session_recording()
+result = record_session(action="stop")
 # Output: Session saved to /tmp/manny_sessions/session_20260124_120000.yaml
 
 # Review session
@@ -251,7 +251,7 @@ tail -f logs/conversations/conversations_$(date +%Y-%m-%d).log
 | `manny_src/utility/PlayerHelpers.java` | Handler implementations |
 | OSRS Wiki (WebFetch) | Game mechanics, item IDs |
 | `get_logs(grep="X")` | Plugin behavior |
-| `scan_widgets(filter_text="X")` | Widget IDs (heavy) |
+| `find_widget(text="X")` | Widget IDs (heavy) |
 | `query_nearby()` | Entity discovery |
 
 ---

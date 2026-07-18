@@ -745,7 +745,7 @@ class OSRSBot(commands.Bot):
                     "send_command", "get_game_state", "lookup_location", "check_health",
                     "get_screenshot", "start_runelite", "stop_runelite", "restart_runelite",
                     "auto_reconnect", "run_routine", "list_routines", "get_logs",
-                    "switch_account", "list_accounts", "list_plugin_commands",
+                    "switch_account", "list_accounts", "list_commands",
                     "get_command_help", "queue_on_level"
                 }
                 rescued_a_tool = False
@@ -1147,7 +1147,7 @@ class OSRSBot(commands.Bot):
 
                 return result
 
-            elif tool_name == "list_plugin_commands":
+            elif tool_name == "list_commands":
                 # Use manny-cli to list commands
                 import subprocess
                 category = arguments.get("category", "")
@@ -1197,10 +1197,10 @@ class OSRSBot(commands.Bot):
                     "timeout_ms": 3000
                 })
 
-            elif tool_name == "click_text":
-                # Click widget by text
-                from mcptools.tools.routine import handle_click_text
-                return await handle_click_text({
+            elif tool_name in ("click_widget", "click_text"):
+                # Canonical widget click (click_text is the legacy alias)
+                from mcptools.tools.routine import handle_click_widget
+                return await handle_click_widget({
                     "text": arguments.get("text", ""),
                     "account_id": self.account_id,
                     "timeout_ms": 3000

@@ -156,7 +156,7 @@ class MockToolExecutor:
             "restart_runelite": self._mock_restart_runelite,
             "list_routines": self._mock_list_routines,
             "list_accounts": self._mock_list_accounts,
-            "list_plugin_commands": self._mock_list_plugin_commands,
+            "list_commands": self._mock_list_plugin_commands,
             "get_command_help": self._mock_get_command_help,
             "query_nearby": self._mock_query_nearby,
             "scan_tile_objects": self._mock_scan_tile_objects,
@@ -439,7 +439,7 @@ INTERACTION: INTERACT_NPC, INTERACT_OBJECT, PICK_UP_ITEM"""
 
             if tool in ["get_game_state", "check_health", "lookup_location",
                        "get_screenshot", "get_logs", "list_routines",
-                       "list_accounts", "list_plugin_commands", "get_command_help",
+                       "list_accounts", "list_commands", "get_command_help",
                        "query_nearby", "scan_tile_objects"]:
                 observe_calls.append((tool, args))
             else:
@@ -470,7 +470,7 @@ INTERACTION: INTERACT_NPC, INTERACT_OBJECT, PICK_UP_ITEM"""
         # Check if first call was observation
         observation_tools = ["get_game_state", "check_health", "lookup_location",
                              "get_screenshot", "get_logs", "list_routines",
-                             "list_accounts", "list_plugin_commands", "get_command_help",
+                             "list_accounts", "list_commands", "get_command_help",
                              "query_nearby", "scan_tile_objects"]
         if self.call_log:
             first_tool = self.call_log[0]["tool"]

@@ -26,7 +26,7 @@ OSRS fishing spots appear as NPCs in the game engine. This is a common source of
 ### Static Item Spawns (fishing nets, buckets, etc.)
 Permanent respawning items are GameObjects, not TileItems:
 - **WRONG**: query_nearby(include_ground_items=True) - finds nothing
-- **CORRECT**: scan_tile_objects(object_name="fishing net")
+- **CORRECT**: query_nearby(object_name="fishing net")
 - **Pick up**: INTERACT_OBJECT small_fishing_net Take
 
 ### Fishing Commands

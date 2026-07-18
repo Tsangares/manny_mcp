@@ -53,7 +53,7 @@ class Agent:
         # Monitoring-only tool subset (6 tools instead of 33)
         MONITORING_TOOLS = {
             "send_command", "send_and_await", "get_game_state",
-            "get_logs", "query_nearby", "get_command_response",
+            "get_logs", "query_nearby",
         }
         monitoring_tools = [t for t in gameplay_tools if t.name in MONITORING_TOOLS]
         self._monitoring_tool_schemas = self._convert_tools(monitoring_tools)

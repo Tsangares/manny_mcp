@@ -24,6 +24,8 @@ from mcptools.tools import (
     quests,
     routine,
     screenshot,
+    session,  # noqa: F401  (registers record_session / recording_to_routine)
+    sessions,  # noqa: F401  (registers session_status / manage_session)
     spatial,
 )
 

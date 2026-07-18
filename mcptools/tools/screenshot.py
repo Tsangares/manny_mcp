@@ -381,26 +381,11 @@ def _capture_gif(output_path: str = None, duration: int = 5, fps: int = 10, acco
             pass
 
 
-@registry.register({
-    "name": "capture_gif",
-    "description": "[Screenshot] Record a short GIF of the game screen. Good for showing recent activity.",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "duration": {
-                "type": "integer",
-                "description": "Recording duration in seconds (default: 5, max: 15)"
-            },
-            "fps": {
-                "type": "integer",
-                "description": "Frames per second (default: 10)"
-            },
-            "account_id": ACCOUNT_ID_SCHEMA
-        }
-    }
-})
+# NOTE: capture_gif is no longer a registered MCP tool (the MJPEG live view at
+# scripts/mjpeg_viewer.py covers live watching). _capture_gif remains importable
+# and is still used by the Discord bot's /gif command.
 async def handle_capture_gif(arguments: dict) -> dict:
-    """Capture a GIF of the game screen."""
+    """Capture a GIF of the game screen (internal helper, not an MCP tool)."""
     duration = min(arguments.get("duration", 5), 15)  # Cap at 15 seconds
     fps = arguments.get("fps", 10)
     account_id = arguments.get("account_id")

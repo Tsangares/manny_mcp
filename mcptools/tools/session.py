@@ -406,226 +406,186 @@ recorder = SessionRecorder()
 # ============================================================================
 
 @registry.register({
-    "name": "start_session_recording",
-    "description": """[Session] Start recording commands and state changes to a YAML session file.
+    "name": "record_session",
+    "description": """[Recording] Canonical session-recording control tool.
 
-Use this when starting a task you may want to replay or debug later.
-The session captures:
-- All commands sent (with timestamps)
-- State changes (inventory, location, equipment, dialogue)
-- Markers you add for phases/checkpoints
-- Errors encountered
+Actions:
+- record_session(action="start", goal="Complete quest X")  - start recording commands + state deltas
+- record_session(action="stop")                            - stop and save session YAML (returns filepath)
+- record_session(action="status")                          - is a recording active?
+- record_session(action="marker", label="Phase 2")         - add a checkpoint marker
+- record_session(action="events", last_n=10)               - peek at recent recorded events
 
-After stopping, converts successful sessions to reusable routines.
-
-Examples:
-- start_session_recording(goal="Complete The Restless Ghost quest")
-- start_session_recording(goal="Fish 100 lobsters at Musa Point")""",
+Sessions are saved to /tmp/manny_sessions/session_<id>.yaml and can be converted
+to a replayable routine with recording_to_routine(). Note: every command is ALWAYS
+logged to /tmp/manny_sessions/commands_YYYY-MM-DD.yaml, and manual-play actions to
+/tmp/manny_<account>_actions.json, even without an active recording.""",
     "inputSchema": {
         "type": "object",
         "properties": {
+            "action": {
+                "type": "string",
+                "enum": ["start", "stop", "status", "marker", "events"],
+                "description": "What to do"
+            },
             "goal": {
                 "type": "string",
-                "description": "What you're trying to accomplish (e.g., 'Complete quest X', 'Train fishing to 50')"
+                "description": "start: what you're trying to accomplish"
             },
             "account": {
                 "type": "string",
-                "description": "Account name for reference (optional)"
-            }
-        }
-    }
-})
-async def handle_start_session_recording(arguments: dict) -> dict:
-    """Start a new recording session."""
-    if recorder.is_active():
-        return {
-            "success": False,
-            "error": "Recording already active",
-            "session_id": recorder.session_id
-        }
-
-    session_id = recorder.start(
-        goal=arguments.get("goal"),
-        account=arguments.get("account")
-    )
-
-    return {
-        "success": True,
-        "session_id": session_id,
-        "message": "Recording started. Use stop_session_recording() when done.",
-        "output_path": f"/tmp/manny_sessions/session_{session_id}.yaml"
-    }
-
-
-@registry.register({
-    "name": "stop_session_recording",
-    "description": """[Session] Stop recording and save the session to a YAML file.
-
-Returns the filepath of the saved session. Use this file to:
-- Debug what went wrong
-- Convert to a reusable routine
-- Review the sequence of actions
-
-The session file can be converted to a routine with session_to_routine().""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {}
-    }
-})
-async def handle_stop_session_recording(arguments: dict) -> dict:
-    """Stop recording and save session."""
-    if not recorder.is_active():
-        return {
-            "success": False,
-            "error": "No recording active"
-        }
-
-    filepath = recorder.stop()
-
-    return {
-        "success": True,
-        "filepath": filepath,
-        "message": f"Session saved to {filepath}"
-    }
-
-
-@registry.register({
-    "name": "add_session_marker",
-    "description": """[Session] Add a marker/checkpoint to the current session.
-
-Use markers to:
-- Denote phase transitions ("Phase 2: Get amulet from Father Urhney")
-- Mark discovered pitfalls ("PITFALL: EQUIP_ITEM command doesn't exist")
-- Note important observations
-
-Markers help when reviewing sessions later.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
+                "description": "start: account name for reference (optional)"
+            },
             "label": {
                 "type": "string",
-                "description": "Short label for the marker (e.g., 'Phase 2: Get amulet')"
+                "description": "marker: short label (e.g., 'Phase 2: Get amulet')"
             },
             "note": {
                 "type": "string",
-                "description": "Optional longer note with details"
-            }
-        },
-        "required": ["label"]
-    }
-})
-async def handle_add_session_marker(arguments: dict) -> dict:
-    """Add a marker to the session."""
-    if not recorder.is_active():
-        return {
-            "success": False,
-            "error": "No recording active"
-        }
-
-    recorder.add_marker(
-        label=arguments["label"],
-        note=arguments.get("note")
-    )
-
-    return {
-        "success": True,
-        "message": f"Marker added: {arguments['label']}"
-    }
-
-
-@registry.register({
-    "name": "get_session_events",
-    "description": """[Session] Peek at recent events in the current session.
-
-Use this to review what's been recorded without stopping the session.
-Useful for debugging mid-session.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
+                "description": "marker: optional longer note"
+            },
             "last_n": {
                 "type": "integer",
-                "description": "Number of recent events to return (default: 10)",
+                "description": "events: number of recent events to return (default: 10)",
                 "default": 10
             }
-        }
+        },
+        "required": ["action"]
     }
 })
-async def handle_get_session_events(arguments: dict) -> dict:
-    """Get recent events from active session."""
-    if not recorder.is_active():
+async def handle_record_session(arguments: dict) -> dict:
+    """Canonical recording control (merges start/stop/status/marker/events tools)."""
+    action = arguments.get("action")
+
+    if action == "start":
+        if recorder.is_active():
+            return {"success": False, "error": "Recording already active",
+                    "session_id": recorder.session_id}
+        session_id = recorder.start(goal=arguments.get("goal"),
+                                    account=arguments.get("account"))
+        return {"success": True, "session_id": session_id,
+                "message": "Recording started. Use record_session(action='stop') when done.",
+                "output_path": f"/tmp/manny_sessions/session_{session_id}.yaml"}
+
+    if action == "stop":
+        if not recorder.is_active():
+            return {"success": False, "error": "No recording active"}
+        filepath = recorder.stop()
+        return {"success": True, "filepath": filepath,
+                "message": f"Session saved to {filepath}"}
+
+    if action == "status":
+        return {"active": recorder.is_active(),
+                "session_id": recorder.session_id if recorder.is_active() else None,
+                "event_count": len(recorder.events) if recorder.is_active() else 0}
+
+    if action == "marker":
+        if not recorder.is_active():
+            return {"success": False, "error": "No recording active"}
+        label = arguments.get("label")
+        if not label:
+            return {"success": False, "error": "label is required for action=marker"}
+        recorder.add_marker(label=label, note=arguments.get("note"))
+        return {"success": True, "message": f"Marker added: {label}"}
+
+    if action == "events":
+        if not recorder.is_active():
+            return {"success": False, "error": "No recording active", "events": []}
+        n = arguments.get("last_n", 10)
+        return {"success": True, "recording_active": True,
+                "session_id": recorder.session_id,
+                "total_events": len(recorder.events),
+                "events": recorder.get_recent_events(n)}
+
+    return {"success": False, "error": f"Unknown action: {action}"}
+
+
+# ============================================================================
+# Action Log helpers (plugin-side ActionRecorder files; not registered tools -
+# the JSON files under /tmp are directly readable)
+# ============================================================================
+
+def _get_actions_file(account_id: str = None) -> str:
+    """Get the actions file path for an account."""
+    if account_id and account_id != "default":
+        return f"/tmp/manny_{account_id}_actions.json"
+    return "/tmp/manny_actions.json"
+
+
+def _find_actions_files() -> List[str]:
+    """Find all action log files across accounts."""
+    import glob
+    files = glob.glob("/tmp/manny_*_actions.json") + glob.glob("/tmp/manny_actions.json")
+    return sorted(set(files))
+
+
+async def handle_get_action_log(arguments: dict) -> dict:
+    """Read the action log from the plugin's ActionRecorder (internal helper)."""
+    account_id = arguments.get("account_id")
+    since_seconds = arguments.get("since_seconds")
+
+    if account_id:
+        actions_file = _get_actions_file(account_id)
+    else:
+        files = _find_actions_files()
+        if not files:
+            return {
+                "success": False,
+                "error": "No action log files found. Is RuneLite running with the manny plugin?",
+                "hint": "Action logs are written to /tmp/manny_<account>_actions.json"
+            }
+        actions_file = files[0]
+
+    if not os.path.exists(actions_file):
         return {
             "success": False,
-            "error": "No recording active",
-            "events": []
+            "error": f"Action log not found: {actions_file}",
+            "hint": "Start RuneLite and perform some actions. The log is created automatically."
         }
 
-    n = arguments.get("last_n", 10)
-    events = recorder.get_recent_events(n)
+    try:
+        with open(actions_file) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, IOError) as e:
+        return {"success": False, "error": f"Failed to read action log: {e}"}
+
+    actions = data.get("actions", [])
+    if since_seconds:
+        cutoff_ms = (time.time() - since_seconds) * 1000
+        actions = [a for a in actions if a.get("ts", 0) >= cutoff_ms]
 
     return {
         "success": True,
-        "recording_active": True,
-        "session_id": recorder.session_id,
-        "total_events": len(recorder.events),
-        "events": events
+        "accountId": data.get("accountId", "unknown"),
+        "eventCount": len(actions),
+        "totalRecorded": data.get("eventCount", 0),
+        "durationSeconds": data.get("durationSeconds", 0),
+        "actions": actions,
+        "file": actions_file
     }
 
 
-@registry.register({
-    "name": "session_to_routine",
-    "description": """[Session] Convert a recorded session to a routine YAML file.
+# ============================================================================
+# Routine generation from recordings (canonical merged tool)
+# ============================================================================
 
-Extracts commands from a session file and formats them as routine steps.
-Use after a successful manual session to create a replayable routine.
-
-Note: You may need to edit the output to:
-- Add await_conditions for timing
-- Remove failed/retry commands
-- Add loop configuration""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "session_path": {
-                "type": "string",
-                "description": "Path to session YAML file (e.g., '/tmp/manny_sessions/session_20250115_234500.yaml')"
-            },
-            "output_path": {
-                "type": "string",
-                "description": "Where to save the routine (optional, prints to response if omitted)"
-            },
-            "include_markers": {
-                "type": "boolean",
-                "description": "Include markers as comments in the routine (default: true)",
-                "default": True
-            }
-        },
-        "required": ["session_path"]
-    }
-})
-async def handle_session_to_routine(arguments: dict) -> dict:
-    """Convert a session file to a routine."""
+def _session_to_routine(arguments: dict) -> dict:
+    """Convert a recorded session YAML to a routine (old session_to_routine)."""
     session_path = Path(arguments["session_path"])
 
     if not session_path.exists():
-        return {
-            "success": False,
-            "error": f"Session file not found: {session_path}"
-        }
+        return {"success": False, "error": f"Session file not found: {session_path}"}
 
     try:
         with open(session_path) as f:
             session = yaml.safe_load(f)
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Failed to parse session: {e}"
-        }
+        return {"success": False, "error": f"Failed to parse session: {e}"}
 
     events = session.get("events", [])
     session_info = session.get("session", {})
     include_markers = arguments.get("include_markers", True)
 
-    # Build routine steps
     steps = []
     step_id = 0
     current_phase = None
@@ -647,16 +607,12 @@ async def handle_session_to_routine(arguments: dict) -> dict:
                 "action": parts[0] if parts else "",
                 "description": event.get("description", "")
             }
-
             if len(parts) > 1:
                 step["args"] = parts[1]
-
             if current_phase:
                 step["phase"] = current_phase
-
             steps.append(step)
 
-    # Build routine document
     routine = {
         "name": session_info.get("goal", "Extracted Routine"),
         "description": f"Auto-generated from session {session_info.get('id', 'unknown')}",
@@ -664,320 +620,44 @@ async def handle_session_to_routine(arguments: dict) -> dict:
         "steps": steps
     }
 
-    # Output
     output_path = arguments.get("output_path")
     if output_path:
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, 'w') as f:
             yaml.dump(routine, f, default_flow_style=False, sort_keys=False)
-
-        return {
-            "success": True,
-            "output_path": str(output_file),
-            "step_count": len(steps),
-            "message": f"Routine saved to {output_file}"
-        }
-    else:
-        return {
-            "success": True,
-            "routine": routine,
-            "step_count": len(steps),
-            "yaml": yaml.dump(routine, default_flow_style=False, sort_keys=False)
-        }
+        return {"success": True, "output_path": str(output_file),
+                "step_count": len(steps),
+                "message": f"Routine saved to {output_file}"}
+    return {"success": True, "routine": routine, "step_count": len(steps),
+            "yaml": yaml.dump(routine, default_flow_style=False, sort_keys=False)}
 
 
-@registry.register({
-    "name": "is_session_recording",
-    "description": """[Session] Check if session recording is currently active.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {}
-    }
-})
-async def handle_is_session_recording(arguments: dict) -> dict:
-    """Check recording status."""
-    return {
-        "active": recorder.is_active(),
-        "session_id": recorder.session_id if recorder.is_active() else None,
-        "event_count": len(recorder.events) if recorder.is_active() else 0
-    }
-
-
-@registry.register({
-    "name": "get_command_history",
-    "description": """[Session] Get recent commands from the always-on command log.
-
-Commands are ALWAYS logged to /tmp/manny_sessions/commands_YYYY-MM-DD.yaml,
-regardless of whether explicit session recording is active.
-
-Use this to see what commands were sent recently, even if you forgot to
-start a recording session.
-
-Examples:
-- get_command_history() - Last 50 commands from today
-- get_command_history(last_n=100) - Last 100 commands
-- get_command_history(date="2025-01-15") - Commands from specific day""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "last_n": {
-                "type": "integer",
-                "description": "Number of recent commands to return (default: 50)",
-                "default": 50
-            },
-            "date": {
-                "type": "string",
-                "description": "Specific date to query (YYYY-MM-DD format). Defaults to today."
-            }
-        }
-    }
-})
-async def handle_get_command_history(arguments: dict) -> dict:
-    """Get recent commands from the always-on log."""
-    n = arguments.get("last_n", 50)
-    date_str = arguments.get("date")
-
-    commands = command_log.get_recent_commands(n=n, date_str=date_str)
-    log_files = command_log.get_log_files()
-
-    return {
-        "success": True,
-        "count": len(commands),
-        "commands": commands,
-        "available_logs": log_files[:7],  # Show last 7 days
-        "log_directory": str(command_log.output_dir)
-    }
-
-
-# ============================================================================
-# Action Log Tools (reads from plugin-side ActionRecorder)
-# ============================================================================
-
-def _get_actions_file(account_id: str = None) -> str:
-    """Get the actions file path for an account."""
-    if account_id and account_id != "default":
-        return f"/tmp/manny_{account_id}_actions.json"
-    return "/tmp/manny_actions.json"
-
-
-def _find_actions_files() -> List[str]:
-    """Find all action log files across accounts."""
-    import glob
-    files = glob.glob("/tmp/manny_*_actions.json") + glob.glob("/tmp/manny_actions.json")
-    return sorted(set(files))
-
-
-@registry.register({
-    "name": "get_action_log",
-    "description": """[Session] Read the always-on action log from manual play.
-
-The plugin continuously records ALL manual clicks (mining, banking, casting spells,
-walking, etc.) to a JSON file. This captures what the user actually did in-game,
-even without any MCP commands being sent.
-
-Use this to:
-- See what the user was doing manually (mine, bank, superheat loop)
-- Build YAML routines from manual play patterns
-- Understand the user's workflow before automating it
-
-The action log includes:
-- High-level commands (MINE_ORE Iron, BANK_OPEN, CAST_SPELL Superheat_Item)
-- Player position at each action
-- Inventory snapshot at each action
-- XP gains between actions
-- Game chat messages between actions
-
-Examples:
-- get_action_log(since_seconds=300) - Last 5 minutes of play
-- get_action_log(since_seconds=1800, account_id="main") - Last 30 min on main
-- get_action_log() - All recorded actions (up to 500)""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "since_seconds": {
-                "type": "integer",
-                "description": "Only return actions from the last N seconds (default: return all)"
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account to read actions for (default: auto-detect from running instances)"
-            }
-        }
-    }
-})
-async def handle_get_action_log(arguments: dict) -> dict:
-    """Read the action log from the plugin's ActionRecorder."""
-    account_id = arguments.get("account_id")
-    since_seconds = arguments.get("since_seconds")
-
-    # Try to find the actions file
-    if account_id:
-        actions_file = _get_actions_file(account_id)
-    else:
-        # Auto-detect: find any actions file
-        files = _find_actions_files()
-        if not files:
-            return {
-                "success": False,
-                "error": "No action log files found. Is RuneLite running with the manny plugin?",
-                "hint": "Action logs are written to /tmp/manny_<account>_actions.json"
-            }
-        actions_file = files[0]  # Use most recent
-
-    if not os.path.exists(actions_file):
-        return {
-            "success": False,
-            "error": f"Action log not found: {actions_file}",
-            "hint": "Start RuneLite and perform some actions. The log is created automatically."
-        }
-
-    try:
-        with open(actions_file) as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, IOError) as e:
-        return {
-            "success": False,
-            "error": f"Failed to read action log: {e}"
-        }
-
-    actions = data.get("actions", [])
-
-    # Filter by time if requested
-    if since_seconds:
-        cutoff_ms = (time.time() - since_seconds) * 1000
-        actions = [a for a in actions if a.get("ts", 0) >= cutoff_ms]
-
-    return {
-        "success": True,
-        "accountId": data.get("accountId", "unknown"),
-        "eventCount": len(actions),
-        "totalRecorded": data.get("eventCount", 0),
-        "durationSeconds": data.get("durationSeconds", 0),
-        "actions": actions,
-        "file": actions_file
-    }
-
-
-@registry.register({
-    "name": "clear_action_log",
-    "description": """[Session] Clear the action log buffer for a fresh start.
-
-Use this before asking the user to demonstrate a workflow, so the log
-only contains the relevant actions.
-
-Note: This deletes the action log file. The plugin will create a new one
-as soon as new actions are performed.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "account_id": {
-                "type": "string",
-                "description": "Account to clear actions for (default: all accounts)"
-            }
-        }
-    }
-})
-async def handle_clear_action_log(arguments: dict) -> dict:
-    """Clear the action log file."""
-    account_id = arguments.get("account_id")
-
-    if account_id:
-        files = [_get_actions_file(account_id)]
-    else:
-        files = _find_actions_files()
-
-    cleared = []
-    for f in files:
-        if os.path.exists(f):
-            try:
-                os.remove(f)
-                cleared.append(f)
-            except IOError as e:
-                return {"success": False, "error": f"Failed to clear {f}: {e}"}
-
-    return {
-        "success": True,
-        "cleared": cleared,
-        "message": f"Cleared {len(cleared)} action log file(s). New actions will be recorded automatically."
-    }
-
-
-@registry.register({
-    "name": "action_log_to_routine",
-    "description": """[Session] Convert a manual play action log to a YAML routine draft.
-
-Reads the action log, identifies repeating patterns, and generates a draft
-YAML routine with appropriate steps, await_conditions, and loop configuration.
-
-Use this after the user has demonstrated a workflow manually (e.g., mine→superheat→bank loop).
-
-The generated routine is a DRAFT - review and adjust:
-- Verify await_conditions are correct
-- Adjust timeouts
-- Add error handling steps
-- Configure loop count
-
-Examples:
-- action_log_to_routine(since_seconds=1800) - Build from last 30 min
-- action_log_to_routine(output_path="routines/skilling/my_routine.yaml")""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "since_seconds": {
-                "type": "integer",
-                "description": "Only use actions from the last N seconds"
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account to read actions for"
-            },
-            "output_path": {
-                "type": "string",
-                "description": "Where to save the routine YAML (optional, returns inline if omitted)"
-            },
-            "routine_name": {
-                "type": "string",
-                "description": "Name for the routine (default: auto-generated)"
-            }
-        }
-    }
-})
-async def handle_action_log_to_routine(arguments: dict) -> dict:
-    """Convert action log to a YAML routine draft."""
-    # First, get the action log
+async def _action_log_to_routine(arguments: dict) -> dict:
+    """Convert the manual-play action log to a routine draft (old action_log_to_routine)."""
     log_result = await handle_get_action_log({
         "since_seconds": arguments.get("since_seconds"),
         "account_id": arguments.get("account_id")
     })
-
     if not log_result.get("success"):
         return log_result
 
     actions = log_result.get("actions", [])
     if not actions:
-        return {
-            "success": False,
-            "error": "No actions found in the log. Play manually first, then try again."
-        }
+        return {"success": False,
+                "error": "No actions found in the log. Play manually first, then try again."}
 
-    # Filter out noisy/irrelevant actions
     meaningful_actions = []
     for action in actions:
         cmd = action.get("command", "")
-        # Skip WALK actions that are just repositioning (keep significant ones)
-        # Skip generic CLICK_WIDGET with no useful info
         if cmd in ("CANCEL", "CLICK_WIDGET", ""):
             continue
         meaningful_actions.append(action)
 
     if not meaningful_actions:
-        return {
-            "success": False,
-            "error": "No meaningful actions found (only walks/cancels). Perform more game actions."
-        }
+        return {"success": False,
+                "error": "No meaningful actions found (only walks/cancels). Perform more game actions."}
 
-    # Build routine steps
     routine_name = arguments.get("routine_name", "Manual Play Routine")
     steps = []
     step_id = 0
@@ -992,13 +672,9 @@ async def handle_action_log_to_routine(arguments: dict) -> dict:
             "command": cmd,
             "description": f"{action.get('option', '')} {action.get('target', '')}".strip(),
         }
-
-        # Add position context
         step["position"] = f"{action.get('x', 0)},{action.get('y', 0)},{action.get('plane', 0)}"
 
-        # Add await conditions based on command type
         if parts and parts[0] in ("MINE_ORE", "CHOP_TREE"):
-            # Mining/woodcutting - await item or idle
             step["await_condition"] = "idle"
             step["timeout_ms"] = 15000
         elif parts and parts[0] == "GOTO":
@@ -1011,58 +687,40 @@ async def handle_action_log_to_routine(arguments: dict) -> dict:
             step["await_condition"] = "idle"
             step["timeout_ms"] = 5000
 
-        # Add XP context as comment
         xp = action.get("xpGains")
         if xp:
             step["xp_gains"] = xp
-
-        # Add inventory context
         inv_delta = action.get("inventoryDelta")
         if inv_delta:
             step["inventory_delta"] = inv_delta
 
         steps.append(step)
 
-    # Detect loop patterns (simplified: look for command sequence repetition)
     loop_info = _detect_loop_pattern(meaningful_actions)
 
-    # Build routine document
     routine = {
         "name": routine_name,
         "description": f"Auto-generated from {len(meaningful_actions)} manual actions",
         "generated_from": "action_log",
         "generated_at": datetime.now().isoformat(),
     }
-
     if loop_info:
         routine["loop"] = loop_info
-
     routine["steps"] = steps
 
-    # Output
     output_path = arguments.get("output_path")
     if output_path:
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, 'w') as f:
             yaml.dump(routine, f, default_flow_style=False, sort_keys=False)
-
-        return {
-            "success": True,
-            "output_path": str(output_file),
-            "step_count": len(steps),
-            "loop_detected": loop_info is not None,
-            "message": f"Routine draft saved to {output_file}. Review and adjust await_conditions and timeouts."
-        }
-    else:
-        return {
-            "success": True,
-            "routine": routine,
-            "step_count": len(steps),
+        return {"success": True, "output_path": str(output_file),
+                "step_count": len(steps), "loop_detected": loop_info is not None,
+                "message": f"Routine draft saved to {output_file}. Review and adjust await_conditions and timeouts."}
+    return {"success": True, "routine": routine, "step_count": len(steps),
             "loop_detected": loop_info is not None,
             "yaml": yaml.dump(routine, default_flow_style=False, sort_keys=False),
-            "message": "Routine draft generated. Review and adjust await_conditions and timeouts."
-        }
+            "message": "Routine draft generated. Review and adjust await_conditions and timeouts."}
 
 
 def _detect_loop_pattern(actions: List[Dict]) -> Optional[Dict]:
@@ -1075,19 +733,15 @@ def _detect_loop_pattern(actions: List[Dict]) -> Optional[Dict]:
 
     commands = [a.get("command", "") for a in actions]
 
-    # Try different loop lengths (3-20 steps)
     for loop_len in range(3, min(21, len(commands) // 2 + 1)):
-        # Check if the first loop_len commands repeat
         pattern = commands[:loop_len]
         repetitions = 0
-
         for i in range(0, len(commands) - loop_len + 1, loop_len):
             chunk = commands[i:i + loop_len]
             if chunk == pattern:
                 repetitions += 1
             else:
                 break
-
         if repetitions >= 2:
             return {
                 "detected": True,
@@ -1096,5 +750,87 @@ def _detect_loop_pattern(actions: List[Dict]) -> Optional[Dict]:
                 "pattern_commands": pattern,
                 "note": "Loop pattern detected. Consider wrapping steps 1-{} in a loop.".format(loop_len)
             }
-
     return None
+
+
+@registry.register({
+    "name": "recording_to_routine",
+    "description": """[Recording] Canonical recording-to-routine converter. Generates a draft YAML routine from any recording source.
+
+Sources:
+- recording_to_routine(source="session", session_path="/tmp/manny_sessions/session_....yaml")
+    Convert an explicit record_session() recording (commands + markers) to routine steps.
+- recording_to_routine(source="action_log", since_seconds=1800)
+    Build from the always-on manual-play action log (detects loops, infers await_conditions).
+- recording_to_routine(source="location_history", routine_name="Sheep Shearing", time_range_minutes=15)
+    Build from location/event history (movements collapsed to GOTO, interactions and dialogues captured).
+
+All outputs are DRAFTS - review await_conditions, timeouts, and object naming
+(underscores for objects), then validate with validate_routine_deep().""",
+    "inputSchema": {
+        "type": "object",
+        "properties": {
+            "source": {
+                "type": "string",
+                "enum": ["session", "action_log", "location_history"],
+                "description": "Which recording to convert (default: session if session_path given, else action_log)"
+            },
+            "session_path": {
+                "type": "string",
+                "description": "session: path to session YAML file"
+            },
+            "include_markers": {
+                "type": "boolean",
+                "description": "session: include markers as phases (default: true)",
+                "default": True
+            },
+            "since_seconds": {
+                "type": "integer",
+                "description": "action_log: only use actions from the last N seconds"
+            },
+            "time_range_minutes": {
+                "type": "number",
+                "description": "location_history: generate from last N minutes (default: 15)",
+                "default": 15
+            },
+            "routine_name": {
+                "type": "string",
+                "description": "Name for the generated routine"
+            },
+            "output_path": {
+                "type": "string",
+                "description": "Where to save the routine YAML (optional, returns inline if omitted)"
+            },
+            "account_id": {
+                "type": "string",
+                "description": "Account to read recordings for (optional)"
+            }
+        }
+    }
+})
+async def handle_recording_to_routine(arguments: dict) -> dict:
+    """Canonical converter (merges session_to_routine, action_log_to_routine, generate_routine)."""
+    source = arguments.get("source")
+    if not source:
+        source = "session" if arguments.get("session_path") else "action_log"
+
+    if source == "session":
+        if not arguments.get("session_path"):
+            return {"success": False, "error": "session_path is required for source=session"}
+        return _session_to_routine(arguments)
+
+    if source == "action_log":
+        return await _action_log_to_routine(arguments)
+
+    if source == "location_history":
+        if not arguments.get("routine_name"):
+            return {"success": False, "error": "routine_name is required for source=location_history"}
+        from .routine_generator import handle_generate_routine
+        return await handle_generate_routine({
+            "account_id": arguments.get("account_id"),
+            "routine_name": arguments["routine_name"],
+            "time_range_minutes": arguments.get("time_range_minutes", 15),
+            "output_path": arguments.get("output_path"),
+        })
+
+    return {"success": False, "error": f"Unknown source: {source}"}

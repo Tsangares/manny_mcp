@@ -172,7 +172,10 @@ Returns:
 - npcs: Nearby NPCs with direction labels
 - environment_type: "indoor" or "outdoor" (estimated from wall density)
 
-Use this BEFORE any indoor navigation to understand the surroundings.""",
+Use this BEFORE any indoor navigation to understand the surroundings.
+
+TRANSITIONS MODE: scan_environment(transitions_only=true) returns only doors/stairs/
+ladders sorted by distance with state info - the quick path for indoor navigation.""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -180,6 +183,11 @@ Use this BEFORE any indoor navigation to understand the surroundings.""",
                 "type": "integer",
                 "description": "Search radius in tiles (default: 15)",
                 "default": 15
+            },
+            "transitions_only": {
+                "type": "boolean",
+                "description": "Return only navigable transitions (doors/stairs/ladders) sorted by distance, with a 'nearest' quick-reference list and summary. Uses the plugin's QUERY_TRANSITIONS command.",
+                "default": False
             },
             "timeout_ms": {
                 "type": "integer",
@@ -200,6 +208,10 @@ async def handle_scan_environment(arguments: dict) -> dict:
     radius = arguments.get("radius", 15)
     timeout_ms = arguments.get("timeout_ms", 5000)
     account_id = arguments.get("account_id")
+
+    # Transitions-only mode (absorbs the old get_transitions tool)
+    if arguments.get("transitions_only"):
+        return await _query_transitions(radius, timeout_ms, account_id)
 
     # Read game state for player position
     state_file = config.get_state_file(account_id)
@@ -347,59 +359,8 @@ async def handle_scan_environment(arguments: dict) -> dict:
     return result
 
 
-@registry.register({
-    "name": "get_transitions",
-    "description": """[Spatial] Find all navigable transitions (doors, stairs, ladders, etc.) nearby.
-
-Returns transitions SORTED BY DISTANCE (nearest first) with state info and direction.
-This is the preferred tool for indoor navigation.
-
-Output structure:
-- nearest: Quick reference list - one per category, sorted by distance. USE THIS FIRST!
-- transitions: Full details by category (doors, stairs, ladders, etc.), each sorted by distance
-- summary: Actionable text like "Nearest: Large_door (closed) 2 tiles north, Staircase 5 tiles east"
-
-The "nearest" array is designed for quick decision-making:
-```json
-{"nearest": [
-  {"type": "door", "name": "Large_door", "distance": 2, "direction": "north", "state": "closed", "actions": ["Open"]},
-  {"type": "stair", "name": "Staircase", "distance": 5, "direction": "east", "actions": ["Climb-up"]}
-]}
-```
-
-Each transition includes:
-- name, distance (tiles), direction ("north", "southwest", etc.)
-- state ("open", "closed", or null for non-doors)
-- actions (e.g., ["Open"], ["Climb-up", "Climb-down"])
-
-Use this BEFORE indoor navigation to find the nearest transition to interact with.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "radius": {
-                "type": "integer",
-                "description": "Search radius in tiles (default: 15)",
-                "default": 15
-            },
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 5000)",
-                "default": 5000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional, defaults to 'default')"
-            }
-        }
-    }
-})
-async def handle_get_transitions(arguments: dict) -> dict:
-    """
-    Find all navigable transitions nearby using the plugin's QUERY_TRANSITIONS command.
-    """
-    radius = arguments.get("radius", 15)
-    timeout_ms = arguments.get("timeout_ms", 5000)
-    account_id = arguments.get("account_id")
+async def _query_transitions(radius: int, timeout_ms: int, account_id: str) -> dict:
+    """Find navigable transitions nearby via the plugin's QUERY_TRANSITIONS command."""
 
     # Call plugin command
     response = await send_command_with_response(
@@ -471,24 +432,38 @@ Returns pre-defined information about a location including:
 - Connected rooms and doors
 - Tips for navigation
 
-Use this to get information about a destination before navigating.""",
+Use this to get information about a destination before navigating.
+Call with no arguments to list ALL known areas and rooms.""",
     "inputSchema": {
         "type": "object",
         "properties": {
             "area": {
                 "type": "string",
-                "description": "Area name (e.g., 'lumbridge_castle')"
+                "description": "Area name (e.g., 'lumbridge_castle'). Omit to list all known locations."
             },
             "room": {
                 "type": "string",
                 "description": "Room name within the area (e.g., 'kitchen')"
             }
         },
-        "required": ["area"]
     }
 })
 async def handle_get_location_info(arguments: dict) -> dict:
-    """Look up a known location."""
+    """Look up a known location, or list all known locations when no area is given."""
+    # List mode (absorbs list_known_locations)
+    if not arguments.get("area"):
+        locations = {}
+        for area_name, area_data in _location_data.items():
+            if isinstance(area_data, dict):
+                rooms = [k for k in area_data.keys() if isinstance(area_data[k], dict)]
+                locations[area_name] = rooms
+        return {
+            "success": True,
+            "locations": locations,
+            "total_areas": len(locations),
+            "total_rooms": sum(len(rooms) for rooms in locations.values())
+        }
+
     area = arguments.get("area", "").lower().replace(" ", "_")
     room = arguments.get("room", "").lower().replace(" ", "_") if arguments.get("room") else None
 
@@ -528,30 +503,3 @@ async def handle_get_location_info(arguments: dict) -> dict:
             "rooms": list(rooms.keys()),
             "room_count": len(rooms)
         }
-
-
-@registry.register({
-    "name": "list_known_locations",
-    "description": """[Spatial] List all known locations from the location knowledge base.
-
-Returns all areas and rooms that have pre-defined navigation data.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {}
-    }
-})
-async def handle_list_known_locations(arguments: dict) -> dict:
-    """List all known locations."""
-    locations = {}
-
-    for area_name, area_data in _location_data.items():
-        if isinstance(area_data, dict):
-            rooms = [k for k in area_data.keys() if isinstance(area_data[k], dict)]
-            locations[area_name] = rooms
-
-    return {
-        "success": True,
-        "locations": locations,
-        "total_areas": len(locations),
-        "total_rooms": sum(len(rooms) for rooms in locations.values())
-    }

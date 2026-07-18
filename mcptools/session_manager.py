@@ -23,7 +23,9 @@ import fcntl
 import logging
 import os
 import subprocess
+import threading
 import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -53,6 +55,11 @@ class SessionManager:
         self.playtime: Dict[str, List[Dict]] = {}  # account -> [{start, end}, ...]
         self.account_displays: Dict[str, str] = {}  # Persistent account -> display mapping (e.g., "aux" -> ":2")
         self._startup_cleanup_done = False
+        # Inter-process lock state (fcntl.flock on LOCK_FILE). The RLock makes the
+        # flock reentrant within a thread and safe across threads in one process.
+        self._thread_lock = threading.RLock()
+        self._file_lock_fd = None
+        self._file_lock_depth = 0
         self._load()
 
     def _acquire_lock(self):
@@ -69,6 +76,37 @@ class SessionManager:
             os.close(fd)
         except OSError:
             pass
+
+    @contextmanager
+    def _locked(self):
+        """
+        Hold the inter-process file lock (fcntl.flock on LOCK_FILE) around a
+        sessions.yaml read-modify-write.
+
+        - Reentrant: nested `with self._locked():` blocks (e.g. cleanup_stale_sessions
+          calling end_session) reuse the already-held lock instead of deadlocking on a
+          second flock of the same file.
+        - On the outermost acquisition the on-disk state is reloaded, so mutations are
+          applied to the latest data even when another process (server vs. driver)
+          wrote in between.
+        """
+        with self._thread_lock:
+            if self._file_lock_depth == 0:
+                self._file_lock_fd = self._acquire_lock()
+                try:
+                    self._load()
+                except Exception:
+                    self._release_lock(self._file_lock_fd)
+                    self._file_lock_fd = None
+                    raise
+            self._file_lock_depth += 1
+            try:
+                yield
+            finally:
+                self._file_lock_depth -= 1
+                if self._file_lock_depth == 0:
+                    self._release_lock(self._file_lock_fd)
+                    self._file_lock_fd = None
 
     def _ensure_dir(self) -> None:
         """Ensure sessions directory exists."""
@@ -132,7 +170,12 @@ class SessionManager:
                 conf.unlink(missing_ok=True)
 
     def _save(self) -> None:
-        """Save sessions to file."""
+        """Save sessions to file (atomic: write temp file, then rename over target).
+
+        Callers must hold the file lock (all mutating entry points wrap themselves
+        in `with self._locked():`). The atomic rename additionally guarantees that
+        readers never observe a half-written YAML file.
+        """
         self._ensure_dir()
 
         data = {
@@ -141,8 +184,10 @@ class SessionManager:
             "account_displays": self.account_displays
         }
 
-        with open(self.SESSIONS_FILE, 'w') as f:
+        tmp_path = self.SESSIONS_FILE.with_suffix(".yaml.tmp")
+        with open(tmp_path, 'w') as f:
             yaml.dump(data, f, default_flow_style=False, sort_keys=False)
+        os.replace(tmp_path, self.SESSIONS_FILE)
 
     def _is_display_running(self, display: str) -> bool:
         """Check if a display server is running and responsive."""
@@ -425,17 +470,11 @@ class SessionManager:
             account_id: Account to allocate display for
             allow_reassign: If True, reassign to different display on failure
         """
-        lock_fd = self._acquire_lock()
-        try:
+        with self._locked():
             return self._allocate_display_locked(account_id, allow_reassign)
-        finally:
-            self._release_lock(lock_fd)
 
     def _allocate_display_locked(self, account_id: str, allow_reassign: bool = True) -> Dict[str, Any]:
-        """Internal allocate_display, called with lock held."""
-        # Reload to prevent conflicts
-        self._load()
-
+        """Internal allocate_display, called with lock held (_locked reloaded state)."""
         # Check if account already has a permanent display assignment
         if account_id in self.account_displays:
             display = self.account_displays[account_id]
@@ -561,6 +600,10 @@ class SessionManager:
 
     def start_session(self, account_id: str, display: str, pid: int) -> Dict[str, Any]:
         """Record that an account session has started on a display."""
+        with self._locked():
+            return self._start_session_locked(account_id, display, pid)
+
+    def _start_session_locked(self, account_id: str, display: str, pid: int) -> Dict[str, Any]:
         now = datetime.now().isoformat()
 
         self.displays[display] = {
@@ -607,6 +650,10 @@ class SessionManager:
         End a session by account_id or display.
         Records the end time for playtime tracking.
         """
+        with self._locked():
+            return self._end_session_locked(account_id=account_id, display=display)
+
+    def _end_session_locked(self, account_id: str = None, display: str = None) -> Dict[str, Any]:
         # Find the session
         target_display = None
 
@@ -777,6 +824,10 @@ class SessionManager:
         Args:
             cleanup_displays: Also clean up stale Xvfb processes and sockets
         """
+        with self._locked():
+            return self._cleanup_stale_sessions_locked(cleanup_displays)
+
+    def _cleanup_stale_sessions_locked(self, cleanup_displays: bool = True) -> Dict[str, Any]:
         cleaned_sessions = []
         cleaned_displays = []
         closed_playtime_sessions = []
@@ -923,29 +974,28 @@ class SessionManager:
         Args:
             account_id: Account to reset
         """
-        self._load()
+        with self._locked():
+            old_display = self.account_displays.get(account_id)
+            if old_display is None:
+                return {
+                    "success": False,
+                    "error": f"Account '{account_id}' has no display assignment"
+                }
 
-        old_display = self.account_displays.get(account_id)
-        if old_display is None:
+            # End any active session first
+            if self.displays.get(old_display):
+                self.end_session(display=old_display)
+
+            # Remove the assignment
+            del self.account_displays[account_id]
+            self._save()
+
             return {
-                "success": False,
-                "error": f"Account '{account_id}' has no display assignment"
+                "success": True,
+                "account": account_id,
+                "previous_display": old_display,
+                "note": "Display assignment cleared. Next start_runelite will assign a new display."
             }
-
-        # End any active session first
-        if self.displays.get(old_display):
-            self.end_session(display=old_display)
-
-        # Remove the assignment
-        del self.account_displays[account_id]
-        self._save()
-
-        return {
-            "success": True,
-            "account": account_id,
-            "previous_display": old_display,
-            "note": "Display assignment cleared. Next start_runelite will assign a new display."
-        }
 
     def reassign_account_display(self, account_id: str, new_display: str) -> Dict[str, Any]:
         """
@@ -955,47 +1005,46 @@ class SessionManager:
             account_id: Account to reassign
             new_display: Display to assign (e.g., ":2")
         """
-        self._load()
-
-        # Validate display is in pool
-        display_num = new_display.lstrip(":")
-        if not display_num.isdigit():
-            return {
-                "success": False,
-                "error": f"Invalid display format: {new_display}"
-            }
-
-        num = int(display_num)
-        if not (self.MIN_DISPLAY <= num < self.MIN_DISPLAY + self.MAX_DISPLAYS):
-            return {
-                "success": False,
-                "error": f"Display {new_display} not in pool (:{self.MIN_DISPLAY} to :{self.MIN_DISPLAY + self.MAX_DISPLAYS - 1})"
-            }
-
-        # Check if display is already assigned to another account
-        for other_account, assigned_display in self.account_displays.items():
-            if assigned_display == new_display and other_account != account_id:
+        with self._locked():
+            # Validate display is in pool
+            display_num = new_display.lstrip(":")
+            if not display_num.isdigit():
                 return {
                     "success": False,
-                    "error": f"Display {new_display} is already assigned to {other_account}"
+                    "error": f"Invalid display format: {new_display}"
                 }
 
-        old_display = self.account_displays.get(account_id)
+            num = int(display_num)
+            if not (self.MIN_DISPLAY <= num < self.MIN_DISPLAY + self.MAX_DISPLAYS):
+                return {
+                    "success": False,
+                    "error": f"Display {new_display} not in pool (:{self.MIN_DISPLAY} to :{self.MIN_DISPLAY + self.MAX_DISPLAYS - 1})"
+                }
 
-        # End any active session on old display
-        if old_display and self.displays.get(old_display):
-            self.end_session(display=old_display)
+            # Check if display is already assigned to another account
+            for other_account, assigned_display in self.account_displays.items():
+                if assigned_display == new_display and other_account != account_id:
+                    return {
+                        "success": False,
+                        "error": f"Display {new_display} is already assigned to {other_account}"
+                    }
 
-        # Assign new display
-        self.account_displays[account_id] = new_display
-        self._save()
+            old_display = self.account_displays.get(account_id)
 
-        return {
-            "success": True,
-            "account": account_id,
-            "previous_display": old_display,
-            "new_display": new_display
-        }
+            # End any active session on old display
+            if old_display and self.displays.get(old_display):
+                self.end_session(display=old_display)
+
+            # Assign new display
+            self.account_displays[account_id] = new_display
+            self._save()
+
+            return {
+                "success": True,
+                "account": account_id,
+                "previous_display": old_display,
+                "new_display": new_display
+            }
 
 
 # Global singleton instance

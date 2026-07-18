@@ -1,3 +1,52 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "manny-mcp"
+version = "0.1.0"
+description = "MCP server and tooling for the manny RuneLite bot"
+requires-python = ">=3.12"
+# Core: what the MCP server itself (server.py + mcptools/) needs.
+dependencies = [
+    "mcp>=1.0.0",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0.0",
+    "watchdog>=3.0.0",
+    "pillow>=10.0.0",             # screenshot viewport crop, location_history maps, collision viz
+    "google-generativeai>=0.3.0", # Gemini for analyze_screenshot (server.py injects into screenshot tool)
+]
+
+[project.optional-dependencies]
+# Discord bot (run_discord.py + discord_bot/)
+discord = [
+    "discord.py>=2.3.0",
+    "anthropic>=0.50.0",
+    "httpx>=0.24.0",  # Ollama HTTP client
+]
+# Autonomous driver (manny_driver/)
+driver = [
+    "anthropic>=0.50.0",
+    "httpx>=0.24.0",
+]
+# Web dashboard (dashboard.py; requirements-dashboard.txt is the same set for start_dashboard.sh)
+dashboard = [
+    "fastapi>=0.100.0",
+    "uvicorn>=0.23.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=1.0",
+    "ruff>=0.4",
+]
+
+[tool.setuptools]
+# This repo is run in place (venv + requirements files), not installed as a package.
+# Empty package lists keep `pip install -e .[extra]` usable purely for pulling
+# dependency sets without installing any modules.
+packages = []
+py-modules = []
+
 [tool.ruff]
 line-length = 120
 target-version = "py312"
@@ -10,3 +59,4 @@ ignore = ["E501"]  # line-too-long handled by formatter, not worth churning lega
 [tool.pytest.ini_options]
 # Playwright/mobile UI tests require a browser + playwright install not present in this venv.
 addopts = "--ignore=test_mobile_dashboard_playwright.py --ignore=test_mobile_dashboard.py"
+asyncio_mode = "strict"

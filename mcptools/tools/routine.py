@@ -84,33 +84,40 @@ async def execute_simple_command(command: str, timeout_ms: int = 10000, account_
 
 
 @registry.register({
-    "name": "scan_widgets",
-    "description": """[Routine Building] Scan all visible widgets in the game UI. Returns widget IDs, text content, and bounds.
+    "name": "find_widget",
+    "description": """[Widgets] Canonical widget inspection tool. Scans visible widgets and returns compact, filtered results.
 
-Use this to discover clickable elements, dialogue options, interface buttons, etc.
-Filter by text to find specific widgets.
+Modes (combine freely):
+- find_widget(text="Raw lobster")      - search by widget text / name / item name (compact results for clicking)
+- find_widget(group=593)               - scan a specific widget group (593 Combat, 149 Inventory, 162 Chatbox)
+- find_widget(container_id=30474266)   - list all clickable children sharing a container ID (GE/shop/deposit interfaces)
+- find_widget()                        - full-scan summary (count + groups + sample; full data in /tmp/manny_widgets.json)
+- find_widget(full=true)               - raw widget data instead of compact results
 
-Supports filtering by:
-- Widget text content
-- Widget name
-- Item name (for inventory/bank/deposit box item widgets)
-
-For item widgets (inventory, bank, deposit box), returns itemId, itemQuantity, and itemName.
-
-SPECIFIC GROUP: Use group=593 to scan only a specific widget group (e.g., 593 for Combat Interface).
-This is useful when you know which interface you're looking for.
-
-Also scans widget roots and their children to catch active interfaces not in the default list.""",
+Returns widget_id, text, bounds, actions (plus itemId/itemQuantity for items) - everything click_widget() needs.""",
     "inputSchema": {
         "type": "object",
         "properties": {
-            "filter_text": {
+            "text": {
                 "type": "string",
-                "description": "Optional text to filter widgets by - matches text, name, and item names (case-insensitive)"
+                "description": "Text to search for - matches widget text, name, and item names (case-insensitive)"
             },
             "group": {
                 "type": "integer",
                 "description": "Scan only a specific widget group (e.g., 593 for Combat Interface, 149 for Inventory)"
+            },
+            "container_id": {
+                "type": "integer",
+                "description": "List all clickable children of this container widget ID (deduplicated, with click_center)"
+            },
+            "max_results": {
+                "type": "integer",
+                "description": "Maximum number of results (default: 5 for text search, 50 otherwise)"
+            },
+            "full": {
+                "type": "boolean",
+                "description": "Return raw widget data instead of compact results (default: false)",
+                "default": False
             },
             "timeout_ms": {
                 "type": "integer",
@@ -124,11 +131,13 @@ Also scans widget roots and their children to catch active interfaces not in the
         }
     }
 })
-async def handle_scan_widgets(arguments: dict) -> dict:
-    """Scan all visible widgets."""
-    timeout_ms = arguments.get("timeout_ms", 3000)
-    filter_text = arguments.get("filter_text")
+async def handle_find_widget(arguments: dict) -> dict:
+    """Canonical widget inspection: search, group scan, container children, or summary."""
+    text = arguments.get("text")
     specific_group = arguments.get("group")
+    container_id = arguments.get("container_id")
+    full = arguments.get("full", False)
+    timeout_ms = arguments.get("timeout_ms", 3000)
     account_id = arguments.get("account_id")
 
     # Validate inputs
@@ -138,56 +147,130 @@ async def handle_scan_widgets(arguments: dict) -> dict:
         if not isinstance(specific_group, int) or specific_group < 0 or specific_group > 65535:
             return {"success": False, "error": f"Invalid group: must be 0-65535, got {specific_group}"}
 
-    # Build command with optional --group flag and filter
+    # Build command with optional --group flag and text filter (server-side filtering)
     parts = ["SCAN_WIDGETS"]
     if specific_group is not None:
         parts.append(f"--group {specific_group}")
-    if filter_text:
-        parts.append(filter_text)
+    if text:
+        parts.append(text)
     command = " ".join(parts)
 
     response = await send_command_with_response(command, timeout_ms, account_id)
 
-    if response.get("status") == "success":
-        widgets = response.get("result", {}).get("widgets", [])
-
-        # Calculate which widget groups were found
-        groups_found = set()
-        for w in widgets:
-            if "group" in w:
-                groups_found.add(w["group"])
-
-        # When unfiltered and large result set, return summary only to avoid overwhelming Claude
-        # Full data is always available in /tmp/manny_widgets.json
-        MAX_INLINE_WIDGETS = 50
-        if not filter_text and not specific_group and len(widgets) > MAX_INLINE_WIDGETS:
-            result = {
-                "success": True,
-                "count": len(widgets),
-                "groups_found": sorted(groups_found),
-                "truncated": True,
-                "widgets": widgets[:20],  # Return first 20 as sample
-                "hint": f"Large result ({len(widgets)} widgets). Full data in /tmp/manny_widgets.json. Use find_widget(text='...') for filtered searches.",
-                "file": "/tmp/manny_widgets.json"
-            }
-        else:
-            result = {
-                "success": True,
-                "widgets": widgets,
-                "count": len(widgets),
-                "filtered_by": filter_text,
-                "groups_found": sorted(groups_found),
-            }
-            if specific_group is not None:
-                result["scanned_group"] = specific_group
-
-        return result
-    else:
+    if response.get("status") != "success":
         return {
             "success": False,
             "error": response.get("error", "Failed to scan widgets"),
             "raw_response": response
         }
+
+    widgets = response.get("result", {}).get("widgets", [])
+
+    # Container-children mode (absorbs debug_widget_children)
+    if container_id is not None:
+        children = []
+        for w in widgets:
+            if w.get("id") == container_id:
+                bounds = w.get("bounds", {})
+                actions = w.get("actions", [])
+                w_text = w.get("text") or w.get("name") or w.get("itemName") or ""
+                if bounds and (actions or w_text):
+                    children.append({
+                        "text": w_text[:30] if w_text else None,
+                        "actions": actions,
+                        "bounds": {
+                            "x": bounds.get("x"),
+                            "y": bounds.get("y"),
+                            "width": bounds.get("width"),
+                            "height": bounds.get("height")
+                        },
+                        "click_center": {
+                            "x": bounds.get("x", 0) + bounds.get("width", 0) // 2,
+                            "y": bounds.get("y", 0) + bounds.get("height", 0) // 2
+                        }
+                    })
+        children.sort(key=lambda c: (c["bounds"]["y"] or 0, c["bounds"]["x"] or 0))
+        unique_children = []
+        seen_bounds = set()
+        for child in children:
+            bounds_key = (child["bounds"]["x"], child["bounds"]["y"],
+                          child["bounds"]["width"], child["bounds"]["height"])
+            if bounds_key not in seen_bounds:
+                seen_bounds.add(bounds_key)
+                unique_children.append(child)
+        return {
+            "success": True,
+            "container_id": container_id,
+            "child_count": len(unique_children),
+            "total_widgets_scanned": len(widgets),
+            "children": unique_children
+        }
+
+    groups_found = sorted({w["group"] for w in widgets if "group" in w})
+
+    # Raw mode (absorbs scan_widgets)
+    if full:
+        max_results = arguments.get("max_results", 50)
+        result = {
+            "success": True,
+            "widgets": widgets[:max_results],
+            "count": len(widgets),
+            "truncated": len(widgets) > max_results,
+            "filtered_by": text,
+            "groups_found": groups_found,
+        }
+        if specific_group is not None:
+            result["scanned_group"] = specific_group
+        return result
+
+    # Unfiltered summary mode (absorbs no-arg scan_widgets)
+    MAX_INLINE_WIDGETS = 50
+    if not text and specific_group is None and len(widgets) > MAX_INLINE_WIDGETS:
+        return {
+            "success": True,
+            "count": len(widgets),
+            "groups_found": groups_found,
+            "truncated": True,
+            "widgets": widgets[:20],  # Sample
+            "hint": f"Large result ({len(widgets)} widgets). Full data in /tmp/manny_widgets.json. Use find_widget(text='...') for filtered searches.",
+            "file": "/tmp/manny_widgets.json"
+        }
+
+    # Compact results (canonical find_widget behavior)
+    max_results = arguments.get("max_results", 5 if text else 50)
+    matches = []
+    for w in widgets:
+        widget_text = w.get("itemName") or w.get("text") or w.get("name") or ""
+        bounds_obj = w.get("bounds", {})
+        entry = {
+            "widget_id": w.get("id"),
+            "text": widget_text[:50] + "..." if len(widget_text) > 50 else widget_text,
+            "bounds": {
+                "x": bounds_obj.get("x"),
+                "y": bounds_obj.get("y"),
+                "width": bounds_obj.get("width"),
+                "height": bounds_obj.get("height")
+            },
+            "actions": w.get("actions", [])[:3]
+        }
+        if w.get("itemId"):
+            entry["itemId"] = w.get("itemId")
+            entry["itemQuantity"] = w.get("itemQuantity")
+        matches.append(entry)
+        if len(matches) >= max_results:
+            break
+
+    result = {
+        "success": True,
+        "query": text,
+        "found": len(matches),
+        "total_widgets_scanned": len(widgets),
+        "groups_found": groups_found,
+        "widgets": matches
+    }
+    if specific_group is not None:
+        result["scanned_group"] = specific_group
+    return result
 
 
 @registry.register({
@@ -447,127 +530,215 @@ async def handle_get_chat_messages(arguments: dict) -> dict:
     }
 
 
-WIDGET_SELECTION_FILE = "/tmp/manny_widget_select.txt"
-
-
 @registry.register({
-    "name": "clear_widget_overlay",
-    "description": """[Widget Inspector] Clear the widget highlight overlay from the game screen.
+    "name": "click_widget",
+    "description": """[Widgets] Canonical widget click tool. ONE tool for all UI clicking - finds the target and clicks it atomically via the plugin (CLICK_AT / CLICK_WIDGET / CLICK_DIALOGUE / CLICK_CONTINUE).
 
-Use this when the green bounding box overlay stays visible after closing the External Widget Inspector.
-Simply clears the selection file so the overlay has nothing to highlight.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {},
-        "required": []
-    }
-})
-async def handle_clear_widget_overlay(arguments: dict) -> dict:
-    """Clear the widget selection overlay."""
-    try:
-        with open(WIDGET_SELECTION_FILE, 'w') as f:
-            f.write("")
-        return {
-            "success": True,
-            "message": "Widget overlay cleared"
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
+Usage modes:
+- click_widget(text="Raw lobster")                       - find widget by text/name/item and click it (fresh bounds, atomic CLICK_AT)
+- click_widget(text="Raw lobster", action="Drop")        - use a specific action when the ID-based fallback is needed
+- click_widget(action="+10%")                            - find widget BY action text and click it (GE/shop buttons)
+- click_widget(widget_id=17694735)                       - click a widget by packed ID
+- click_widget(widget_id=..., bounds={x,y,width,height}) - click virtual widgets (deposit box/shop items) at given bounds
+- click_widget(dialogue_option="Yes.")                   - click a dialogue option (plugin-side CLICK_DIALOGUE matching)
+- click_widget(continue_dialogue=true)                   - click 'Click here to continue'
 
-
-@registry.register({
-    "name": "click_text",
-    "description": """[Routine Building] Find a widget containing the specified text and click it.
-
-Useful for clicking dialogue options, buttons, or any UI element by its text content.
-Returns success/failure and the widget ID that was clicked.""",
+container_id restricts text/action search to children of that container.
+Use find_widget() first when you need to inspect what is clickable.""",
     "inputSchema": {
         "type": "object",
         "properties": {
             "text": {
                 "type": "string",
-                "description": "The text to search for and click"
+                "description": "Find widget by text/name/item name and click it (fresh bounds at click time)"
+            },
+            "action": {
+                "type": "string",
+                "description": "Action text to match (e.g., '+10%', 'Buy 1', 'Drop'). Alone: finds widget by action. With text: used for the CLICK_WIDGET fallback."
+            },
+            "widget_id": {
+                "type": "integer",
+                "description": "The packed widget ID to click directly (e.g., 17694735)"
+            },
+            "bounds": {
+                "type": "object",
+                "description": "Optional bounds for virtual widgets sharing a container ID: {x, y, width, height}. Clicks center of bounds.",
+                "properties": {
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                    "width": {"type": "integer"},
+                    "height": {"type": "integer"}
+                }
+            },
+            "container_id": {
+                "type": "integer",
+                "description": "Only match widgets with this container/parent ID during text/action search"
+            },
+            "dialogue_option": {
+                "type": "string",
+                "description": "Click a dialogue option by text using the plugin's CLICK_DIALOGUE matching"
+            },
+            "continue_dialogue": {
+                "type": "boolean",
+                "description": "Click the 'Click here to continue' button (default: false)",
+                "default": False
             },
             "timeout_ms": {
                 "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
-                "default": 3000
+                "description": "Timeout in milliseconds (default: 5000)",
+                "default": 5000
             },
             "account_id": {
                 "type": "string",
                 "description": "Account ID for multi-client (optional, defaults to 'default')"
             }
-        },
-        "required": ["text"]
+        }
     }
 })
+async def handle_click_widget(arguments: dict) -> dict:
+    """Canonical widget click: by text, action, widget ID, bounds, or dialogue."""
+    text = arguments.get("text")
+    action = arguments.get("action")
+    widget_id = arguments.get("widget_id")
+    bounds = arguments.get("bounds")
+    container_id = arguments.get("container_id")
+    dialogue_option = arguments.get("dialogue_option")
+    continue_dialogue = arguments.get("continue_dialogue", False)
+    timeout_ms = arguments.get("timeout_ms", 5000)
+    account_id = arguments.get("account_id")
+
+    # Mode 1: continue button (absorbs click_continue)
+    if continue_dialogue:
+        response = await send_command_with_response("CLICK_CONTINUE", timeout_ms, account_id)
+        if response.get("status") == "success":
+            return {"success": True,
+                    "message": response.get("result", {}).get("message", "Clicked continue")}
+        return {"success": False,
+                "error": response.get("error", "No continue button found")}
+
+    # Mode 2: dialogue option (absorbs click_text / CLICK_DIALOGUE path)
+    if dialogue_option:
+        response = await send_command_with_response(f'CLICK_DIALOGUE {dialogue_option}', timeout_ms, account_id)
+        if response.get("status") == "success":
+            return {"success": True, "clicked": dialogue_option,
+                    "message": response.get("result", {}).get("message", "Clicked")}
+        return {"success": False,
+                "error": response.get("error", "Failed to click dialogue option"),
+                "searched_for": dialogue_option}
+
+    # Mode 3: direct widget ID (action, if given, is used in CLICK_WIDGET)
+    if widget_id and not text:
+        # Bounds provided: atomic CLICK_AT at center (virtual widgets)
+        if bounds and all(k in bounds for k in ("x", "y", "width", "height")):
+            click_x = bounds["x"] + bounds["width"] // 2
+            click_y = bounds["y"] + bounds["height"] // 2
+            click_response = await send_command_with_response(
+                f"CLICK_AT {click_x} {click_y}", timeout_ms, account_id)
+            if click_response.get("status") == "success":
+                return {"success": True, "widget_id": widget_id,
+                        "click_position": {"x": click_x, "y": click_y},
+                        "bounds": bounds,
+                        "message": f"Clicked virtual widget at ({click_x}, {click_y})"}
+            return {"success": False, "widget_id": widget_id,
+                    "error": click_response.get("error", "Failed to click widget")}
+
+        # Plain CLICK_WIDGET (optionally with action)
+        cmd = f'CLICK_WIDGET {widget_id} "{action}"' if action else f"CLICK_WIDGET {widget_id}"
+        response = await send_command_with_response(cmd, timeout_ms, account_id)
+        if response.get("status") == "success":
+            return {"success": True, "widget_id": widget_id,
+                    "message": response.get("result", {}).get("message", "Widget clicked")}
+        return {"success": False, "widget_id": widget_id,
+                "error": response.get("error", "Failed to click widget")}
+
+    # Mode 4: search + click (absorbs find_and_click_widget / click_widget_by_action)
+    if not text and not action:
+        return {"success": False,
+                "error": "Provide one of: text, action, widget_id, dialogue_option, continue_dialogue"}
+
+    scan_term = text or action
+    response = await send_command_with_response(f"SCAN_WIDGETS {scan_term}", timeout_ms, account_id)
+    if response.get("status") != "success":
+        return {"success": False,
+                "error": response.get("error", "Failed to scan widgets")}
+
+    widgets = response.get("result", {}).get("widgets", [])
+
+    match = None
+    if text:
+        # Text search: first match (server-side filtering already applied)
+        for w in widgets:
+            if container_id is not None and w.get("id") != container_id:
+                continue
+            match = w
+            break
+    else:
+        # Action search: match on widget actions
+        for w in widgets:
+            for widget_action in w.get("actions", []) or []:
+                if widget_action and (action in widget_action or action == widget_action):
+                    if container_id is not None and w.get("id") != container_id:
+                        continue
+                    match = w
+                    break
+            if match:
+                break
+
+    if not match:
+        return {"success": False,
+                "error": f"No widget found matching '{scan_term}'",
+                "searched_for": scan_term,
+                "widgets_scanned": len(widgets)}
+
+    matched_id = match.get("id")
+    matched_text = match.get("itemName") or match.get("text") or match.get("name") or ""
+    matched_actions = match.get("actions", [])
+    matched_bounds = match.get("bounds", {})
+
+    has_valid_bounds = (matched_bounds
+                        and all(k in matched_bounds for k in ("x", "y", "width", "height"))
+                        and matched_bounds.get("x", -1) >= 0)
+
+    if has_valid_bounds:
+        # Atomic CLICK_AT at fresh bounds center - the canonical, race-free path.
+        # Required for widgets that share a container ID (inventory, GE, shops).
+        click_x = matched_bounds["x"] + matched_bounds["width"] // 2
+        click_y = matched_bounds["y"] + matched_bounds["height"] // 2
+        click_response = await send_command_with_response(
+            f"CLICK_AT {click_x} {click_y}", timeout_ms, account_id)
+    else:
+        # Fallback: CLICK_WIDGET by ID with an action if available
+        if action:
+            cmd = f'CLICK_WIDGET {matched_id} "{action}"'
+        elif matched_actions:
+            cmd = f'CLICK_WIDGET {matched_id} "{matched_actions[0]}"'
+        else:
+            cmd = f'CLICK_WIDGET {matched_id}'
+        click_response = await send_command_with_response(cmd, timeout_ms, account_id)
+
+    if click_response.get("status") == "success":
+        result = {"success": True, "clicked": True,
+                  "widget_id": matched_id,
+                  "text": matched_text[:50] if matched_text else None,
+                  "action_used": action or (matched_actions[0] if matched_actions and not has_valid_bounds else None),
+                  "bounds": matched_bounds}
+        if has_valid_bounds:
+            result["clicked_at"] = {"x": matched_bounds["x"] + matched_bounds["width"] // 2,
+                                    "y": matched_bounds["y"] + matched_bounds["height"] // 2}
+        return result
+    return {"success": False,
+            "error": click_response.get("error", "Failed to click widget"),
+            "widget_id": matched_id,
+            "widget_found": True}
+
+
 async def handle_click_text(arguments: dict) -> dict:
-    """Click widget by text."""
-    text = arguments.get("text", "")
-    timeout_ms = arguments.get("timeout_ms", 3000)
-    account_id = arguments.get("account_id")
-
-    if not text:
-        return {"success": False, "error": "No text provided"}
-
-    # Use plugin's CLICK_DIALOGUE command
-    response = await send_command_with_response(f'CLICK_DIALOGUE {text}', timeout_ms, account_id)
-
-    if response.get("status") == "success":
-        return {
-            "success": True,
-            "clicked": text,
-            "message": response.get("result", {}).get("message", "Clicked")
-        }
-    else:
-        return {
-            "success": False,
-            "error": response.get("error", "Failed to click text"),
-            "searched_for": text
-        }
-
-
-@registry.register({
-    "name": "click_continue",
-    "description": """[Routine Building] Click the 'Click here to continue' button in dialogues.
-
-Automatically finds and clicks continue buttons in NPC dialogues.
-Returns success/failure.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
-                "default": 3000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional, defaults to 'default')"
-            }
-        }
-    }
-})
-async def handle_click_continue(arguments: dict) -> dict:
-    """Click continue button."""
-    timeout_ms = arguments.get("timeout_ms", 3000)
-    account_id = arguments.get("account_id")
-
-    response = await send_command_with_response("CLICK_CONTINUE", timeout_ms, account_id)
-
-    if response.get("status") == "success":
-        return {
-            "success": True,
-            "message": response.get("result", {}).get("message", "Clicked continue")
-        }
-    else:
-        return {
-            "success": False,
-            "error": response.get("error", "No continue button found")
-        }
+    """Back-compat shim (old click_text tool): dialogue-option click via canonical click_widget."""
+    return await handle_click_widget({
+        "dialogue_option": arguments.get("text", ""),
+        "timeout_ms": arguments.get("timeout_ms", 3000),
+        "account_id": arguments.get("account_id"),
+    })
 
 
 @registry.register({
@@ -580,7 +751,11 @@ distances, and available right-click actions. Useful for discovering what can be
 Ground items include:
 - Dropped items on the ground
 - Items displayed on tables/shelves (scenery items)
-- Spawned items (like wine of zamorak)""",
+- Spawned items (like wine of zamorak)
+
+NAMED TILE-OBJECT SEARCH: pass object_name to search ALL TileObject types by name
+(GameObject, WallObject for doors/gates/fences, DecorativeObject, GroundObject, GroundItem).
+Essential for finding doors and items on tables. Results appear under "tile_objects".""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -603,6 +778,15 @@ Ground items include:
                 "type": "string",
                 "description": "Optional name filter (case-insensitive)"
             },
+            "object_name": {
+                "type": "string",
+                "description": "Search ALL TileObject types (incl. WallObjects like doors/gates) for this name. Skips the NPC/object/ground-item scans unless include_* is set explicitly."
+            },
+            "max_distance": {
+                "type": "integer",
+                "description": "Max search distance in tiles for object_name search (default: 15)",
+                "default": 15
+            },
             "timeout_ms": {
                 "type": "integer",
                 "description": "Timeout in milliseconds (default: 3000)",
@@ -616,10 +800,13 @@ Ground items include:
     }
 })
 async def handle_query_nearby(arguments: dict) -> dict:
-    """Query nearby NPCs, objects, and ground items."""
-    include_npcs = arguments.get("include_npcs", True)
-    include_objects = arguments.get("include_objects", True)
-    include_ground_items = arguments.get("include_ground_items", True)
+    """Query nearby NPCs, objects, and ground items (plus named tile-object search)."""
+    object_name = arguments.get("object_name")
+    # When doing a named tile-object search, skip the broad scans unless explicitly requested
+    default_include = object_name is None
+    include_npcs = arguments.get("include_npcs", default_include)
+    include_objects = arguments.get("include_objects", default_include)
+    include_ground_items = arguments.get("include_ground_items", default_include)
     name_filter = arguments.get("name_filter")
     timeout_ms = arguments.get("timeout_ms", 3000)
     account_id = arguments.get("account_id")
@@ -630,6 +817,20 @@ async def handle_query_nearby(arguments: dict) -> dict:
         "objects": [],
         "ground_items": []
     }
+
+    # Named tile-object search (absorbs scan_tile_objects): all TileObject types incl. WallObjects
+    if object_name:
+        tile_result = await handle_scan_tile_objects({
+            "object_name": object_name,
+            "max_distance": arguments.get("max_distance", 15),
+            "timeout_ms": timeout_ms,
+            "account_id": account_id,
+        })
+        if tile_result.get("success"):
+            result["tile_objects"] = tile_result.get("objects", [])
+        else:
+            result["tile_objects"] = []
+            result["tile_objects_error"] = tile_result.get("error")
 
     # Query NPCs
     if include_npcs:
@@ -665,88 +866,6 @@ async def handle_query_nearby(arguments: dict) -> dict:
     return maybe_truncate_response(result, prefix="nearby_output")
 
 
-@registry.register({
-    "name": "get_command_response",
-    "description": """[Routine Building] Read the last command response from the plugin.
-
-Returns the most recent response from /tmp/manny_response.json.
-Useful for checking results of commands sent via send_command.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional, defaults to 'default')"
-            }
-        }
-    }
-})
-async def handle_get_command_response(arguments: dict) -> dict:
-    """Read last command response."""
-    account_id = arguments.get("account_id")
-    response_file = config.get_response_file(account_id)
-
-    try:
-        if os.path.exists(response_file):
-            with open(response_file) as f:
-                response = json.load(f)
-            result = {
-                "success": True,
-                "response": response
-            }
-            if account_id:
-                result["account_id"] = account_id
-            return result
-        else:
-            return {
-                "success": False,
-                "error": "No response file found"
-            }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }
-
-
-@registry.register({
-    "name": "scan_tile_objects",
-    "description": """[Routine Building] Scan for ANY type of TileObject near the player.
-
-Unlike query_nearby (which only finds GameObjects), this searches ALL TileObject types:
-- GameObject (normal scenery)
-- WallObject (doors, gates, fences, walls)
-- DecorativeObject (decorations)
-- GroundObject (ground-layer objects)
-- GroundItem (items on ground/tables - TileItems)
-
-Essential for finding doors, gates, fences (WallObjects) AND items on tables (GroundItems).
-Returns object type, ID, location, distance, and available actions.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "object_name": {
-                "type": "string",
-                "description": "Name of object to search for (underscores replaced with spaces)"
-            },
-            "max_distance": {
-                "type": "integer",
-                "description": "Maximum search distance in tiles (default: 15)",
-                "default": 15
-            },
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
-                "default": 3000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional, defaults to 'default')"
-            }
-        },
-        "required": ["object_name"]
-    }
-})
 async def handle_scan_tile_objects(arguments: dict) -> dict:
     """Scan for TileObjects by name (includes WallObjects for doors/gates)."""
     object_name = arguments.get("object_name", "")
@@ -791,12 +910,15 @@ async def handle_scan_tile_objects(arguments: dict) -> dict:
 
 
 @registry.register({
-    "name": "list_plugin_commands",
-    "description": """[Discovery] List all available manny plugin commands with metadata.
+    "name": "list_commands",
+    "description": """[Discovery] Canonical command-discovery tool for manny plugin commands.
 
-Returns commands organized by category (fishing, mining, banking, navigation, etc.)
-with argument format and description for each command. Use this to discover what
-commands the plugin supports without reading source code.""",
+- list_commands()                        - live command list from the running plugin (LIST_COMMANDS), grouped by category
+- list_commands(category="banking")      - filter by category
+- list_commands(search="FISH")           - search the static source-derived command index (works without a running client)
+- list_commands(command="BANK_WITHDRAW") - usage examples and notes for a single command
+
+The live query automatically falls back to the static source index when no client is running.""",
     "inputSchema": {
         "type": "object",
         "properties": {
@@ -804,9 +926,17 @@ commands the plugin supports without reading source code.""",
                 "type": "string",
                 "description": "Optional: filter by category (fishing, mining, banking, navigation, dialogue, query, etc.)"
             },
+            "search": {
+                "type": "string",
+                "description": "Search term - uses the static source-derived command index (no client needed)"
+            },
+            "command": {
+                "type": "string",
+                "description": "Get usage examples for one specific command (e.g., 'BANK_WITHDRAW')"
+            },
             "timeout_ms": {
                 "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
+                "description": "Timeout in milliseconds for the live query (default: 3000)",
                 "default": 3000
             },
             "account_id": {
@@ -816,13 +946,32 @@ commands the plugin supports without reading source code.""",
         }
     }
 })
-async def handle_list_plugin_commands(arguments: dict) -> dict:
-    """List all plugin commands with metadata."""
+async def handle_list_commands(arguments: dict) -> dict:
+    """Canonical command discovery: live plugin list, static index search, or per-command examples."""
     timeout_ms = arguments.get("timeout_ms", 3000)
     category_filter = arguments.get("category")
+    search = arguments.get("search")
+    command = arguments.get("command")
     account_id = arguments.get("account_id")
 
-    # Send LIST_COMMANDS to plugin
+    # Per-command examples (absorbs get_command_examples)
+    if command:
+        from manny_tools import get_command_examples
+        return get_command_examples(command=command)
+
+    # Static source index (absorbs list_available_commands)
+    def _static_list():
+        from manny_tools import list_available_commands
+        return list_available_commands(
+            plugin_dir=str(config.plugin_directory),
+            category=category_filter or "all",
+            search=search,
+        )
+
+    if search:
+        return _static_list()
+
+    # Live plugin query (absorbs list_plugin_commands), static fallback when client is down
     response = await send_command_with_response("LIST_COMMANDS", timeout_ms, account_id)
 
     if response.get("status") == "success":
@@ -835,6 +984,7 @@ async def handle_list_plugin_commands(arguments: dict) -> dict:
                 filtered_commands = {category_filter: all_commands[category_filter]}
                 return {
                     "success": True,
+                    "source": "plugin",
                     "total_commands": len(all_commands[category_filter]),
                     "categories": [category_filter],
                     "commands": filtered_commands,
@@ -847,19 +997,24 @@ async def handle_list_plugin_commands(arguments: dict) -> dict:
                     "available_categories": commands_data.get("categories", [])
                 }
         else:
-            # Return all commands
             return {
                 "success": True,
+                "source": "plugin",
                 "total_commands": commands_data.get("total_commands", 0),
                 "categories": commands_data.get("categories", []),
                 "commands": commands_data.get("commands", {})
             }
     else:
-        return {
-            "success": False,
-            "error": response.get("error", "Failed to list commands"),
-            "raw_response": response
-        }
+        # Client down or timed out - fall back to the static source index
+        static = _static_list()
+        if isinstance(static, dict):
+            static.setdefault("source", "static_fallback")
+            static["live_error"] = response.get("error", "Live LIST_COMMANDS failed")
+        return static
+
+
+# Back-compat alias for callers that used the old name (not a registered tool)
+handle_list_plugin_commands = handle_list_commands
 
 
 import yaml
@@ -911,43 +1066,8 @@ def interpolate_variables(text: str, config: dict) -> str:
     return re.sub(pattern, replacer, text)
 
 
-@registry.register({
-    "name": "execute_routine",
-    "description": """[Routine Execution] Execute a YAML routine file step by step.
-
-Loads a routine YAML file and executes each step in order:
-- Sends commands to the game
-- Waits for await_conditions (plane changes, inventory changes, etc.)
-- Handles delays between steps
-- Reports progress after each step
-- Loops if loop.enabled is true
-
-Returns progress updates and final results.""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "routine_path": {
-                "type": "string",
-                "description": "Path to the routine YAML file"
-            },
-            "start_step": {
-                "type": "integer",
-                "description": "Step ID to start from (default: 1)",
-                "default": 1
-            },
-            "max_loops": {
-                "type": "integer",
-                "description": "Maximum number of loop iterations (default: 10000)",
-                "default": 10000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional)"
-            }
-        },
-        "required": ["routine_path"]
-    }
-})
+# NOTE: intentionally NOT a registered MCP tool. Routines are executed via
+# ./run_routine.py (the canonical path), which calls this handler directly.
 async def handle_execute_routine(arguments: dict) -> dict:
     """Execute a YAML routine step by step with inner/outer loop support."""
     routine_path = arguments.get("routine_path")
@@ -1304,8 +1424,9 @@ async def _execute_mcp_tool_step(step: dict, mcp_tool: str, account_id: str) -> 
     try:
         if mcp_tool == "equip_item":
             result = await _handle_equip_item(mcp_args)
-        elif mcp_tool == "find_and_click_widget":
-            result = await handle_find_and_click_widget(mcp_args)
+        elif mcp_tool in ("click_widget", "find_and_click_widget"):
+            # find_and_click_widget is the legacy name; click_widget is canonical
+            result = await handle_click_widget(mcp_args)
         else:
             step_result["success"] = False
             step_result["error"] = f"Unknown mcp_tool: {mcp_tool}"
@@ -1482,555 +1603,3 @@ async def _auto_restart_client(account_id: str = None) -> bool:
     _routine_logger.error("[AUTO-RESTART] Client did not become healthy within 120s")
     return False
 
-
-@registry.register({
-    "name": "click_widget",
-    "description": """[Routine Building] Click a widget by its ID.
-
-Uses the plugin's CLICK_WIDGET command with proper coordinate handling.
-The widget is clicked at its center using absolute screen coordinates.
-
-Example: click_widget(widget_id=17694735) to click the cooking interface shrimp button.
-
-For virtual widgets (deposit box items, shop items, etc.) that share a container ID,
-pass the bounds from find_widget() to click at the correct position:
-  click_widget(widget_id=12582914, bounds={"x": 269, "y": 106, "width": 36, "height": 32})
-
-To find widget IDs:
-1. Use scan_widgets() to see all visible widgets
-2. Or use find_widget() to search for specific text""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "widget_id": {
-                "type": "integer",
-                "description": "The packed widget ID (e.g., 17694735)"
-            },
-            "bounds": {
-                "type": "object",
-                "description": "Optional bounds for virtual widgets: {x, y, width, height}. When provided, clicks at center of bounds instead of using Java's widget lookup.",
-                "properties": {
-                    "x": {"type": "integer"},
-                    "y": {"type": "integer"},
-                    "width": {"type": "integer"},
-                    "height": {"type": "integer"}
-                }
-            },
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 5000)",
-                "default": 5000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional, defaults to 'default')"
-            }
-        },
-        "required": ["widget_id"]
-    }
-})
-async def handle_click_widget(arguments: dict) -> dict:
-    """Click a widget by ID, or by bounds for virtual widgets."""
-    widget_id = arguments.get("widget_id")
-    bounds = arguments.get("bounds")
-    timeout_ms = arguments.get("timeout_ms", 5000)
-    account_id = arguments.get("account_id")
-
-    if not widget_id:
-        return {"success": False, "error": "widget_id is required"}
-
-    # If bounds provided, use direct mouse click (for virtual widgets like deposit box items)
-    if bounds and all(k in bounds for k in ("x", "y", "width", "height")):
-        # Calculate center of widget
-        click_x = bounds["x"] + bounds["width"] // 2
-        click_y = bounds["y"] + bounds["height"] // 2
-
-        # Use direct mouse commands - send MOUSE_MOVE first, then MOUSE_CLICK
-        # Must be sent as separate commands since plugin only processes one command per file
-        command_file = config.get_command_file(account_id)
-
-        try:
-            # Step 1: Move mouse to position
-            with open(command_file, "w") as f:
-                f.write(f"MOUSE_MOVE {click_x} {click_y}\n")
-
-            # Wait for move to be processed (plugin polls every 200ms)
-            await asyncio.sleep(0.3)
-
-            # Step 2: Click at current position
-            with open(command_file, "w") as f:
-                f.write("MOUSE_CLICK left\n")
-
-            return {
-                "success": True,
-                "widget_id": widget_id,
-                "click_position": {"x": click_x, "y": click_y},
-                "bounds": bounds,
-                "message": f"Clicked virtual widget at ({click_x}, {click_y})"
-            }
-        except Exception as e:
-            return {"success": False, "error": f"Failed to send click: {e}"}
-
-    # Otherwise use Java's CLICK_WIDGET command (for real widgets)
-    response = await send_command_with_response(f"CLICK_WIDGET {widget_id}", timeout_ms, account_id)
-
-    if response.get("status") == "success":
-        result = response.get("result", {})
-        return {
-            "success": True,
-            "widget_id": widget_id,
-            "message": result.get("message", "Widget clicked")
-        }
-    else:
-        return {
-            "success": False,
-            "widget_id": widget_id,
-            "error": response.get("error", "Failed to click widget")
-        }
-
-
-@registry.register({
-    "name": "find_widget",
-    "description": """[Routine Building] Find widgets by text and return compact results.
-
-Scans visible widgets and filters by text, name, OR item name. Returns only essential info for clicking:
-- widget_id: The ID to pass to click_widget()
-- text: The widget's text/item name
-- bounds: {x, y, width, height} for reference
-- actions: Available actions
-- itemId/itemQuantity: For item widgets (inventory, bank, deposit box)
-
-Much lighter than scan_widgets() - designed for finding clickable elements.
-
-Examples:
-- find_widget(text="Cook") - find cooking options in a menu
-- find_widget(text="Raw lobster") - find lobster items in inventory/bank/deposit box
-- find_widget(text="Deposit") - find deposit buttons""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "text": {
-                "type": "string",
-                "description": "Text to search for - matches widget text, name, and item names (case-insensitive)"
-            },
-            "max_results": {
-                "type": "integer",
-                "description": "Maximum number of results (default: 5)",
-                "default": 5
-            },
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
-                "default": 3000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional, defaults to 'default')"
-            }
-        },
-        "required": ["text"]
-    }
-})
-async def handle_find_widget(arguments: dict) -> dict:
-    """Find widgets by text with compact output."""
-    text = arguments.get("text", "")
-    max_results = arguments.get("max_results", 5)
-    timeout_ms = arguments.get("timeout_ms", 3000)
-    account_id = arguments.get("account_id")
-
-    if not text:
-        return {"success": False, "error": "text is required"}
-
-    # Use server-side filtering for efficiency (Java command now supports itemName filtering)
-    command = f"SCAN_WIDGETS {text}"
-    response = await send_command_with_response(command, timeout_ms, account_id)
-
-    if response.get("status") != "success":
-        return {
-            "success": False,
-            "error": response.get("error", "Failed to scan widgets")
-        }
-
-    widgets = response.get("result", {}).get("widgets", [])
-
-    # Compact results for output
-    matches = []
-    for w in widgets:
-        # Get display text: prefer itemName for item widgets, then text, then name
-        widget_text = w.get("itemName") or w.get("text") or w.get("name") or ""
-
-        # Get bounds from the nested bounds object
-        bounds_obj = w.get("bounds", {})
-
-        result = {
-            "widget_id": w.get("id"),
-            "text": widget_text[:50] + "..." if len(widget_text) > 50 else widget_text,
-            "bounds": {
-                "x": bounds_obj.get("x"),
-                "y": bounds_obj.get("y"),
-                "width": bounds_obj.get("width"),
-                "height": bounds_obj.get("height")
-            },
-            "actions": w.get("actions", [])[:3]  # Max 3 actions
-        }
-
-        # Include item info if present
-        if w.get("itemId"):
-            result["itemId"] = w.get("itemId")
-            result["itemQuantity"] = w.get("itemQuantity")
-
-        matches.append(result)
-        if len(matches) >= max_results:
-            break
-
-    return {
-        "success": True,
-        "query": text,
-        "found": len(matches),
-        "total_widgets_scanned": len(widgets),
-        "widgets": matches
-    }
-
-
-@registry.register({
-    "name": "find_and_click_widget",
-    "description": """[Routine Building] Find a widget by text/name/item and click it in one call.
-
-Combines find_widget + click_widget into a single operation. Searches widget text,
-name, item names, AND actions (like find_widget does), then clicks the first match.
-
-This is the PREFERRED way to click UI elements when you know what text to search for.
-
-Examples:
-- find_and_click_widget(text="Inventory") - Click the Inventory tab
-- find_and_click_widget(text="Quest") - Click the Quest tab
-- find_and_click_widget(text="Continue") - Click continue button
-- find_and_click_widget(text="Raw lobster", action="Drop") - Find lobster, use Drop action""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "text": {
-                "type": "string",
-                "description": "Text to search for in widget text, name, item name, or actions"
-            },
-            "action": {
-                "type": "string",
-                "description": "Optional: Specific action to use when clicking (e.g., 'Drop', 'Use'). If not specified, uses default click."
-            },
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
-                "default": 3000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional)"
-            }
-        },
-        "required": ["text"]
-    }
-})
-async def handle_find_and_click_widget(arguments: dict) -> dict:
-    """Find a widget by text and click it in one operation."""
-    text = arguments.get("text", "")
-    action = arguments.get("action")
-    timeout_ms = arguments.get("timeout_ms", 3000)
-    account_id = arguments.get("account_id")
-
-    if not text:
-        return {"success": False, "error": "text is required"}
-
-    # Step 1: Find widgets matching the text (uses server-side filtering)
-    command = f"SCAN_WIDGETS {text}"
-    response = await send_command_with_response(command, timeout_ms, account_id)
-
-    if response.get("status") != "success":
-        return {
-            "success": False,
-            "error": response.get("error", "Failed to scan widgets")
-        }
-
-    widgets = response.get("result", {}).get("widgets", [])
-
-    if not widgets:
-        return {
-            "success": False,
-            "error": f"No widget found matching '{text}'",
-            "searched_for": text
-        }
-
-    # Step 2: Get the first match
-    widget = widgets[0]
-    widget_id = widget.get("id")
-    widget_text = widget.get("itemName") or widget.get("text") or widget.get("name") or ""
-    widget_actions = widget.get("actions", [])
-    bounds = widget.get("bounds", {})
-
-    # Step 3: Click the widget
-    # IMPORTANT: For inventory items that share widget IDs (like container 9764864),
-    # we must use the BOUNDS from find_widget, not search by action (which finds wrong item).
-    # Use direct coordinate clicking when we have valid bounds.
-
-    has_valid_bounds = bounds and all(k in bounds for k in ("x", "y", "width", "height")) and bounds.get("x", -1) >= 0
-
-    if has_valid_bounds:
-        # Click at center of the found widget's bounds (reliable for inventory items)
-        click_x = bounds["x"] + bounds["width"] // 2
-        click_y = bounds["y"] + bounds["height"] // 2
-
-        # Use CLICK_AT command - atomic move+click handled by the Java plugin
-        # This avoids xdotool display connection issues with gamescope
-        click_command = f"CLICK_AT {click_x} {click_y}"
-        click_response = await send_command_with_response(click_command, timeout_ms, account_id)
-    else:
-        # Fallback: Use CLICK_WIDGET with action (for widgets with proper individual IDs)
-        if action:
-            click_command = f'CLICK_WIDGET {widget_id} "{action}"'
-        elif widget_actions:
-            click_command = f'CLICK_WIDGET {widget_id} "{widget_actions[0]}"'
-        else:
-            click_command = f'CLICK_WIDGET {widget_id}'
-
-        click_response = await send_command_with_response(click_command, timeout_ms, account_id)
-
-    if click_response.get("status") == "success":
-        return {
-            "success": True,
-            "clicked": True,
-            "widget_id": widget_id,
-            "text": widget_text[:50] if widget_text else None,
-            "action_used": action or (widget_actions[0] if widget_actions else None),
-            "bounds": bounds
-        }
-    else:
-        return {
-            "success": False,
-            "error": click_response.get("error", "Failed to click widget"),
-            "widget_id": widget_id,
-            "widget_found": True
-        }
-
-
-@registry.register({
-    "name": "click_widget_by_action",
-    "description": """[Routine Building] Find a widget by action text and click it atomically.
-
-Combines find_widget + click_widget into one operation with fresh bounds at click time.
-Ideal for GE buttons, shop items, and other interfaces where widgets share container IDs.
-
-The tool:
-1. Scans all visible widgets for matching action
-2. Gets fresh bounds at click time (avoids stale coordinate issues)
-3. Clicks center of the matched widget
-
-Examples:
-- click_widget_by_action(action="+10%") - Click GE price +10% button
-- click_widget_by_action(action="+10") - Click GE quantity +10 button
-- click_widget_by_action(action="Buy 1") - Click shop Buy 1 option
-- click_widget_by_action(action="-5%", container_id=30474266) - Limit search to GE container""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "action": {
-                "type": "string",
-                "description": "Action text to match (e.g., '+10%', 'Buy 1', '-5%')"
-            },
-            "container_id": {
-                "type": "integer",
-                "description": "Optional: Only match widgets with this container/parent ID"
-            },
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
-                "default": 3000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional)"
-            }
-        },
-        "required": ["action"]
-    }
-})
-async def handle_click_widget_by_action(arguments: dict) -> dict:
-    """Find a widget by action and click it in one atomic operation."""
-    action = arguments.get("action", "")
-    container_id = arguments.get("container_id")
-    timeout_ms = arguments.get("timeout_ms", 3000)
-    account_id = arguments.get("account_id")
-
-    if not action:
-        return {"success": False, "error": "action is required"}
-
-    # Step 1: Scan for widgets matching the action
-    command = f"SCAN_WIDGETS {action}"
-    response = await send_command_with_response(command, timeout_ms, account_id)
-
-    if response.get("status") != "success":
-        return {
-            "success": False,
-            "error": response.get("error", "Failed to scan widgets")
-        }
-
-    widgets = response.get("result", {}).get("widgets", [])
-
-    # Step 2: Find widget with matching action
-    match = None
-    for w in widgets:
-        actions = w.get("actions", [])
-        if not actions:
-            continue
-
-        # Check if any action matches (exact or contains)
-        for widget_action in actions:
-            if widget_action and (action in widget_action or action == widget_action):
-                # If container_id specified, verify it matches
-                if container_id is not None and w.get("id") != container_id:
-                    continue
-                match = w
-                break
-        if match:
-            break
-
-    if not match:
-        return {
-            "success": False,
-            "error": f"No widget with action '{action}' found",
-            "widgets_scanned": len(widgets)
-        }
-
-    # Step 3: Get bounds and click
-    bounds = match.get("bounds", {})
-    if not bounds or not all(k in bounds for k in ("x", "y", "width", "height")):
-        return {
-            "success": False,
-            "error": f"Widget found but has invalid bounds: {bounds}"
-        }
-
-    click_x = bounds["x"] + bounds["width"] // 2
-    click_y = bounds["y"] + bounds["height"] // 2
-
-    # Send mouse commands
-    command_file = config.get_command_file(account_id)
-
-    try:
-        # Use CLICK_AT for atomic move+click (avoids MOUSE_MOVE + MOUSE_CLICK race)
-        click_command = f"CLICK_AT {click_x} {click_y}"
-        click_response = await send_command_with_response(click_command, timeout_ms, account_id)
-
-        if click_response.get("status") != "success":
-            return {
-                "success": False,
-                "error": f"Click failed: {click_response.get('error', 'Unknown error')}",
-                "action": action
-            }
-
-        return {
-            "success": True,
-            "action": action,
-            "widget_id": match.get("id"),
-            "clicked_at": {"x": click_x, "y": click_y},
-            "bounds": bounds,
-            "message": f"Clicked widget with action '{action}' at ({click_x}, {click_y})"
-        }
-    except Exception as e:
-        return {"success": False, "error": f"Failed to send click: {e}"}
-
-
-@registry.register({
-    "name": "debug_widget_children",
-    "description": """[Routine Building] List all clickable children of a widget container.
-
-Returns all widgets that share a container ID, showing their bounds and actions.
-Useful for debugging GE, shop, and other interfaces with virtual/child widgets.
-
-Use this to visualize what Claude sees when interacting with complex interfaces.
-
-Example:
-- debug_widget_children(container_id=30474266) - List all GE offer screen buttons""",
-    "inputSchema": {
-        "type": "object",
-        "properties": {
-            "container_id": {
-                "type": "integer",
-                "description": "The container widget ID to inspect"
-            },
-            "timeout_ms": {
-                "type": "integer",
-                "description": "Timeout in milliseconds (default: 3000)",
-                "default": 3000
-            },
-            "account_id": {
-                "type": "string",
-                "description": "Account ID for multi-client (optional)"
-            }
-        },
-        "required": ["container_id"]
-    }
-})
-async def handle_debug_widget_children(arguments: dict) -> dict:
-    """List all clickable children of a container widget."""
-    container_id = arguments.get("container_id")
-    timeout_ms = arguments.get("timeout_ms", 3000)
-    account_id = arguments.get("account_id")
-
-    if not container_id:
-        return {"success": False, "error": "container_id is required"}
-
-    # Scan all widgets (no filter)
-    command = "SCAN_WIDGETS"
-    response = await send_command_with_response(command, timeout_ms, account_id)
-
-    if response.get("status") != "success":
-        return {
-            "success": False,
-            "error": response.get("error", "Failed to scan widgets")
-        }
-
-    all_widgets = response.get("result", {}).get("widgets", [])
-
-    # Filter to only widgets matching the container ID
-    children = []
-    for w in all_widgets:
-        if w.get("id") == container_id:
-            bounds = w.get("bounds", {})
-            actions = w.get("actions", [])
-            text = w.get("text") or w.get("name") or w.get("itemName") or ""
-
-            # Only include if has bounds and either actions or text
-            if bounds and (actions or text):
-                children.append({
-                    "text": text[:30] if text else None,
-                    "actions": actions,
-                    "bounds": {
-                        "x": bounds.get("x"),
-                        "y": bounds.get("y"),
-                        "width": bounds.get("width"),
-                        "height": bounds.get("height")
-                    },
-                    "click_center": {
-                        "x": bounds.get("x", 0) + bounds.get("width", 0) // 2,
-                        "y": bounds.get("y", 0) + bounds.get("height", 0) // 2
-                    }
-                })
-
-    # Sort by x position then y for visual order
-    children.sort(key=lambda c: (c["bounds"]["y"], c["bounds"]["x"]))
-
-    # Group by unique bounds (deduplicate)
-    unique_children = []
-    seen_bounds = set()
-    for child in children:
-        bounds_key = (child["bounds"]["x"], child["bounds"]["y"],
-                      child["bounds"]["width"], child["bounds"]["height"])
-        if bounds_key not in seen_bounds:
-            seen_bounds.add(bounds_key)
-            unique_children.append(child)
-
-    return {
-        "success": True,
-        "container_id": container_id,
-        "child_count": len(unique_children),
-        "total_widgets_scanned": len(all_widgets),
-        "children": unique_children
-    }

@@ -15,10 +15,9 @@ This guide shows you how to use the 4 new MCP tools together to create OSRS rout
 
 | Tool | Purpose | Time Savings |
 |------|---------|--------------|
-| **list_available_commands** | Discover commands by category | 20x faster (10 min → 30 sec) |
-| **get_command_examples** | Learn from proven patterns | 10x faster (20 min → 2 min) |
+| **list_commands** | Discover commands by category | 20x faster (10 min → 30 sec) |
+| **list_commands** | Learn from proven patterns (via `command=`) | 10x faster (20 min → 2 min) |
 | **validate_routine_deep** | Pre-flight error checking | 90% error prevention |
-| **generate_command_reference** | Create documentation | Instant (vs hours manually) |
 
 ---
 
@@ -36,7 +35,7 @@ Let's build a routine that fishes at Draynor Village and banks in Lumbridge.
 
 ```python
 # Find all fishing commands
-list_available_commands(category="skilling", search="FISH")
+list_commands(category="skilling", search="FISH")
 
 → Returns:
 {
@@ -48,7 +47,7 @@ list_available_commands(category="skilling", search="FISH")
 }
 
 # Find banking commands
-list_available_commands(category="banking")
+list_commands(category="banking")
 
 → Returns:
 {
@@ -71,7 +70,7 @@ list_available_commands(category="banking")
 
 ```python
 # How do I use FISH_DRAYNOR_LOOP?
-get_command_examples(command="FISH_DRAYNOR_LOOP")
+list_commands(command="FISH_DRAYNOR_LOOP")
 
 → Returns:
 {
@@ -81,7 +80,7 @@ get_command_examples(command="FISH_DRAYNOR_LOOP")
 }
 
 # Let's check BANK_OPEN instead
-get_command_examples(command="BANK_OPEN")
+list_commands(command="BANK_OPEN")
 
 → Returns:
 {
@@ -229,35 +228,7 @@ validate_routine_deep(routine_path="routines/broken_quest.yaml")
 
 ### Workflow 3: Generating Documentation
 
-**Scenario**: You want to create documentation for all commands.
-
-```python
-# Generate markdown documentation
-result = generate_command_reference(
-    format="markdown",
-    category_filter=None  # All categories
-)
-
-# Save to file
-with open("COMMAND_REFERENCE.md", "w") as f:
-    f.write(result["documentation"])
-```
-
-**Result**: 732-line comprehensive command reference with:
-- Table of contents
-- All 90 commands organized by category
-- Real usage examples where available
-- Handler names and line numbers
-
-**Or generate for specific category**:
-
-```python
-# Only banking commands
-result = generate_command_reference(
-    format="markdown",
-    category_filter="banking"
-)
-```
+**Note**: `generate_command_reference` has been removed from the MCP tool surface. `COMMAND_REFERENCE.md` is now maintained by hand; use `list_commands()` to browse commands in the meantime.
 
 ---
 
@@ -269,9 +240,9 @@ Always start by discovering what commands exist before writing a routine:
 
 ```python
 # What commands exist for my task?
-list_available_commands(search="BANK")
-list_available_commands(search="FISH")
-list_available_commands(category="combat")
+list_commands(search="BANK")
+list_commands(search="FISH")
+list_commands(category="combat")
 ```
 
 ### Tip 2: Learn from Examples First
@@ -279,7 +250,7 @@ list_available_commands(category="combat")
 Before using a new command, check if there are examples:
 
 ```python
-examples = get_command_examples(command="INTERACT_OBJECT")
+examples = list_commands(command="INTERACT_OBJECT")
 
 if examples["total_uses"] > 0:
     # Look at the args format
@@ -309,10 +280,10 @@ Narrow down command searches by category:
 
 ```python
 # Only show banking commands
-list_available_commands(category="banking")
+list_commands(category="banking")
 
 # Only show skilling commands
-list_available_commands(category="skilling")
+list_commands(category="skilling")
 
 # Categories available:
 # banking, combat, input, interaction, inventory,
@@ -344,10 +315,10 @@ Total: ~45 minutes with frustration
 ### New Workflow (10 minutes)
 
 ```
-1. list_available_commands(search="PICK") (30 sec)
+1. list_commands(search="PICK") (30 sec)
    → Discover it's "PICK_UP_ITEM" not "PICKUP_ITEM"
 
-2. get_command_examples(command="PICK_UP_ITEM") (30 sec)
+2. list_commands(command="PICK_UP_ITEM") (30 sec)
    → Learn args format and usage
 
 3. Write routine YAML (5 min)
@@ -379,36 +350,36 @@ Total: ~10 minutes, no frustration
 # === STEP 1: DISCOVER COMMANDS (1 min) ===
 
 # What commands do I need?
-banking_cmds = list_available_commands(category="banking")
+banking_cmds = list_commands(category="banking")
 # → Found: BANK_OPEN, BANK_CLOSE, BANK_WITHDRAW, BANK_DEPOSIT_ALL
 
-interaction_cmds = list_available_commands(search="INTERACT")
+interaction_cmds = list_commands(search="INTERACT")
 # → Found: INTERACT_NPC, INTERACT_OBJECT
 
-movement_cmds = list_available_commands(search="GOTO")
+movement_cmds = list_commands(search="GOTO")
 # → Found: GOTO
 
-item_cmds = list_available_commands(search="PICK")
+item_cmds = list_commands(search="PICK")
 # → Found: PICK_UP_ITEM (not PICKUP_ITEM!)
 
-dialogue_cmds = list_available_commands(search="DIALOGUE")
+dialogue_cmds = list_commands(search="DIALOGUE")
 # → Found: CLICK_DIALOGUE (not DIALOGUE!)
 
 
 # === STEP 2: LEARN USAGE (2 min) ===
 
 # How to use INTERACT_NPC?
-get_command_examples(command="INTERACT_NPC")
+list_commands(command="INTERACT_NPC")
 # → args format: "NpcName Action"
 # → example: "Cook Talk-to"
 
 # How to use BANK_WITHDRAW?
-get_command_examples(command="BANK_WITHDRAW")
+list_commands(command="BANK_WITHDRAW")
 # → args format: "ItemName quantity"
 # → example: "Bucket 1"
 
 # How to use CLICK_DIALOGUE?
-get_command_examples(command="CLICK_DIALOGUE")
+list_commands(command="CLICK_DIALOGUE")
 # → args format: "dialogue text to click"
 # → example: "What's wrong?"
 
@@ -475,15 +446,15 @@ send_command("LOAD_SCENARIO cooks_assistant")
 
 ### Command Discovery
 ```python
-list_available_commands()                    # All commands
-list_available_commands(category="banking")  # Specific category
-list_available_commands(search="FISH")       # Keyword search
+list_commands()                    # All commands
+list_commands(category="banking")  # Specific category
+list_commands(search="FISH")       # Keyword search
 ```
 
 ### Learning Usage
 ```python
-get_command_examples(command="BANK_OPEN")    # Find examples
-get_command_examples(command="INTERACT_NPC") # Learn args format
+list_commands(command="BANK_OPEN")    # Find examples
+list_commands(command="INTERACT_NPC") # Learn args format
 ```
 
 ### Validation
@@ -497,9 +468,9 @@ validate_routine_deep(
 
 ### Documentation
 ```python
-generate_command_reference(format="markdown")                 # All commands
-generate_command_reference(format="markdown", category_filter="banking")  # One category
-generate_command_reference(format="json")                     # JSON format
+# generate_command_reference has been removed; browse commands with list_commands() instead
+list_commands()                    # All commands
+list_commands(category="banking")  # One category
 ```
 
 ---
@@ -521,9 +492,8 @@ After using these tools, you should see:
 The new MCP tools transform routine creation from a frustrating trial-and-error process into a smooth, validated workflow. By following these patterns, you'll create routines **75% faster** with **90% fewer errors**.
 
 **Remember**:
-1. **Discover** commands first (list_available_commands)
-2. **Learn** from examples (get_command_examples)
+1. **Discover** commands first (list_commands)
+2. **Learn** from examples (list_commands)
 3. **Validate** before running (validate_routine_deep)
-4. **Document** for the team (generate_command_reference)
 
 Happy automating! 🚀

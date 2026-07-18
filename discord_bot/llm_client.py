@@ -243,7 +243,7 @@ TOOL_DEFINITIONS = [
         }
     },
     {
-        "name": "list_plugin_commands",
+        "name": "list_commands",
         "description": "List all available plugin commands with their syntax. Use this when you're unsure about command format or want to discover available commands. Can filter by category.",
         "parameters": {
             "type": "object",
@@ -313,8 +313,8 @@ TOOL_DEFINITIONS = [
         }
     },
     {
-        "name": "click_text",
-        "description": "Find a widget/button by text and click it. Useful for dialogue options and UI buttons.",
+        "name": "click_widget",
+        "description": "Find a widget/button by text and click it (canonical click tool). Useful for dialogue options and UI buttons.",
         "parameters": {
             "type": "object",
             "properties": {
@@ -405,7 +405,14 @@ class LLMClient:
 
     def _init_gemini(self):
         """Initialize Gemini provider using the new google.genai SDK."""
-        from google import genai
+        try:
+            from google import genai
+        except ImportError as e:
+            raise RuntimeError(
+                "Gemini fallback requires the 'google-genai' package, which is not "
+                "installed in this venv. Configure the ollama provider, or install "
+                "google-genai to enable Gemini."
+            ) from e
         from google.genai import types
 
         api_key = os.environ.get("GEMINI_API_KEY")

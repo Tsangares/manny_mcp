@@ -14,7 +14,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import yaml
 
 from ..config import ServerConfig
-from ..registry import registry
 
 # Load config
 config = ServerConfig.load()
@@ -401,7 +400,9 @@ def _generate_routine(
     return routine
 
 
-@registry.register({
+# NOTE: no longer a registered MCP tool. Exposed via the canonical
+# recording_to_routine(source="location_history") tool in mcptools/tools/session.py.
+_GENERATE_ROUTINE_DOC = ({
     "name": "generate_routine",
     "description": """[Routine Generation] Generate a YAML routine from recorded event history.
 

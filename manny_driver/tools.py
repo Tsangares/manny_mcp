@@ -10,42 +10,27 @@ GAMEPLAY_TOOLS = {
     "check_health",
     "is_alive",
     "get_screenshot",
-    "get_command_response",
     # Commands
     "send_command",
     "send_and_await",
     "kill_command",
-    # Spatial awareness
+    # Spatial awareness (query_nearby(object_name=...) covers tile-object search;
+    # scan_environment(transitions_only=True) covers doors/stairs)
     "query_nearby",
-    "scan_tile_objects",
-    "get_transitions",
     "scan_environment",
     "get_location_info",
-    # Widget / UI
+    # Widget / UI (canonical pair: find_widget to inspect, click_widget to act)
     "find_widget",
-    "click_text",
-    "click_continue",
-    "click_widget_by_action",
-    "scan_widgets",
+    "click_widget",
     "get_dialogue",
     "get_chat_messages",
-    # Inventory / equipment
-    "equip_item",
-    "deposit_item",
-    "teleport_home",
     # Client management (no start/stop - managed externally)
     "auto_reconnect",
     "restart_if_frozen",
-    "stabilize_camera",
-    # Routines
-    "execute_routine",
     # Discovery
-    "list_available_commands",
-    "get_command_examples",
+    "list_commands",
     # Quests
     "list_quests",
-    "quest_summary",
-    "check_quest",
 }
 
 

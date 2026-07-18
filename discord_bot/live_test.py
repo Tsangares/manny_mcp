@@ -216,7 +216,7 @@ class LiveToolExecutor:
                 }
             return {"found": False, "error": f"Location '{location_query}' not found"}
 
-        elif tool_name == "list_plugin_commands":
+        elif tool_name == "list_commands":
             # Just return a hint - full list is too large
             return {
                 "hint": "Use KILL_LOOP <npc> <food|none> for combat, GOTO <x> <y> <plane> for navigation, FISH for fishing",
