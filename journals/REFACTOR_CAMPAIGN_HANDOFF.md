@@ -847,3 +847,23 @@ REFACTOR SCORECARD — PlayerHelpers.java decomposition, all live-gated:
     (client on, reniced, thermal-watch), monitor as supervisor, fix what breaks. Then tutorial 00_master
     end-to-end on newbakshesh. Wave 7 journal finalize (drop DRAFT) is the last refactor-side chore.
 ███████████████████████████████████████████████████████████████████████████████
+
+## FIRST GRIND TEST 2026-07-18 ~14:25 — pipeline PROVEN, hit nav blocker (DEFECT-19)
+Ran chicken_killer_training on 'new' via run_routine.py. RESULTS:
+- ✅ PIPELINE WORKS: run_routine.py loaded the routine, dispatched, produced a STRUCTURED result
+  (status/errors/final-state). The supervisor/runner layer is functional — the "LLM monitors routines"
+  infra is real.
+- 🐞 ROUTINE BUG (FIXED): step 1 GOTO coord was 3180,3288 (WEST, across the river Lum — wrong); real
+  Lumbridge coop is ~3235,3295 (east). Also step 1 had no await + 30s default < a 76-tile walk. FIXED
+  chicken_killer_training.yaml: coord -> 3235 3295, added await_condition location:3235,3295 + timeout_ms
+  120000. (Grind-audit fixed KILL_LOOP timeout but missed the long initial GOTO — same class of bug.)
+- 🚫 DEFECT-19 (NAV BLOCKER, likely pre-existing, needs client-off code fix + live gate): GOTO 76 tiles
+  logged "[NAV-METHOD] Using PATHFINDER API" -> immediately "[NAV-API] Pathfinder API failed or
+  unavailable, falling back to Global A* (PNG-based)" -> THEN NOTHING. Character never moved (loc
+  unchanged over 45s across two GOTO attempts). The Global A* (PNG) fallback silently produces no path
+  execution / no minimap walk on this route. J2-4 gate walked a shorter ~35-tile route fine, so short
+  hops / pathfinder-API path work; the A*-fallback-on-long-route path is broken. This blocks ALL
+  travel-based grind routines. Diagnosis dispatched -> journals/DEFECT19_NAVIGATION_DIAGNOSIS.md.
+  Fix must be live-gated (GOTO 70+ tiles must actually walk). Until fixed, grind routines that need a
+  long initial travel will stall at step 1; short-range routines (already at the resource) are unaffected.
+███████████████████████████████████████████████████████████████████████████████
