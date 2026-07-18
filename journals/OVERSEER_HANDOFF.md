@@ -18,7 +18,7 @@ one, open the doc named in its row.
 | 3 | **Navigation** (DEFECT-19/19b) | ✅ code FIXED (char walks); **full-walk live gate owed on diort** | manny/journals/DEFECT19_NAVIGATION_DIAGNOSIS.md |
 | 4 | **Routines phase** | 🔄 groundwork DONE; **live grind proof blocked on a cool host** | GRIND_ROUTINE_READINESS_*.md, ROUTINE_CORPUS_HARDENING_*.md |
 | 5 | **diort migration** (thermal-stable run host) | ✅ **STAGED + thermally GREEN**; only **cred/login + gate** remains (USER-approved "go") | DIORT_MIGRATION_PLAN.md + §DIORT BRING-UP below |
-| 6 | **Machine-agnostic remote-client** | 🔄 DESIGN in flight (generalizes #5 to any host) | REMOTE_CLIENT_ARCHITECTURE.md (being written) |
+| 6 | **Machine-agnostic remote-client** | ✅ **PROTOTYPE done** — `scripts/remote/mannyctl` + hosts.yaml + provision.sh (Phase 1 = use it to bring up diort) | REMOTE_CLIENT_ARCHITECTURE.md |
 
 ### Why the pivot to #5/#6 (the crux)
 The whole software campaign (#1–#4) is essentially DONE. The ONLY blocker to the end-goal (an unattended
@@ -33,23 +33,26 @@ IP = no ban risk, no proxy needed**), and generalizing that into a host-agnostic
 - `a0bb6c2bc4c3ccdc9` — diort staging + thermal probe — ✅ **DONE**: diort STAGED (jdk21 21.0.11, jar at
   `~/manny/`, code at `~/manny_mcp/` + venv, perf config replicated). Thermal GREEN: 56→62°C over 4.5min
   under login-screen render, fan never ramped (vs laptop 90°C/2min). Lower bound (not full gameplay). No creds touched.
-- `af40999aacfb04bec` — remote-client architecture design — 🔄 still running (REMOTE_CLIENT_ARCHITECTURE.md + prototype).
+- `af40999aacfb04bec` — remote-client design — ✅ **DONE** → REMOTE_CLIENT_ARCHITECTURE.md + `scripts/remote/`
+  (mannyctl, hosts.yaml, provision.sh, client_remote.sh). All 3 agents complete; nothing left in flight.
 - `a6237f80b1def8a38` — session journal — ✅ **DONE** → journals/2026-07-18_multiproject_session.md (352 lines).
 
-## ⭐ DIORT BRING-UP — exact remaining steps (USER approved "go on diort"; ORCHESTRATOR/FORK does this) ⭐
-diort is fully staged; only the account login + gates remain. Do NOT delegate creds to a subagent; never print JX tokens.
-1. **[cred copy]** `ssh diort 'mkdir -p ~/.manny'` then `scp /home/wil/.manny/credentials.yaml diort:/home/wil/.manny/credentials.yaml`
-   — copy ONLY that file (NOT `~/.manny/` wholesale — it also has training_data/).
-2. **[config]** edit diort `~/manny_mcp/config.yaml`: `java_path` → `/usr/lib/jvm/java-21-openjdk/bin/java`, `display` → `:2`.
-3. **[port client.sh]** adapt diort's `scripts/client.sh` constants: jar is at `~/manny/client-1.12.34-SNAPSHOT-shaded.jar`
-   (not the plan's older path), JAVA_BIN=jdk21, XVFB_DISPLAY=:2, RUNELITE_DIR as needed.
-4. **[watched login]** `ssh diort 'cd ~/manny_mcp && ./scripts/client.sh start new'` (or the least-consequential acct);
-   tail `/tmp/runelite.log` on diort for `Game state is now LOGGED_IN`. Watch temp via `client.sh status`.
-5. **[DEFECT-19b full gate]** `GOTO 3235 3295 0` — must walk the FULL 76 tiles; expect the `[NAV-API] ...LINE OF
-   SIGHT CLEAR - directional walk` line and NO `[Global A*]` churn. (This is the live gate owed from project #3.)
-6. **[grind proof]** `run_routine.py routines/combat/chicken_killer_training.yaml --loops 3 --account new`,
-   monitor temp throughout — the REAL gameplay-load thermal test + the first unattended money-maker proof.
-7. Then on diort: fix+gate GameEngine off-thread remnants; tutorial-04 + disconnect-recovery verify.
+## ⭐ DIORT BRING-UP — this is projects #5+#6 converging (USER approved "go on diort") ⭐
+diort is staged (jdk21 + jar + code + venv + perf config) and thermally green. Use the NEW `scripts/remote/mannyctl`
+tool (project #6) to finish — it codifies all the steps. ORCHESTRATOR/FORK runs this; creds are NOT delegated
+to a subagent and JX tokens are never printed. First validate mannyctl's flagged live-TODOs as you go (SSH
+`${var@Q}` quoting across the hop, whether the shipped `config.yaml` has laptop-only paths that break
+`ServerConfig.load()` on diort, and diort temp reads via the coretemp hwmon fallback).
+1. **`mannyctl diort provision`** — idempotent re-stage (safe; confirms jdk21/jar/code/venv/perf-config).
+2. **`mannyctl diort push-creds`** — typed-`yes` gate; scp ONLY credentials.yaml, chmod 600. (The one account-affecting step.)
+3. **`mannyctl diort start new`** — launches client on diort:2; watch `/tmp/runelite.log` for `Game state is now LOGGED_IN` + temp.
+4. **[DEFECT-19b full gate]** `mannyctl diort cmd new "GOTO 3235 3295 0"` — must walk the FULL 76 tiles; expect
+   `[NAV-API] ...LINE OF SIGHT CLEAR - directional walk` and NO `[Global A*]` churn. (Live gate owed from project #3.)
+5. **[grind proof]** `mannyctl diort run routines/combat/chicken_killer_training.yaml --loops 3 --account new` —
+   monitor diort temp throughout: the REAL gameplay-load thermal test + first unattended money-maker proof.
+6. Then on diort: fix+gate GameEngine off-thread remnants; tutorial-04 + disconnect-recovery verify; add a 2nd host (should be zero-code).
+NOTE: if mannyctl hits a live snag, fall back to the manual steps in DIORT_MIGRATION_PLAN.md (cred scp, config.yaml
+java_path→jdk21 + display→:2, jar at `~/manny/client-...jar`). Phase 2 later collapses client_remote.sh into client.sh.
 
 ---
 
