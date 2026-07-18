@@ -892,3 +892,27 @@ ROUTINE CORPUS HARDENING (agent, journals/ROUTINE_CORPUS_HARDENING_2026-07-18.md
   start-GOTO + tutorial 06_quest_guide (superseded dup of 05, awaits documented to cause timeouts there).
   All 43 routines parse clean.
 ███████████████████████████████████████████████████████████████████████████████
+
+## DEFECT-19 v2 LIVE-GATED GREEN 2026-07-18 ~14:48 — nav UNBLOCKED (character walks)
+manny a5069a0 gated on 'new' Lumbridge: GOTO 3235 3295 0 (76 tiles) ->
+- ✅ new log line fired: "[NAV-API] Pathfinder API unavailable but LINE OF SIGHT CLEAR - directional
+  walk, skipping slow A*"; NO [Global A*] churn; temp stayed calm (~77C) — the A* churn WAS a heat source.
+- ✅ CHARACTER WALKED: 3221,3219 -> 3232,3254 (~35 tiles) via NAV-MULTI minimap multi-click, distance
+  decreasing (51->49 tiles). The total-stall DEFECT-19 is FIXED.
+- ⚠️ NEW DEFECT-19b (fix dispatched to nav agent, compile-only): NAV-MULTI has an ABSOLUTE 30000ms
+  timeout that fires mid-progress -> "[NAV-MULTI] ⏱️ TIMEOUT after 30000ms - destination likely
+  unreachable" at 3232,3254 (still 44 tiles out), even though distance was DECREASING. A 76-tile walk
+  at ~8 tiles/click takes >30s. FIX = make the timeout PROGRESS-AWARE (reset stuck-timer on distance
+  improvement; fail only on NO-progress window ~15-20s; keep a generous ~180s absolute backstop).
+  Pending: commit v2b + one final short gate (full walk to coop + KILL_LOOP Chicken to prove grind).
+
+## ★ THERMAL CEILING CONFIRMED — full live grind needs a stable host (diort) ★
+Across 3 gates this session the pkg temp hit **90C within ~2 min of the client running** every time,
+then I stopped it (cool to ~55-60C between). renice 15 helps scheduling, not heat; cpulimit NOT
+installed. This machine CANNOT sustain the client for a long unattended grind (76-tile walk + 200-kill
+loop = many minutes) without real crash risk. Components are proven in short bursts (nav walks, kill
+loop dispatches, engine+runner pipeline works). CONCLUSION: proving/running a FULL unattended grind
+needs the parked **diort** LAN-host migration (residential IP, presumably better cooling) — this is now
+the gating item for the routines-phase end-goal, not code. Recommend surfacing to user as the next
+strategic step. Short-range routines (already at the resource, no long travel) may be viable here.
+███████████████████████████████████████████████████████████████████████████████
