@@ -85,7 +85,6 @@ steps:
     action: PICK_UP_ITEM
     args: "Shears"
     description: "Pick up shears from table in Fred's house"
-    skip_if: "has_item:Shears"
     notes: "Shears spawn on table inside house"
 
   # ========== PHASE 3: SHEAR SHEEP ==========

@@ -1,3 +1,15 @@
+# REFERENCE ONLY - no top-level 'steps:' key, not runnable by run_routine.py
+# (handle_execute_routine returns {"success": False, "error": "Routine has
+# no steps"} immediately for any file missing 'steps:'). This is a
+# config-only sidecar for a never-built "configurable loot" feature,
+# superseded by the split, actually-runnable chain:
+#   routines/combat/hill_giants_travel.yaml   (GE -> dungeon via brass key)
+#   routines/combat/hill_giants_loot.yaml     (fight + loot + bury bones)
+#   routines/combat/hill_giants_restock.yaml  (Varrock bank restock)
+#   routines/combat/hill_giants_resupply.yaml (GE bank restock)
+# Use those files instead. See journals/GRIND_ROUTINE_READINESS_2026-07-18.md
+# and journals/ROUTINE_CORPUS_HARDENING_2026-07-18.md.
+#
 # Hill Giants Combat Routine
 # Location: Edgeville Dungeon
 

@@ -1,3 +1,16 @@
+# REFERENCE ONLY - no top-level 'steps:' key, not runnable by run_routine.py
+# (handle_execute_routine in mcptools/tools/routine.py returns
+# {"success": False, "error": "Routine has no steps"} immediately for any
+# file missing 'steps:'). This file only has 'manual_steps:' prose intended
+# for a Claude Code session to follow by hand, plus templated coordinates
+# ({grave_x} {grave_y} {grave_plane}) that a real steps: block can't use
+# as-is. There is no executable sibling that performs the actual gravestone
+# retrieval - if you're stuck in Death's Domain, routines/utility/death_escape.yaml
+# IS a real runnable routine (has 'steps:') for that part only. Building a
+# real steps: block for grave-finding/looting is a follow-up content task
+# (needs an engine predicate for gravestone-timer/GET_GRAVE_STATUS state
+# that doesn't exist yet - see journals/ROUTINE_CORPUS_HARDENING_2026-07-18.md).
+#
 # Gravestone Retrieval Utility
 # Use this after dying to retrieve items from gravestone
 #

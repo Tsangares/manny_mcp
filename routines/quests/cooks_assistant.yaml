@@ -54,6 +54,17 @@ locations:
 
 # Step-by-step routine
 steps:
+  # ========== PHASE 0: TRAVEL TO START ==========
+  - id: 0
+    phase: "preparation"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Walk to Lumbridge Castle bank (top floor) before opening it - starting position unknown/unverified"
+    location: lumbridge_bank
+    await_condition: "location:3208,3220"
+    timeout_ms: 120000
+    notes: "Cross-checked against woodcutting_lumbridge.yaml and cooking_lumbridge.yaml, both of which use this exact 3208,3220,plane2 coordinate as their validated Lumbridge bank GOTO target."
+
   # ========== PHASE 1: PREPARATION ==========
   - id: 1
     phase: "preparation"
