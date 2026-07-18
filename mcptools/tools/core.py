@@ -7,6 +7,7 @@ import asyncio
 import subprocess
 import time
 
+from ..credentials import credential_manager
 from ..registry import registry
 from ..utils import maybe_truncate_response, parse_gradle_errors, parse_gradle_warnings
 
@@ -155,8 +156,6 @@ async def handle_stop_runelite(arguments: dict) -> dict:
 # ============================================================================
 # CREDENTIAL MANAGEMENT TOOLS
 # ============================================================================
-
-from ..credentials import credential_manager
 
 
 @registry.register({

@@ -63,6 +63,8 @@ steps:
     action: GOTO
     args: "3189 3276 0"
     description: "Walk to Fred the Farmer"
+    await_condition: "location:3189,3276"
+    timeout_ms: 120000
 
   - id: 2
     phase: "start_quest"
@@ -92,6 +94,8 @@ steps:
     action: GOTO
     args: "3195 3270 0"
     description: "Walk to sheep pen"
+    await_condition: "location:3195,3270"
+    timeout_ms: 60000
 
   - id: 6
     phase: "shear_sheep"
@@ -111,6 +115,8 @@ steps:
     action: GOTO
     args: "3207 3214 0"
     description: "Walk to Lumbridge Castle ground floor"
+    await_condition: "location:3207,3214"
+    timeout_ms: 120000
 
   - id: 8
     phase: "spin_wool"
@@ -151,6 +157,8 @@ steps:
     args: "3187 3277 0"
     description: "Return to Fred the Farmer"
     notes: "May need intermediate waypoints if pathing fails"
+    await_condition: "location:3187,3277"
+    timeout_ms: 120000
 
   - id: 13
     phase: "complete_quest"

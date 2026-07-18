@@ -768,7 +768,7 @@ def _suggest_await_conditions(events: List[Dict]) -> List[Dict]:
         }
 
         event_type = event.get("type", "")
-        target = event.get("target", "")
+        _target = event.get("target", "")
         action = event.get("action", "")
 
         if event_type == "interact":

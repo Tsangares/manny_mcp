@@ -121,6 +121,8 @@ steps:
     action: GOTO
     args: "3129 3124 0"
     delay_before_ms: 500
+    await_condition: "location:3129,3124"
+    timeout_ms: 60000
 
   - id: 9
     description: "Open door to outside"
@@ -181,6 +183,8 @@ steps:
     action: GOTO
     args: "3122 3102 0"
     delay_before_ms: 500
+    await_condition: "location:3122,3102"
+    timeout_ms: 60000
     notes: "Door leads west toward the Magic area"
 
   - id: 18

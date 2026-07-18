@@ -7,6 +7,7 @@ import os
 import time
 
 from ..registry import registry
+from ..stuck_detector import stuck_detector as _stuck_detector
 
 # Dependencies
 send_command_with_response = None
@@ -20,9 +21,6 @@ _extract_relevant_state = None
 # Session recorder (lazy import to avoid circular deps)
 _session_recorder = None
 _command_log = None
-
-# Stuck detector
-from ..stuck_detector import stuck_detector as _stuck_detector
 
 
 def _get_recorder():
@@ -113,7 +111,8 @@ async def handle_send_command(arguments: dict) -> dict:
 
     # Also record to explicit session if active (with state tracking)
     recorder = _get_recorder()
-    cmd_id = recorder.record_command(command) if recorder.is_active() else None
+    if recorder.is_active():
+        recorder.record_command(command)
 
     try:
         with open(command_file, "w") as f:
@@ -495,8 +494,6 @@ async def handle_equip_item(arguments: dict) -> dict:
 
     if not item_name:
         return {"success": False, "error": "item_name is required"}
-
-    command_file = config.get_command_file(account_id)
 
     # Step 1: Find the item widget in inventory
     # Use SCAN_WIDGETS with item name filter

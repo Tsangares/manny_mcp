@@ -82,6 +82,8 @@ steps:
     action: GOTO
     args: "3073 3090 0"
     delay_before_ms: 1000
+    await_condition: "location:3073,3090"
+    timeout_ms: 120000
     # Door at (3072, 3090) - stand next to it
 
   - id: 12

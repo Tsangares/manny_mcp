@@ -37,6 +37,8 @@ steps:
     description: "Walk to Survival Expert area"
     action: GOTO
     args: "3100 3095 0"
+    await_condition: "location:3100,3095"
+    timeout_ms: 120000
     # VALIDATED: Must walk closer before INTERACT_NPC works (range limit ~10 tiles)
 
   - id: 2

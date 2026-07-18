@@ -97,6 +97,8 @@ steps:
     action: GOTO
     args: "3090 3091 0"
     delay_before_ms: 1000
+    await_condition: "location:3090,3091"
+    timeout_ms: 120000
     # Gate location: (3089, 3091)
     # Stand in front before opening
 
@@ -134,6 +136,8 @@ steps:
     delay_before_ms: 500
     repeat_until: "no_item:Raw shrimps"
     max_iterations: 1
+    await_condition: "location:3100,3095"
+    timeout_ms: 60000
 
 # PITFALLS DISCOVERED:
 # 1. Object name is lowercase "tree" (case-sensitive)

@@ -33,6 +33,8 @@ steps:
     args: "3208 3220 2"
     description: "Walk to Lumbridge bank"
     location: lumbridge_bank
+    await_condition: "location:3208,3220"
+    timeout_ms: 120000
 
   - id: 2
     phase: "preparation"

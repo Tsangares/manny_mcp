@@ -105,6 +105,8 @@ steps:
     action: GOTO
     args: "3243 3208 0"
     description: "Go to Lumbridge Church"
+    await_condition: "location:3243,3208"
+    timeout_ms: 120000
 
   - id: 2
     phase: "start_quest"
@@ -130,6 +132,8 @@ steps:
     action: GOTO
     args: "3147 3175 0"
     description: "Walk to Father Urhney's hut in swamp"
+    await_condition: "location:3147,3175"
+    timeout_ms: 120000
 
   - id: 6
     phase: "get_amulet"
@@ -165,6 +169,8 @@ steps:
     args: "3247 3193 0"
     description: "Go to graveyard gate"
     notes: "Graveyard is fenced - must open door first"
+    await_condition: "location:3247,3193"
+    timeout_ms: 120000
 
   - id: 11
     phase: "talk_ghost"
@@ -205,6 +211,8 @@ steps:
     args: "3104 3162 0"
     description: "Go to Wizard's Tower ladder"
     notes: "Go to LADDER (3104,3162), NOT staircase (3103,3159)"
+    await_condition: "location:3104,3162"
+    timeout_ms: 120000
 
   - id: 17
     phase: "get_skull"
@@ -219,6 +227,8 @@ steps:
     args: "3120 9566 0"
     description: "Walk to altar in basement"
     notes: "May need to open doors - use get_transitions() to check"
+    await_condition: "location:3120,9566"
+    timeout_ms: 120000
 
   - id: 19
     phase: "get_skull"
@@ -235,6 +245,8 @@ steps:
     args: "3103 9576 0"
     description: "Walk to ladder in basement"
     notes: "Ladder up is at (3103, 9576)"
+    await_condition: "location:3103,9576"
+    timeout_ms: 60000
 
   - id: 21
     phase: "return_skull"
@@ -247,6 +259,8 @@ steps:
     action: GOTO
     args: "3247 3193 0"
     description: "Return to graveyard gate"
+    await_condition: "location:3247,3193"
+    timeout_ms: 120000
 
   - id: 23
     phase: "return_skull"

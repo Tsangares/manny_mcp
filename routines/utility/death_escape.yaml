@@ -43,6 +43,8 @@ steps:
     args: "10707 1030 0"
     description: "Walk to Death NPC"
     location: death_npc
+    await_condition: "location:10707,1030"
+    timeout_ms: 60000
 
   - id: 2
     phase: "start_tutorial"
@@ -59,7 +61,7 @@ steps:
     args: "Space"
     description: "Press Space to advance dialogue"
     repeat: 5
-    delay_ms: 1000
+    delay_after_ms: 1000
     notes: "CLICK_CONTINUE fails - must use Space key input"
 
   # ========== PHASE 3: COMPLETE ALL TOPICS ==========
@@ -76,7 +78,7 @@ steps:
     action: KEY_PRESS
     args: "Space"
     repeat: 3
-    delay_ms: 1000
+    delay_after_ms: 1000
     description: "Space through fee explanation"
 
   - id: 6
@@ -91,7 +93,7 @@ steps:
     action: KEY_PRESS
     args: "Space"
     repeat: 3
-    delay_ms: 1000
+    delay_after_ms: 1000
     description: "Space through timer explanation"
 
   - id: 8
@@ -106,7 +108,7 @@ steps:
     action: KEY_PRESS
     args: "Space"
     repeat: 3
-    delay_ms: 1000
+    delay_after_ms: 1000
     description: "Space through items explanation"
 
   # ========== PHASE 4: EXIT ==========
@@ -121,7 +123,7 @@ steps:
     action: KEY_PRESS
     args: "Space"
     repeat: 2
-    delay_ms: 1000
+    delay_after_ms: 1000
     description: "Confirm exit dialogue"
 
   - id: 12

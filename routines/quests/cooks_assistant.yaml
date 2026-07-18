@@ -94,6 +94,8 @@ steps:
     args: "3208 3216 0"
     description: "Walk to Lumbridge kitchen"
     location: lumbridge_kitchen
+    await_condition: "location:3208,3216"
+    timeout_ms: 120000
 
   - id: 7
     phase: "start_quest"
@@ -129,6 +131,8 @@ steps:
     args: "3180 3288 0"
     description: "Walk to chicken coop north of Lumbridge"
     location: chicken_coop
+    await_condition: "location:3180,3288"
+    timeout_ms: 120000
 
   - id: 10
     phase: "get_egg"
@@ -145,6 +149,8 @@ steps:
     args: "3253 3270 0"
     description: "Walk to cow pen east of Lumbridge"
     location: cow_pen
+    await_condition: "location:3253,3270"
+    timeout_ms: 120000
 
   - id: 12
     phase: "get_milk"
@@ -161,6 +167,8 @@ steps:
     args: "3162 3293 0"
     description: "Walk to wheat field south of windmill"
     location: wheat_field
+    await_condition: "location:3162,3293"
+    timeout_ms: 120000
 
   - id: 14
     phase: "get_flour"
@@ -175,6 +183,8 @@ steps:
     args: "3166 3306 0"
     description: "Walk to windmill"
     location: windmill
+    await_condition: "location:3166,3306"
+    timeout_ms: 60000
 
   - id: 16
     phase: "get_flour"
@@ -221,6 +231,8 @@ steps:
     args: "3208 3216 0"
     description: "Return to Lumbridge kitchen"
     location: lumbridge_kitchen
+    await_condition: "location:3208,3216"
+    timeout_ms: 120000
 
   - id: 23
     phase: "complete_quest"

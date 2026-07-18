@@ -34,6 +34,8 @@ steps:
     args: "3208 3220 2"
     description: "Go to bank"
     location: lumbridge_bank
+    await_condition: "location:3208,3220"
+    timeout_ms: 120000
 
   - id: 2
     phase: "preparation"
@@ -64,6 +66,8 @@ steps:
     args: "3253 3266 0"
     description: "Walk to cow pen"
     location: lumbridge_cow_pen
+    await_condition: "location:3253,3266"
+    timeout_ms: 120000
 
   - id: 7
     phase: "combat"

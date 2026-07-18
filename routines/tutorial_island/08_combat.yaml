@@ -80,6 +80,8 @@ steps:
     action: GOTO
     args: "3104 9509 0"
     delay_before_ms: 500
+    await_condition: "location:3104,9509"
+    timeout_ms: 120000
 
   # Phase 1: Initial dialogue and equipment tab
   - id: 2
@@ -260,6 +262,8 @@ steps:
     action: GOTO
     args: "3111 9525 0"
     delay_before_ms: 500
+    await_condition: "location:3111,9525"
+    timeout_ms: 60000
 
   - id: 28
     description: "Climb up ladder"

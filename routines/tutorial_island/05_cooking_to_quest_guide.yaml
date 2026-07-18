@@ -37,6 +37,8 @@ steps:
     description: "Walk to cooking exit door"
     action: GOTO
     args: "3073 3090 0"
+    await_condition: "location:3073,3090"
+    timeout_ms: 60000
     notes: |
       CRITICAL: Must be directly in front of door before INTERACT_OBJECT works.
       The door at (3072, 3090) leads OUT of the cooking building toward Quest Guide.
@@ -53,6 +55,8 @@ steps:
     action: GOTO
     args: "3072 3100 0"
     delay_before_ms: 1000
+    await_condition: "location:3072,3100"
+    timeout_ms: 60000
     notes: "Go WEST first to avoid invisible fences, then north"
 
   - id: 4
@@ -60,18 +64,24 @@ steps:
     action: GOTO
     args: "3072 3110 0"
     delay_before_ms: 1000
+    await_condition: "location:3072,3110"
+    timeout_ms: 60000
 
   - id: 5
     description: "Walk toward Quest Guide building"
     action: GOTO
     args: "3080 3120 0"
     delay_before_ms: 1000
+    await_condition: "location:3080,3120"
+    timeout_ms: 60000
 
   - id: 6
     description: "Walk to Quest Guide door"
     action: GOTO
     args: "3086 3125 0"
     delay_before_ms: 1000
+    await_condition: "location:3086,3125"
+    timeout_ms: 60000
 
   - id: 7
     description: "Open Quest Guide building door"

@@ -163,7 +163,7 @@ def _infer_await_condition(event: Dict, next_event: Optional[Dict]) -> Optional[
     """Infer appropriate await_condition for an event."""
     event_type = event.get("type", "")
     action = event.get("action", "").lower()
-    target = event.get("target", "")
+    _target = event.get("target", "")
 
     if event_type == "interact":
         if action in ("talk-to", "talk"):

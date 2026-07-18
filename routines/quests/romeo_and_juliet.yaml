@@ -58,6 +58,8 @@ steps:
     args: "3211 3422 0"
     description: "Walk to Varrock Square"
     location: varrock_square
+    await_condition: "location:3211,3422"
+    timeout_ms: 120000
 
   - id: 2
     phase: "start_quest"
@@ -78,6 +80,8 @@ steps:
     args: "3159 3426 0"
     description: "Walk to Juliet's house in west Varrock"
     location: juliet_house_ground
+    await_condition: "location:3159,3426"
+    timeout_ms: 120000
 
   - id: 5
     phase: "juliet"
@@ -119,6 +123,8 @@ steps:
     args: "3254 3477 0"
     description: "Walk to Varrock Church"
     location: varrock_church
+    await_condition: "location:3254,3477"
+    timeout_ms: 120000
 
   - id: 11
     phase: "father_lawrence"
@@ -144,6 +150,8 @@ steps:
     description: "Go through Varrock south gate"
     notes: "Must exit city through south gate before heading east to cadava bushes"
     validated: true  # Confirmed 2026-02-09
+    await_condition: "location:3217,3375"
+    timeout_ms: 120000
 
   - id: 13b
     phase: "cadava_berries"
@@ -151,6 +159,8 @@ steps:
     args: "3235 3375 0"
     description: "Head east outside south wall"
     validated: true  # Confirmed 2026-02-09
+    await_condition: "location:3235,3375"
+    timeout_ms: 60000
 
   - id: 13c
     phase: "cadava_berries"
@@ -158,6 +168,8 @@ steps:
     args: "3255 3372 0"
     description: "Continue east toward cadava bushes"
     validated: true  # Confirmed 2026-02-09
+    await_condition: "location:3255,3372"
+    timeout_ms: 60000
 
   - id: 13
     phase: "cadava_berries"
@@ -167,6 +179,8 @@ steps:
     location: cadava_bush
     notes: "Cadava bush at (3268, 3370). Stay east of x=3240 to avoid Dark Wizard aggro."
     validated: true  # Confirmed 2026-02-09
+    await_condition: "location:3268,3371"
+    timeout_ms: 60000
 
   - id: 14
     phase: "cadava_berries"
@@ -186,12 +200,16 @@ steps:
     args: "3255 3372 0"
     description: "Head west along safe route (south of wall)"
     notes: "Retrace the safe path - stay south of Varrock wall"
+    await_condition: "location:3255,3372"
+    timeout_ms: 60000
 
   - id: 15b
     phase: "apothecary"
     action: GOTO
     args: "3235 3375 0"
     description: "Continue west toward south gate"
+    await_condition: "location:3235,3375"
+    timeout_ms: 60000
 
   - id: 15c
     phase: "apothecary"
@@ -199,12 +217,16 @@ steps:
     args: "3217 3375 0"
     description: "Back through Varrock south gate"
     validated: true  # Confirmed 2026-02-09
+    await_condition: "location:3217,3375"
+    timeout_ms: 60000
 
   - id: 15d
     phase: "apothecary"
     action: GOTO
     args: "3210 3395 0"
     description: "Head north inside city toward Apothecary"
+    await_condition: "location:3210,3395"
+    timeout_ms: 60000
 
   - id: 15
     phase: "apothecary"
@@ -213,6 +235,8 @@ steps:
     description: "Walk to Apothecary in southwest Varrock"
     location: apothecary
     validated: true  # Confirmed 2026-01-27
+    await_condition: "location:3197,3404"
+    timeout_ms: 60000
 
   - id: 16
     phase: "apothecary"
@@ -250,6 +274,8 @@ steps:
     args: "3159 3426 0"
     description: "Return to Juliet's house"
     location: juliet_house_ground
+    await_condition: "location:3159,3426"
+    timeout_ms: 120000
 
   - id: 21
     phase: "juliet_potion"
@@ -291,6 +317,8 @@ steps:
     action: GOTO
     args: "3235 3300 0"
     description: "Walk north from Lumbridge toward Varrock"
+    await_condition: "location:3235,3300"
+    timeout_ms: 120000
 
   - id: 26b
     phase: "complete_quest"
@@ -298,6 +326,8 @@ steps:
     args: "3254 3350 0"
     description: "Continue north, stay EAST of Dark Wizards"
     notes: "Dark Wizards at (3210-3235, 3360-3385) - stay east!"
+    await_condition: "location:3254,3350"
+    timeout_ms: 120000
 
   - id: 26
     phase: "complete_quest"
@@ -305,6 +335,8 @@ steps:
     args: "3260 3400 0"
     description: "Waypoint north past Dark Wizards"
     notes: "AVOID (3200, 3350) - that's Dark Wizard territory!"
+    await_condition: "location:3260,3400"
+    timeout_ms: 120000
 
   - id: 27
     phase: "complete_quest"
@@ -312,6 +344,8 @@ steps:
     args: "3211 3422 0"
     description: "Walk to Varrock Square"
     location: varrock_square
+    await_condition: "location:3211,3422"
+    timeout_ms: 120000
 
   - id: 28
     phase: "complete_quest"

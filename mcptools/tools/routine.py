@@ -4,9 +4,12 @@ Used for building multi-step game automations.
 """
 import asyncio
 import json
+import logging
 import os
 import re
 import time
+
+import yaml
 
 from ..registry import registry
 from ..utils import maybe_truncate_response
@@ -1017,8 +1020,6 @@ async def handle_list_commands(arguments: dict) -> dict:
 handle_list_plugin_commands = handle_list_commands
 
 
-import yaml
-
 # Late-import handlers from other modules (set in set_dependencies)
 _handle_send_and_await = None
 _handle_await_state_change = None
@@ -1895,8 +1896,6 @@ async def check_client_health(account_id: str = None, max_stale_seconds: float =
         "error": f"Client not ready (GET_GAME_STATE status={status}, canSendCommands=False)",
     }
 
-
-import logging
 
 _routine_logger = logging.getLogger("routine.auto_restart")
 

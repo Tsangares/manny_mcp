@@ -64,6 +64,8 @@ steps:
     args: "3061 3374 0"
     description: "Walk to mine entrance building"
     notes: "Starting position - validated location outside the door"
+    await_condition: "location:3061,3374"
+    timeout_ms: 120000
 
   - id: 2
     phase: "enter_mine"
@@ -79,6 +81,8 @@ steps:
     args: "3019 3450 0"
     description: "Walk inside the building"
     delay_after_ms: 500
+    await_condition: "location:3019,3450"
+    timeout_ms: 120000
 
   - id: 4
     phase: "enter_mine"
@@ -96,6 +100,8 @@ steps:
     args: "3033 9737 0"
     description: "Walk to iron rock cluster"
     notes: "Underground coordinates"
+    await_condition: "location:3033,9737"
+    timeout_ms: 120000
 
   # ========== PHASE 3: POWER MINE ==========
   - id: 6

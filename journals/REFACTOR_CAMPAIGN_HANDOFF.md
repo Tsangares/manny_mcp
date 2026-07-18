@@ -867,3 +867,28 @@ Ran chicken_killer_training on 'new' via run_routine.py. RESULTS:
   Fix must be live-gated (GOTO 70+ tiles must actually walk). Until fixed, grind routines that need a
   long initial travel will stall at step 1; short-range routines (already at the resource) are unaffected.
 ███████████████████████████████████████████████████████████████████████████████
+
+## DEFECT-19 FIX (v2) + ROUTINE HARDENING 2026-07-18 ~14:45 — PENDING LIVE GATE
+ROOT CAUSE (agent diag, manny/journals/DEFECT19_NAVIGATION_DIAGNOSIS.md): "Pathfinder API" is an
+EXTERNAL http service (osrspathfinder.com) — unreachable in this sandbox -> falls back to Global A*;
+A* uses CollisionMapCache.canMove which treats UNCACHED tiles as blocked, so a 76-tile route (mostly
+unvisited, 10201-tile cache @0% hit) churns toward maxIterations=50000 and HANGS >51s. gotoPositionSafe
+then never reaches its giveup branch.
+- v1 fix (38cfb5e) put the LOS->directional fallback in the giveup branch = AFTER the hanging A*.
+  LIVE GATE FAILED: no movement, no new log line (never reached the branch). Also thermal spiked to 90C
+  (the A* churn is itself CPU-heavy, compounding client render load).
+- **v2 fix (a5069a0, COMPILE-GREEN, PENDING LIVE GATE):** moved the shortcut BEFORE the slow A* at the
+  API-fallback point (~NavigationHelpers:1436): when pathfinder API returns no path AND hasLineOfSight,
+  go straight to simpleDirectionalNavigation, skipping A*. New log line: "[NAV-API] Pathfinder API
+  unavailable but LINE OF SIGHT CLEAR - directional walk, skipping slow A*". LOS-blocked routes keep the
+  A*/smart-door path. Bonus: skipping the A* churn should also REDUCE the thermal load for this route.
+  >>> LIVE GATE (careful, thermal): rebuild done (jar fresh). GOTO 3235 3295 0 must (1) log the new line,
+      (2) NOT show [Global A*] churn, (3) actually WALK and arrive. Keep gate SHORT (stop as soon as loc
+      changes = proven), abort at 84C. If green: chain KILL_LOOP Chicken to prove the grind end-to-end.
+ROUTINE CORPUS HARDENING (agent, journals/ROUTINE_CORPUS_HARDENING_2026-07-18.md): applied the DEFECT-19
+  lesson corpus-wide — 60 GOTO steps across 17 files got await_condition location:X,Y + distance-scaled
+  timeout_ms (60s <=20 tiles, 120s longer). quests/utility audited (fixed death_escape delay_ms no-op).
+  Flagged config-only sidecars w/o steps: (gravestone_retrieval, hill_giants) + cooks_assistant missing
+  start-GOTO + tutorial 06_quest_guide (superseded dup of 05, awaits documented to cause timeouts there).
+  All 43 routines parse clean.
+███████████████████████████████████████████████████████████████████████████████

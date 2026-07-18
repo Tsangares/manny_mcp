@@ -57,6 +57,8 @@ steps:
     action: GOTO
     args: "3080 9504 0"
     delay_before_ms: 500
+    await_condition: "location:3080,9504"
+    timeout_ms: 60000
     notes: "From ladder at (3088, 9520), walk south to mining area"
 
   - id: 2
