@@ -1311,7 +1311,45 @@ async def _check_conditions(conditions: list, routine_config: dict, account_id: 
 
 
 async def _execute_single_step(step: dict, step_idx: int, routine_config: dict, account_id: str) -> dict:
-    """Execute a single routine step and return the result."""
+    """Execute a routine step, honoring `repeat: N` (default 1).
+
+    `repeat: N` runs the step's action up to N times sequentially. When the
+    step also has an `await_condition`, a satisfied condition short-circuits
+    the remaining repeats -- this is the evident intent behind every real
+    usage (e.g. routines/quests/restless_ghost.yaml step 8: `CLICK_CONTINUE`
+    repeat=5 with await_condition="has_item:Ghostspeak amulet" -- "keep
+    clicking continue up to 5 times until the item is obtained/dialogue
+    ends"; routines/quests/sheep_shearer.yaml step 6: `INTERACT_NPC` repeat=20
+    with await_condition="inventory_count:>=20" -- "keep shearing until the
+    inventory is full, or give up after 20 tries"). Without an
+    await_condition (the more common case -- imp_catcher.yaml,
+    death_escape.yaml) it's a fixed-count blind repeat, e.g. "click continue
+    5 times" through a known dialogue chain.
+    """
+    try:
+        repeat = max(1, int(step.get('repeat', 1)))
+    except (TypeError, ValueError):
+        repeat = 1
+
+    await_condition = step.get('await_condition')
+
+    step_result = await _execute_step_once(step, step_idx, routine_config, account_id)
+    attempts = 1
+
+    while attempts < repeat:
+        if await_condition and step_result.get("success"):
+            break  # Condition already satisfied -- short-circuit remaining repeats.
+        attempts += 1
+        step_result = await _execute_step_once(step, step_idx, routine_config, account_id)
+
+    step_result["attempts"] = attempts
+    if repeat > 1:
+        step_result["repeat"] = repeat
+    return step_result
+
+
+async def _execute_step_once(step: dict, step_idx: int, routine_config: dict, account_id: str) -> dict:
+    """Execute a single iteration of a routine step's action and return the result."""
     step_id = step.get('id', step_idx + 1)
     action = step.get('action')
     delay_before = step.get('delay_before_ms', 0)

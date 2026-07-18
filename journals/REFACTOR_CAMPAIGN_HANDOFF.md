@@ -328,6 +328,20 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
   (subprocess/time.sleep → asyncio.to_thread at the boundary), fresh inventory (old line numbers
   dead post-P1), tool surface must stay 39, routines/ and discord_bot/ and manny_driver/ excluded.
   Commit separately when green → completes Wave 5 with the Java latch commit `7a651c8`.
+- **WAVE 5 COMPLETE (2026-07-17 ~19:35):** P2 committed `e43c868` (async handlers wrapped in
+  asyncio.to_thread at boundaries; standalone CLIs untouched; ruff 224, pytest 76, 39 tools).
+- **WAVE 6a COMMITTED `5bd303e`:** InteractionSystem = single click authority.
+  clickMenuEntrySafe/smartClick cluster + menu-verify state + click stats moved in (PH keeps thin
+  delegates; MannyPlugin needed ZERO edits — it only calls the onMenuOptionClicked forwarder);
+  CombatSystem.clickNPC/verifyAndClickNPC moved intact (combat click genuinely differs — do not
+  merge onto clickNPCSafe). PH −707, CS −340, IS +1076. Live-gated (login exercises moved path).
+  Note for W6-J1 Actions retirement: Actions.java has FOUR private matchesMenuEntry copies that
+  collapse onto now-public InteractionSystem.matchesMenuEntry.
+- **REMAINING:** W6-J1 Actions retirement (fable; NEEDS user answer on strategy Q1 —
+  ScenarioEngine replay retire vs keep), W6-J2 PlayerHelpers split (fable; includes its 115
+  latches + full helper extraction), W6-P1 driver control-plane (sonnet, free now), follow-ups
+  (validator static index, repeat:N no-op, EAT threshold gap), Wave 7 docs+journal, then/or
+  Tutorial Island test run (strategy Q2: agent-first recommended).
 - **Routine repairs ✅ committed `6cb7ac7`:** DIALOGUE_CONTINUE→CLICK_CONTINUE,
   DIALOGUE_SELECT→CLICK_DIALOGUE, EAT_FOOD→EAT in the 4 broken routines. NEW FOLLOW-UPS
   from that agent (queue after W5-P2 frees mcptools/tools/):

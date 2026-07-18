@@ -42,7 +42,11 @@ class DriverConfig:
     monitoring_interval_seconds: int = 30
     conversation_window_size: int = 40
 
-    # MCP server
+    # In-process tool registry (see mcptools/bootstrap.py, mcp_client.py).
+    # `server_script` is a vestige of the old stdio-subprocess client (kept only
+    # for backward-compatible construction; MCPClient no longer spawns anything).
+    # `server_cwd` is still real: it's the project root, used to resolve
+    # config.yaml and put the repo on sys.path for in-process tool imports.
     server_script: str = "server.py"
     server_cwd: Optional[str] = None
 

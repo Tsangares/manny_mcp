@@ -1,66 +1,62 @@
-"""MCP stdio client - connects to server.py as a subprocess."""
-import asyncio
-import json
+"""In-process MCP tool client.
+
+Talks directly to the shared ``mcptools.registry.ToolRegistry`` (via
+``mcptools.bootstrap.init_registry``) instead of spawning a second copy of
+``server.py`` as a stdio subprocess.
+
+SINGLE-SERVER RULE: there must be exactly one control plane writing commands
+to the plugin's file-IPC (see ``mcptools/transport.py`` and
+``mcptools/bootstrap.py``). Before this fix, the driver spawned its own
+``server.py`` subprocess purely to get a tool-calling interface -- a second,
+fully independent process capable of racing the "real" MCP server (the one
+Claude Code talks to) for writes to the same ``/tmp/manny_*_command.txt`` /
+``*_response.json`` files. That's exactly the kind of divergent-copy bug
+``mcptools/transport.py`` was written to eliminate for command I/O
+specifically; spawning a whole second server process reintroduced the same
+class of problem one level up. Do NOT reintroduce a subprocess spawn here --
+if the driver needs a new tool, register it once in ``mcptools/tools/`` (like
+every other tool) and it's automatically available in-process via the
+registry, with no second process involved.
+"""
+import base64
 import logging
-import sys
-from contextlib import AsyncExitStack
-from pathlib import Path
 from typing import Any, Optional
 
-from mcp import ClientSession
-from mcp.client.stdio import stdio_client, StdioServerParameters
-from mcp.types import TextContent, ImageContent
+from mcp.types import ImageContent, TextContent
+
+from mcptools import bootstrap
+from mcptools.registry import registry
 
 logger = logging.getLogger("manny_driver.mcp")
 
 
 class MCPClient:
-    """Manages an MCP connection to the server.py subprocess."""
+    """In-process facade over the shared ToolRegistry.
+
+    Keeps the same public surface the old stdio-subprocess client had
+    (``connect``/``disconnect``/``get_tools``/``call_tool``/async context
+    manager) so callers (``manny_driver/agent.py``, ``manny_driver/__main__.py``)
+    and the tool-name filtering in ``manny_driver/tools.py`` are unaffected.
+    """
 
     def __init__(self, server_script: str = "server.py", server_cwd: Optional[str] = None):
+        # `server_script` is accepted (but unused) purely for backward-compatible
+        # construction -- there is no subprocess to launch anymore.
         self.server_script = server_script
-        self.server_cwd = server_cwd or str(Path(__file__).parent.parent)
-        self.session: Optional[ClientSession] = None
+        self.server_cwd = server_cwd
         self._tools: list = []
-        self._exit_stack: Optional[AsyncExitStack] = None
+        self._connected = False
 
     async def connect(self):
-        """Start the MCP server subprocess and establish a session."""
-        server_params = StdioServerParameters(
-            command=sys.executable,
-            args=[self.server_script],
-            cwd=self.server_cwd,
-        )
-
-        # Use AsyncExitStack to manage nested context managers
-        self._exit_stack = AsyncExitStack()
-        await self._exit_stack.__aenter__()
-
-        # Start stdio client
-        read_stream, write_stream = await self._exit_stack.enter_async_context(
-            stdio_client(server_params)
-        )
-
-        # Create and initialize session
-        self.session = await self._exit_stack.enter_async_context(
-            ClientSession(read_stream, write_stream)
-        )
-        await self.session.initialize()
-
-        # Cache tool list
-        result = await self.session.list_tools()
-        self._tools = result.tools
-        logger.info(f"MCP connected: {len(self._tools)} tools available")
+        """Wire the shared tool registry in-process (no subprocess spawn)."""
+        bootstrap.init_registry(project_root=self.server_cwd)
+        self._tools = registry.list_tools()
+        self._connected = True
+        logger.info(f"MCP (in-process) connected: {len(self._tools)} tools available")
 
     async def disconnect(self):
-        """Shut down the MCP session and server process."""
-        if self._exit_stack:
-            try:
-                await self._exit_stack.__aexit__(None, None, None)
-            except Exception as e:
-                logger.debug(f"MCP disconnect: {e}")
-            self._exit_stack = None
-        self.session = None
+        """No-op: there is no subprocess or stream to tear down."""
+        self._connected = False
         self._tools = []
 
     def get_tools(self) -> list:
@@ -68,26 +64,30 @@ class MCPClient:
         return self._tools
 
     async def call_tool(self, name: str, arguments: dict[str, Any] = None) -> str:
-        """Call an MCP tool and return the result as a string.
+        """Call a tool via the shared registry and return the result as a string.
 
         Returns text content from the tool result. Images are described
         but not returned (the driver works primarily with text).
         """
-        if not self.session:
+        if not self._connected:
             raise RuntimeError("MCP client not connected")
 
         arguments = arguments or {}
-        result = await self.session.call_tool(name, arguments)
+        content = await registry.call_tool(name, arguments)
 
-        # Parse content blocks
+        # Parse content blocks (same shapes the old stdio session returned).
         parts = []
-        for content in result.content:
-            if isinstance(content, TextContent):
-                parts.append(content.text)
-            elif isinstance(content, ImageContent):
-                parts.append(f"[Image: {content.mimeType}, {len(content.data)} bytes]")
+        for block in content:
+            if isinstance(block, TextContent):
+                parts.append(block.text)
+            elif isinstance(block, ImageContent):
+                try:
+                    size = len(base64.b64decode(block.data))
+                except Exception:
+                    size = len(block.data)
+                parts.append(f"[Image: {block.mimeType}, {size} bytes]")
             else:
-                parts.append(str(content))
+                parts.append(str(block))
 
         return "\n".join(parts)
 

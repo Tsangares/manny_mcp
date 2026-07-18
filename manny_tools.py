@@ -2226,8 +2226,23 @@ def list_available_commands(plugin_dir: str, category: str = "all", search: str 
 
     PHASE 3 OPTIMIZATION: Results cached for 10 minutes.
 
-    Extracts commands from the switch statement and categorizes them.
-    Much faster than manually grepping the source.
+    Since the Wave 3-4 command-registry migration, most commands are no longer
+    plain `case "X":` labels in the dispatch switch -- they're registered via
+    `register("NAME", someCommandInstance)` calls onto a CommandBase registry
+    (123 of them as of this writing) that's checked BEFORE the switch. Only a
+    small remainder (~10) is still dispatched solely by the legacy
+    `switch (cmd)` block in executeCommand(). A regex that only looked for
+    `case "X":` labels (the pre-Wave-3 shape) would therefore miss ~92% of
+    real commands -- including things like GOTO -- and flag them as unknown.
+
+    This parses BOTH sources and unions them:
+      1. `register("NAME", handler)` calls (primary, current source of truth).
+      2. `case "NAME":` labels, but ONLY within the legacy `switch (cmd)`
+         dispatch block (bounded to that block, not the whole file) -- other,
+         unrelated switches later in PlayerHelpers.java (widget-group
+         dispatch, combat-style, spell-name lookup, etc.) also use
+         ALL-CAPS-ish case labels like "ATTACK"/"STRENGTH" that are NOT
+         top-level commands and would false-positive if scanned unbounded.
 
     Args:
         plugin_dir: Path to manny plugin directory
@@ -2251,38 +2266,61 @@ def list_available_commands(plugin_dir: str, category: str = "all", search: str 
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-    # Find switch statement (look for case statements)
     commands = []
-    case_pattern = re.compile(r'case\s+"([A-Z_]+)":')
+    seen_names = set()
 
+    def _maybe_add(cmd_name: str, line_no, handler_name, source: str):
+        if cmd_name in seen_names:
+            return
+        seen_names.add(cmd_name)
+        cmd_category = categorize_command(cmd_name)
+        if category != "all" and cmd_category != category:
+            return
+        if search and search.lower() not in cmd_name.lower():
+            return
+        commands.append({
+            "name": cmd_name,
+            "line": line_no,
+            "handler": handler_name,
+            "category": cmd_category,
+            "source": source,
+        })
+
+    # SOURCE 1 (primary): `register("NAME", handlerInstance)` calls -- the
+    # current source of truth for the vast majority of commands.
+    register_pattern = re.compile(r'register\(\s*"([A-Za-z0-9_]+)"\s*,\s*(\w+)\s*\)')
     for i, line in enumerate(lines, 1):
-        match = case_pattern.search(line)
+        match = register_pattern.search(line)
         if match:
-            cmd_name = match.group(1)
+            cmd_name, handler_name = match.group(1), match.group(2)
+            _maybe_add(cmd_name, i, handler_name, "registry")
 
-            # Extract handler method name from next few lines
+    # SOURCE 2 (legacy remainder): `case "NAME":` labels, bounded to the
+    # legacy `switch (cmd)` dispatch block only (from "switch (cmd)" to the
+    # first "default:" that follows it) so unrelated switches elsewhere in
+    # the file can't leak false positives into the index.
+    switch_match = re.search(r'switch\s*\(\s*cmd\s*\)', content)
+    if switch_match:
+        default_match = re.search(r'\n\s*default\s*:', content[switch_match.end():])
+        block_end = switch_match.end() + default_match.start() if default_match else len(content)
+        switch_block = content[switch_match.end():block_end]
+        block_start_line = content[:switch_match.end()].count('\n') + 1
+
+        case_pattern = re.compile(r'case\s+"([A-Za-z0-9_]+)":')
+        for match in case_pattern.finditer(switch_block):
+            cmd_name = match.group(1)
+            line_no = block_start_line + switch_block[:match.start()].count('\n')
+
+            # Extract handler method/class name from the next few lines, if any.
             handler_name = None
-            for j in range(i, min(i + 5, len(lines))):
-                handler_match = re.search(r'return\s+(\w+)\s*\(', lines[j])
-                if handler_match:
+            handler_search_start = lines[line_no - 1:line_no + 4] if line_no else []
+            for handler_line in handler_search_start:
+                handler_match = re.search(r'(?:return\s+)?(\w+)\s*\(', handler_line)
+                if handler_match and handler_match.group(1) not in ("case",):
                     handler_name = handler_match.group(1)
                     break
 
-            # Categorize command
-            cmd_category = categorize_command(cmd_name)
-
-            # Apply filters
-            if category != "all" and cmd_category != category:
-                continue
-            if search and search.lower() not in cmd_name.lower():
-                continue
-
-            commands.append({
-                "name": cmd_name,
-                "line": i,
-                "handler": handler_name,
-                "category": cmd_category
-            })
+            _maybe_add(cmd_name, line_no, handler_name, "legacy_switch")
 
     # Group by category
     by_category = {}
