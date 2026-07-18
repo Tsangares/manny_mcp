@@ -29,9 +29,24 @@ IP = no ban risk, no proxy needed**), and generalizing that into a host-agnostic
 
 ---
 
-## IN-FLIGHT AGENTS (background; resume via SendMessage to the ID)
+## PARALLEL EXECUTION STAGE — 2026-07-18 ~16:00 (LIVE; supersedes the older in-flight list below)
+Overseer launched a 4-track parallel stage to finish the diort bring-up + adjacent code work. Plan file:
+`~/.claude/plans/kind-snuggling-turtle.md`. Live status:
+- **Track A (overseer, critical path):** ✅ dataimpulse proxy stored in `~/.manny/credentials.yaml`
+  (`proxies.dataimpulse`, both endpoint forms) + verified working (residential exit `167.60.124.153`).
+  ✅ creds pushed to diort (chmod 600, verified). ⏳ provision→start→nav-gate→grind GATED on Track C.
+- **Track B (fork):** GameEngine collision/tile off-thread wraps (isTileWalkable/getEmptyTile/
+  isPlayerTileEmpty/scanAndCacheCollisionData) via getDistanceTo template; compile-gate + self-commit to manny.
+- **Track C (agent):** validate mannyctl↔diort — temp-guard (GRIND BLOCKER), venv/pip, `${var@Q}` SSH
+  quoting, jdk21-path pin; small fixes to client_remote.sh/mannyctl/hosts.yaml (handed to overseer to commit).
+- **Track D (agent):** tutorial 05/06 double-run decision + routine corpus parse/lint.
+- **KEY DISCOVERY:** diort was hand-staged at NON-canonical paths (`~/manny`, `~/manny_mcp`, jar at
+  `~/manny/`, no venv) — `mannyctl diort provision` MUST run to reconcile to hosts.yaml layout
+  (`~/Desktop/manny_mcp` + venv, jar→`~/Desktop/runelite-client-libs`) before `start`.
+
+## IN-FLIGHT AGENTS (SUPERSEDED — prior stage, all done)
 - `a0bb6c2bc4c3ccdc9` — diort staging + thermal probe — ✅ **DONE**: diort STAGED (jdk21 21.0.11, jar at
-  `~/manny/`, code at `~/manny_mcp/` + venv, perf config replicated). Thermal GREEN: 56→62°C over 4.5min
+  `~/manny/`, code at `~/manny_mcp/`, perf config replicated). Thermal GREEN: 56→62°C over 4.5min
   under login-screen render, fan never ramped (vs laptop 90°C/2min). Lower bound (not full gameplay). No creds touched.
 - `af40999aacfb04bec` — remote-client design — ✅ **DONE** → REMOTE_CLIENT_ARCHITECTURE.md + `scripts/remote/`
   (mannyctl, hosts.yaml, provision.sh, client_remote.sh). All 3 agents complete; nothing left in flight.
@@ -100,8 +115,13 @@ venv, never echoes tokens). On diort this will be adapted (see REMOTE_CLIENT_ARC
 **Locked/single-writer:** MannyPlugin.java is LOCKED (manifest notes only). PlayerHelpers.java single-writer
 (one agent per phase). Never print session tokens or character ids.
 
-**Open defect queue (fix+gate on diort):** GameEngine off-thread remnants (isTileWalkable/getEmptyTile/
-combat-scan ~5594/5787/5998/6097/camera ~7907/8099/8220). Everything else is fixed.
+**Open defect queue (fix+gate on diort):** GameEngine off-thread remnants — SCOPE CORRECTED
+2026-07-18: the real unguarded off-thread reads are the COLLISION/TILE cluster (isTileWalkable ~3106,
+getEmptyTile ~3058, isPlayerTileEmpty ~3047, scanAndCacheCollisionData ~3169/3253), called off-thread
+from CookingFiremakingSupport/PowerMineCommand/LightFireCommand → real crash risks. Track B (fork) is
+fixing these now. The old queue's "combat-scan ~5594/camera ~7907" entries were MISDIAGNOSED — those are
+StateExporter methods already on the client thread via onGameTick (in-code comment confirms); NOT defects,
+do not wrap. Everything else is fixed.
 
 **Delegation:** heavy work goes to subagents to protect overseer context; author self-contained prompts
 (subagents don't share context). Model tiers: opus=deep Java/design, sonnet=well-specified, haiku=mechanical.
