@@ -1,0 +1,85 @@
+# hosts.yaml — manny remote-run host registry  [PROTOTYPE]
+#
+# One entry per machine that can run the manny RuneLite client. The orchestrator
+# (a Claude session on the laptop) reads this to know HOW to reach each host and
+# WHERE things live on it. `mannyctl <host> <cmd>` looks the host up here and
+# either runs locally (local: true) or wraps the command in `ssh <ssh>`.
+#
+# KEY CONSTRAINT (do not "fix" by sharing /tmp over the network): the plugin's
+# IPC files (/tmp/manny_<acct>_command.txt / _response.json / _state.json) MUST
+# be on the SAME machine as the client. So run_routine.py + the client both run
+# ON the target host; the orchestrator only drives over SSH. See
+# journals/REMOTE_CLIENT_ARCHITECTURE.md.
+#
+# SCHEMA (per host):
+#   local          bool   — true = this IS the orchestrator box, run commands
+#                           directly (no ssh). Exactly one host should be local.
+#   ssh            str    — ssh destination (alias from ~/.ssh/config, or
+#                           user@host, or user@tailscale-ip). Ignored if local.
+#   jdk            str    — absolute path to the java 21 binary (must run the
+#                           major-65 shaded jar; JDK17 will NOT).
+#   display        str    — Xvfb display, e.g. ":2" (parity with client.sh).
+#   staging_dir    str    — where the manny_mcp repo lives on the host.
+#   runelite_libs  str    — dir containing the *-shaded.jar on the host.
+#   venv_python    str    — python inside the host's venv (usually
+#                           <staging_dir>/venv/bin/python).
+#   temp_refuse_c  int    — refuse to launch at/above this package temp.
+#   temp_warn_c    int    — warn (but proceed) at/above this.
+#   egress         str    — human note on this host's outbound IP identity
+#                           (ban-risk surface). Not enforced; documentation.
+#   viewer_host    str    — address to reach the mjpeg viewer / x11vnc from the
+#                           orchestrator (LAN IP or Tailscale IP; 127.0.0.1 for
+#                           local).
+#   viewer_port    int    — mjpeg viewer port.
+#   notes          str    — free-form.
+
+hosts:
+
+  # ---- localhost: the laptop (taxi). Behaves exactly like today. ----------
+  laptop:
+    local: true
+    ssh: null
+    jdk: /usr/lib/jvm/java-21-openjdk/bin/java
+    display: ":2"
+    staging_dir: /home/wil/Desktop/manny_mcp
+    runelite_libs: /home/wil/Desktop/runelite/runelite-client/build/libs
+    venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
+    temp_refuse_c: 88
+    temp_warn_c: 80
+    egress: "local — laptop's own IP (short-burst/dev only; overheats at 90C in ~2min under grind)"
+    viewer_host: 127.0.0.1
+    viewer_port: 8787
+    notes: "Dev/short-burst box. Keep client.sh's local flow intact; this entry mirrors it."
+
+  # ---- diort: 2011 iMac, LAN + Tailscale, residential IP, real cooling. ----
+  diort:
+    local: false
+    ssh: diort                      # or wil@100.91.42.96 (Tailscale) / wil@10.0.0.13 (LAN)
+    jdk: /usr/lib/jvm/java-21-openjdk/bin/java
+    display: ":2"
+    staging_dir: /home/wil/Desktop/manny_mcp
+    runelite_libs: /home/wil/Desktop/runelite-client-libs
+    venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
+    temp_refuse_c: 88
+    temp_warn_c: 80
+    egress: "home residential IP (the point of the migration — no datacenter-IP ban risk)"
+    viewer_host: 100.91.42.96       # Tailscale (works off-LAN); LAN alt: 10.0.0.13
+    viewer_port: 8787
+    notes: "Shared desktop (couchdb/docker also run here). Treat client as a guest: stop when idle."
+
+  # ---- mat: example future host, residential-proxy egress fallback. --------
+  # Commented template for phase 2 — copy, fill in, uncomment.
+  # mat:
+  #   local: false
+  #   ssh: wil@100.123.10.30
+  #   jdk: /usr/lib/jvm/java-21-openjdk/bin/java
+  #   display: ":2"
+  #   staging_dir: /home/wil/Desktop/manny_mcp
+  #   runelite_libs: /home/wil/Desktop/runelite-client-libs
+  #   venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
+  #   temp_refuse_c: 88
+  #   temp_warn_c: 80
+  #   egress: "residential-proxy fallback"
+  #   viewer_host: 100.123.10.30
+  #   viewer_port: 8787
+  #   notes: "Phase 2 candidate."

@@ -1,0 +1,235 @@
+#!/usr/bin/env bash
+# mannyctl — thin SSH abstraction to run the manny client on ANY host  [PROTOTYPE]
+#
+# The orchestrator (a Claude session on the laptop) uses this to drive the manny
+# client uniformly across machines. It reads scripts/remote/hosts.yaml, then runs
+# every command either LOCALLY (host with local: true) or wrapped in `ssh <ssh>`.
+# The client + run_routine.py always execute ON the target host so the plugin's
+# local /tmp IPC files stay colocated with the client (see
+# journals/REMOTE_CLIENT_ARCHITECTURE.md — this is the load-bearing constraint).
+#
+# Usage:
+#   mannyctl list
+#   mannyctl <host> provision                 # idempotent host setup (scripts/remote/provision.sh)
+#   mannyctl <host> push-creds                 # USER-GATED: rsync ~/.manny/credentials.yaml to host
+#   mannyctl <host> start <account>            # thermal-guarded launch on host
+#   mannyctl <host> stop
+#   mannyctl <host> restart <account>
+#   mannyctl <host> status
+#   mannyctl <host> temp                       # quick remote package temp
+#   mannyctl <host> run <routine.yaml> [args]  # run_routine.py ON the host
+#   mannyctl <host> cmd <account> <COMMAND..>  # ad-hoc: send one plugin command, print response
+#   mannyctl <host> logs [account] [n]         # tail the client log on host
+#   mannyctl <host> viewer [port]              # start mjpeg viewer on host, print URL
+#   mannyctl <host> exec <shell...>            # escape hatch: run arbitrary cmd on host
+#
+# NOTE: This is a prototype skeleton. TODO markers flag spots that need a live
+# host to validate. It intentionally never prints credentials/tokens.
+
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
+HOSTS_YAML="${MANNY_HOSTS_YAML:-$SCRIPT_DIR/hosts.yaml}"
+
+# Prefer the repo venv python (has pyyaml); fall back to system python3.
+PYBIN="$REPO_DIR/venv/bin/python"
+[ -x "$PYBIN" ] || PYBIN="python3"
+
+die() { echo "mannyctl: $*" >&2; exit 1; }
+
+# hostfield <host> <field> — print one field from hosts.yaml (empty if unset).
+hostfield() {
+  "$PYBIN" - "$HOSTS_YAML" "$1" "$2" <<'PY'
+import sys, yaml
+path, host, field = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    data = yaml.safe_load(f) or {}
+h = (data.get("hosts") or {}).get(host)
+if h is None:
+    sys.exit(3)
+v = h.get(field, "")
+if v is None:
+    v = ""
+print(v)
+PY
+}
+
+list_hosts() {
+  "$PYBIN" - "$HOSTS_YAML" <<'PY'
+import sys, yaml
+with open(sys.argv[1]) as f:
+    data = yaml.safe_load(f) or {}
+hosts = data.get("hosts") or {}
+w = max((len(n) for n in hosts), default=4)
+print(f"{'HOST'.ljust(w)}  KIND    SSH                        EGRESS")
+for name, h in hosts.items():
+    kind = "local" if h.get("local") else "remote"
+    ssh = str(h.get("ssh") or "-")
+    egr = str(h.get("egress") or "")
+    print(f"{name.ljust(w)}  {kind:6}  {ssh:26} {egr}")
+PY
+}
+
+# Load host fields into globals. Exits if host unknown.
+load_host() {
+  HOST="$1"
+  H_LOCAL="$(hostfield "$HOST" local)" || die "unknown host '$HOST' (see: mannyctl list)"
+  H_SSH="$(hostfield "$HOST" ssh)"
+  H_JDK="$(hostfield "$HOST" jdk)"
+  H_DISPLAY="$(hostfield "$HOST" display)"
+  H_STAGING="$(hostfield "$HOST" staging_dir)"
+  H_LIBS="$(hostfield "$HOST" runelite_libs)"
+  H_VENVPY="$(hostfield "$HOST" venv_python)"
+  H_REFUSE="$(hostfield "$HOST" temp_refuse_c)"
+  H_WARN="$(hostfield "$HOST" temp_warn_c)"
+  H_VHOST="$(hostfield "$HOST" viewer_host)"
+  H_VPORT="$(hostfield "$HOST" viewer_port)"
+}
+
+is_local() { [ "$H_LOCAL" = "True" ] || [ "$H_LOCAL" = "true" ]; }
+
+# run_on_host <shell-command-string> — the ONE abstraction. Local hosts run the
+# string in a login shell directly; remote hosts get it wrapped in ssh. The
+# command string is passed verbatim to `bash -lc` on the far side.
+run_on_host() {
+  local cmd="$1"
+  if is_local; then
+    bash -lc "$cmd"
+  else
+    [ -n "$H_SSH" ] && [ "$H_SSH" != "None" ] || die "host '$HOST' is not local but has no ssh: set"
+    # -o BatchMode=yes: fail fast instead of hanging on a password prompt.
+    ssh -o BatchMode=yes "$H_SSH" "$cmd"
+  fi
+}
+
+# client_env_prefix — env assignments that parameterize client_remote.sh for this host.
+client_env_prefix() {
+  printf 'REPO_DIR=%q RUNELITE_LIBS=%q JAVA_BIN=%q XVFB_DISPLAY=%q TEMP_REFUSE_C=%q TEMP_WARN_C=%q' \
+    "$H_STAGING" "$H_LIBS" "$H_JDK" "$H_DISPLAY" "$H_REFUSE" "$H_WARN"
+}
+
+client_remote_cmd() {
+  # runs scripts/remote/client_remote.sh on the host with the right env
+  echo "cd $(printf %q "$H_STAGING") && $(client_env_prefix) ./scripts/remote/client_remote.sh $*"
+}
+
+# ---- subcommands ----------------------------------------------------------
+
+do_start()   { run_on_host "$(client_remote_cmd start "$1")"; }
+do_stop()    { run_on_host "$(client_remote_cmd stop)"; }
+do_restart() { run_on_host "$(client_remote_cmd restart "$1")"; }
+do_status()  { run_on_host "$(client_remote_cmd status)"; }
+
+do_temp() {
+  # Reuse client_remote.sh's status thermal block via a tiny inline read.
+  run_on_host "cd $(printf %q "$H_STAGING") && $(client_env_prefix) ./scripts/remote/client_remote.sh status | sed -n '/thermal/,\$p'"
+}
+
+do_run() {
+  # run_routine.py ON the host (IPC stays local to the client). All args after
+  # the routine path are forwarded (--loops, --account, ...).
+  [ $# -ge 1 ] || die "run needs a routine path, e.g.: mannyctl $HOST run routines/combat/x.yaml --account new"
+  local args; args="$(printf '%q ' "$@")"
+  run_on_host "cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") run_routine.py $args"
+}
+
+do_cmd() {
+  # Ad-hoc single command via the canonical transport, executed on the host so
+  # it reads/writes the host's local /tmp IPC files. Prints the plugin response.
+  [ $# -ge 2 ] || die "cmd needs: <account> <COMMAND...>"
+  local acct="$1"; shift
+  local command="$*"
+  # Uses transport.send_command_sync — same path as run_routine.py, rid-correlated.
+  run_on_host "cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") -c $(printf %q "
+import json
+from mcptools import transport
+r = transport.send_command_sync(${command@Q}, account_id=${acct@Q}, await_response=True, timeout=10.0)
+print(json.dumps(r, indent=2))
+")"
+  # TODO(live): confirm ${var@Q} quoting survives the ssh hop on the target's
+  # bash version; if not, drop to a heredoc-on-stdin form.
+}
+
+do_logs() {
+  local acct="${1:-new}"; local n="${2:-40}"
+  local log="/tmp/runelite.log"
+  [ "$acct" = "new" ] || log="/tmp/runelite_${acct}.log"
+  run_on_host "tail -n $(printf %q "$n") $(printf %q "$log")"
+}
+
+do_viewer() {
+  local port="${1:-$H_VPORT}"
+  echo "starting mjpeg viewer on $HOST display $H_DISPLAY port $port ..."
+  # Detached so it keeps running after the ssh session closes.
+  run_on_host "cd $(printf %q "$H_STAGING") && MJPEG_DISPLAY=$(printf %q "$H_DISPLAY") MJPEG_PORT=$(printf %q "$port") MJPEG_FPS=1.5 setsid $(printf %q "$H_VENVPY") scripts/mjpeg_viewer.py >/tmp/mjpeg_viewer.log 2>&1 </dev/null & disown; echo started"
+  echo "view: http://${H_VHOST}:${port}/view?display=${H_DISPLAY}"
+}
+
+do_provision() {
+  # Runs scripts/remote/provision.sh. For a REMOTE host the very first run is a
+  # chicken-and-egg (the repo isn't there yet), so provision.sh is designed to
+  # be COPIED then run: we scp just that one script, then execute it, and it
+  # rsyncs the rest. For a local host it's already present.
+  if is_local; then
+    bash "$SCRIPT_DIR/provision.sh" "$HOST"
+  else
+    [ -n "$H_SSH" ] && [ "$H_SSH" != "None" ] || die "remote host '$HOST' has no ssh:"
+    echo "provisioning remote host '$HOST' ($H_SSH) ..."
+    # provision.sh runs FROM the orchestrator and pushes to the host; it only
+    # needs hosts.yaml + ssh reachability. Just invoke it locally with the host.
+    MANNY_HOSTS_YAML="$HOSTS_YAML" bash "$SCRIPT_DIR/provision.sh" "$HOST"
+  fi
+}
+
+do_push_creds() {
+  # USER-GATED. Copies ONLY ~/.manny/credentials.yaml to the host with strict
+  # perms. Never rsync -a the whole ~/.manny (it holds training_data/). Never
+  # logged/printed. See security note in REMOTE_CLIENT_ARCHITECTURE.md.
+  if is_local; then die "'$HOST' is local — creds already here"; fi
+  local src="$HOME/.manny/credentials.yaml"
+  [ -f "$src" ] || die "no $src on the orchestrator"
+  echo "About to copy live Jagex session credentials to $HOST ($H_SSH)."
+  echo "This is an account-affecting step (new-device/new-IP login)."
+  printf "Type 'yes' to proceed: "
+  read -r ans
+  [ "$ans" = "yes" ] || die "aborted (no creds copied)"
+  run_on_host "mkdir -p ~/.manny && chmod 700 ~/.manny"
+  # scp the single file; then lock perms on the far side.
+  scp -q "$src" "$H_SSH:.manny/credentials.yaml" || die "scp failed"
+  run_on_host "chmod 600 ~/.manny/credentials.yaml"
+  echo "credentials.yaml copied to $HOST:~/.manny/ (chmod 600). Tokens not printed."
+}
+
+do_exec() { run_on_host "$*"; }
+
+# ---- dispatch -------------------------------------------------------------
+
+main() {
+  local a1="${1:-}"
+  [ -n "$a1" ] || { grep '^#' "$0" | sed -n '2,40p' | sed 's/^# \{0,1\}//'; exit 1; }
+
+  if [ "$a1" = "list" ]; then list_hosts; exit 0; fi
+
+  local host="$a1"; shift || true
+  local sub="${1:-}"; [ -n "$sub" ] && shift || true
+  load_host "$host"
+
+  case "$sub" in
+    provision)   do_provision ;;
+    push-creds)  do_push_creds ;;
+    start)       [ $# -ge 1 ] || die "start needs an account"; do_start "$1" ;;
+    stop)        do_stop ;;
+    restart)     [ $# -ge 1 ] || die "restart needs an account"; do_restart "$1" ;;
+    status)      do_status ;;
+    temp)        do_temp ;;
+    run)         do_run "$@" ;;
+    cmd)         do_cmd "$@" ;;
+    logs)        do_logs "$@" ;;
+    viewer)      do_viewer "$@" ;;
+    exec)        do_exec "$@" ;;
+    "")          die "no subcommand for host '$host' (try: status|start|stop|run|cmd|viewer)" ;;
+    *)           die "unknown subcommand '$sub'" ;;
+  esac
+}
+main "$@"
