@@ -644,3 +644,13 @@ THEN (routines phase): transcribe tutorial coords into sections 07-10 (needs A d
 run 00_master end-to-end on newbakshesh; then grind-loop money-makers on 'new' in Lumbridge.
 Engine is READY (commit 1c63c42: repeat_until/dialogue/click_text/chain).
 ================================================================================
+
+## PHASE A COMPLETE — Java defect batch LIVE-GATED GREEN (2026-07-18 ~11:55)
+Rebuilt shadowJar (11:49, 0 stale sources) with manny 124a2c1; relaunched 'new' in Lumbridge; gated:
+- DEFECT-3 PASS: SCAN_TILEOBJECTS ran clean, 0 new "client thread" errors.
+- DEFECT-11 PASS: TILE Tree red -> "Marked 412 tiles", no tileMarkerManager NPE.
+- DEFECT-13 PASS: TELEPORT_HOME used widget 14286854 (Lumbridge), NOT 14286855 (Minigame); "Teleport complete".
+- DEFECT-14 PASS: MOUSE_MOVE sidebar coords accepted, both space "700 350" and comma "690,340" forms.
+Defect fixes are DEPLOYED + verified. NEXT = Phase B: J2-4 nav extraction (pre-flight J2-4_PREFLIGHT.md).
+OPS LESSON: never detect the client with `pgrep -f 'java -jar.*shaded.jar'` — the pattern self-matches
+your own bash command line. Use `pgrep -x java` + check /proc/<pid>/environ for MANNY_ACCOUNT_ID.
