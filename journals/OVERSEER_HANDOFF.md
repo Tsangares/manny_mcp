@@ -17,7 +17,7 @@ one, open the doc named in its row.
 | 2 | **Off-thread defect cluster** (DEFECT-3 class) | ✅ **DONE** — DEFECT-15/16/17/18 fixed+gated; **remnants** queued for diort | REFACTOR_CAMPAIGN_LESSONS.md |
 | 3 | **Navigation** (DEFECT-19/19b) | ✅ code FIXED (char walks); **full-walk live gate owed on diort** | manny/journals/DEFECT19_NAVIGATION_DIAGNOSIS.md |
 | 4 | **Routines phase** | 🔄 groundwork DONE; **live grind proof blocked on a cool host** | GRIND_ROUTINE_READINESS_*.md, ROUTINE_CORPUS_HARDENING_*.md |
-| 5 | **diort migration** (thermal-stable run host) | 🔄 staging IN FLIGHT; **cred/login = USER-APPROVED ("go on diort")**, do it after thermal probe | DIORT_MIGRATION_PLAN.md |
+| 5 | **diort migration** (thermal-stable run host) | ✅ **STAGED + thermally GREEN**; only **cred/login + gate** remains (USER-approved "go") | DIORT_MIGRATION_PLAN.md + §DIORT BRING-UP below |
 | 6 | **Machine-agnostic remote-client** | 🔄 DESIGN in flight (generalizes #5 to any host) | REMOTE_CLIENT_ARCHITECTURE.md (being written) |
 
 ### Why the pivot to #5/#6 (the crux)
@@ -30,14 +30,26 @@ IP = no ban risk, no proxy needed**), and generalizing that into a host-agnostic
 ---
 
 ## IN-FLIGHT AGENTS (background; resume via SendMessage to the ID)
-- `a0bb6c2bc4c3ccdc9` — **diort staging + no-creds thermal probe**: installs jdk21, rsyncs jar+code, venv,
-  replicates low-CPU render config, launches client to LOGIN SCREEN (no creds) and measures diort temp under
-  load. **Its thermal reading gates whether we commit the account to diort.** Cred/login is NOT delegated to it.
-- `af40999aacfb04bec` — **remote-client architecture design**: writes REMOTE_CLIENT_ARCHITECTURE.md + a
-  prototype (hosts.yaml + a `mannyctl`-style ssh launcher in NEW files; does NOT touch existing client.sh/run_routine.py).
-- `a6237f80b1def8a38` — **blog-ready session journal** → journals/2026-07-18_multiproject_session.md.
-(When each notifies completion, fold results into the relevant doc + commit. Their output files are in the
-session tasks dir; do NOT tail them raw.)
+- `a0bb6c2bc4c3ccdc9` — diort staging + thermal probe — ✅ **DONE**: diort STAGED (jdk21 21.0.11, jar at
+  `~/manny/`, code at `~/manny_mcp/` + venv, perf config replicated). Thermal GREEN: 56→62°C over 4.5min
+  under login-screen render, fan never ramped (vs laptop 90°C/2min). Lower bound (not full gameplay). No creds touched.
+- `af40999aacfb04bec` — remote-client architecture design — 🔄 still running (REMOTE_CLIENT_ARCHITECTURE.md + prototype).
+- `a6237f80b1def8a38` — session journal — ✅ **DONE** → journals/2026-07-18_multiproject_session.md (352 lines).
+
+## ⭐ DIORT BRING-UP — exact remaining steps (USER approved "go on diort"; ORCHESTRATOR/FORK does this) ⭐
+diort is fully staged; only the account login + gates remain. Do NOT delegate creds to a subagent; never print JX tokens.
+1. **[cred copy]** `ssh diort 'mkdir -p ~/.manny'` then `scp /home/wil/.manny/credentials.yaml diort:/home/wil/.manny/credentials.yaml`
+   — copy ONLY that file (NOT `~/.manny/` wholesale — it also has training_data/).
+2. **[config]** edit diort `~/manny_mcp/config.yaml`: `java_path` → `/usr/lib/jvm/java-21-openjdk/bin/java`, `display` → `:2`.
+3. **[port client.sh]** adapt diort's `scripts/client.sh` constants: jar is at `~/manny/client-1.12.34-SNAPSHOT-shaded.jar`
+   (not the plan's older path), JAVA_BIN=jdk21, XVFB_DISPLAY=:2, RUNELITE_DIR as needed.
+4. **[watched login]** `ssh diort 'cd ~/manny_mcp && ./scripts/client.sh start new'` (or the least-consequential acct);
+   tail `/tmp/runelite.log` on diort for `Game state is now LOGGED_IN`. Watch temp via `client.sh status`.
+5. **[DEFECT-19b full gate]** `GOTO 3235 3295 0` — must walk the FULL 76 tiles; expect the `[NAV-API] ...LINE OF
+   SIGHT CLEAR - directional walk` line and NO `[Global A*]` churn. (This is the live gate owed from project #3.)
+6. **[grind proof]** `run_routine.py routines/combat/chicken_killer_training.yaml --loops 3 --account new`,
+   monitor temp throughout — the REAL gameplay-load thermal test + the first unattended money-maker proof.
+7. Then on diort: fix+gate GameEngine off-thread remnants; tutorial-04 + disconnect-recovery verify.
 
 ---
 
