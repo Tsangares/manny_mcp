@@ -529,10 +529,20 @@ def _parse_condition(condition: str) -> tuple:
     - inventory_count:<=N or inventory_count:>=N - Slot count comparison
     - location:X,Y - Player near coordinates (within 3 tiles)
     - idle - Player not animating/moving
+    - dialogue / no_dialogue - a dialogue is open / not open (NARROW, see below)
     """
     if ":" not in condition:
         if condition == "idle":
             return ("idle", None, None)
+        # NARROW tutorial-only dialogue predicate. Reads the top-level `dialogue`
+        # object ({open,type,options}) in the state file. This is the ONLY new
+        # bare-word condition and is deliberately minimal -- it is NOT the
+        # proposed general condition dialect (hp:/skill:/equipped:/in_combat/...),
+        # which is pending the user's design decision. Do NOT generalize it here.
+        if condition == "dialogue":
+            return ("dialogue", True, None)
+        if condition == "no_dialogue":
+            return ("dialogue", False, None)
         raise ValueError(f"Invalid condition format: {condition}")
 
     parts = condition.split(":", 1)
@@ -620,6 +630,14 @@ def _check_condition(state: dict, condition: tuple) -> bool:
         is_moving = player.get("isMoving", False)
         # Could also check animation, but isMoving is most reliable
         return not is_moving
+
+    elif cond_type == "dialogue":
+        # NARROW tutorial predicate: the state file carries a TOP-LEVEL
+        # `dialogue` object {open, type, options} (NOT under `player`).
+        # value is True for "dialogue" (want open) and False for "no_dialogue"
+        # (want closed). Minimal, tutorial-needed only -- see _parse_condition.
+        dialogue = state.get("dialogue") or {}
+        return bool(dialogue.get("open", False)) == bool(value)
 
     return False
 

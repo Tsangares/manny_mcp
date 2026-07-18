@@ -1326,6 +1326,13 @@ async def _execute_single_step(step: dict, step_idx: int, routine_config: dict, 
     death_escape.yaml) it's a fixed-count blind repeat, e.g. "click continue
     5 times" through a known dialogue chain.
     """
+    # repeat_until: run the step's action until a predicate holds (or a safety
+    # cap is hit). Distinct from the numeric `repeat` below. Used by the tutorial
+    # routines as `repeat_until: "no_dialogue"` to press through multi-screen
+    # dialogues. Handled by its own loop so the two forms never interleave.
+    if step.get('repeat_until'):
+        return await _execute_repeat_until(step, step_idx, routine_config, account_id)
+
     try:
         repeat = max(1, int(step.get('repeat', 1)))
     except (TypeError, ValueError):
@@ -1346,6 +1353,127 @@ async def _execute_single_step(step: dict, step_idx: int, routine_config: dict, 
     if repeat > 1:
         step_result["repeat"] = repeat
     return step_result
+
+
+# repeat_until safety defaults. Overridable per-step (`max_iterations`,
+# `repeat_until_timeout_ms`) or via the routine `config:` block
+# (`repeat_until_max_iterations`, `repeat_until_timeout_ms`).
+DEFAULT_REPEAT_UNTIL_MAX_ITERATIONS = 25   # tutorial dialogues run 3-12 screens; headroom
+DEFAULT_REPEAT_UNTIL_TIMEOUT_MS = 2000     # per-iteration wait for state to reflect the predicate
+DEFAULT_REPEAT_UNTIL_POLL_INTERVAL_MS = 250
+
+
+async def _predicate_satisfied(condition: tuple, account_id: str) -> bool:
+    """Evaluate a parsed condition tuple against current game state (read-only)."""
+    from . import monitoring
+    state = await get_game_state(account_id)
+    if not state:
+        return False
+    return monitoring._check_condition(state, condition)
+
+
+async def _poll_predicate(condition: tuple, account_id: str,
+                          timeout_ms: int, poll_interval_ms: int) -> bool:
+    """Poll game state until `condition` holds or the timeout elapses.
+
+    Checks at least once (so a zero timeout is a single immediate check).
+    Returns True as soon as the predicate holds, else False at timeout.
+    """
+    deadline = time.time() + max(0, timeout_ms) / 1000.0
+    interval = max(0.05, poll_interval_ms / 1000.0)
+    while True:
+        if await _predicate_satisfied(condition, account_id):
+            return True
+        if time.time() >= deadline:
+            return False
+        await asyncio.sleep(interval)
+
+
+async def _execute_repeat_until(step: dict, step_idx: int,
+                                routine_config: dict, account_id: str) -> dict:
+    """Execute a step repeatedly until a predicate holds (or a safety cap is hit).
+
+    Tutorial routines use `repeat_until: "no_dialogue"` (press space/continue
+    through a multi-screen dialogue: keep advancing WHILE a dialogue is open,
+    stop the instant it closes). Semantics are check-FIRST -- a
+    `while not satisfied` loop -- so if the predicate already holds we run the
+    action ZERO times and never fire a stray space press after a dialogue has
+    already closed.
+
+    Safety: capped at `max_iterations` iterations, and each iteration waits at
+    most `repeat_until_timeout_ms` for the state to reflect the predicate before
+    pressing again (if the dialogue merely advanced to the next screen the wait
+    expires and we loop). Hitting the cap is logged and returns success=False.
+    """
+    from . import monitoring
+
+    step_id = step.get('id', step_idx + 1)
+    predicate = str(step.get('repeat_until'))
+    if routine_config:
+        predicate = interpolate_variables(predicate, routine_config)
+
+    cfg = routine_config or {}
+
+    def _int(value, default):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return default
+
+    max_iterations = max(1, _int(
+        step.get('max_iterations',
+                 cfg.get('repeat_until_max_iterations', DEFAULT_REPEAT_UNTIL_MAX_ITERATIONS)),
+        DEFAULT_REPEAT_UNTIL_MAX_ITERATIONS))
+    iter_timeout_ms = _int(
+        step.get('repeat_until_timeout_ms',
+                 cfg.get('repeat_until_timeout_ms', DEFAULT_REPEAT_UNTIL_TIMEOUT_MS)),
+        DEFAULT_REPEAT_UNTIL_TIMEOUT_MS)
+    poll_interval_ms = _int(
+        step.get('poll_interval_ms', cfg.get('poll_interval_ms', DEFAULT_REPEAT_UNTIL_POLL_INTERVAL_MS)),
+        DEFAULT_REPEAT_UNTIL_POLL_INTERVAL_MS)
+
+    base_result = {
+        "step_id": step_id,
+        "phase": step.get('phase'),
+        "action": step.get('action'),
+        "mcp_tool": step.get('mcp_tool'),
+        "repeat_until": predicate,
+        "max_iterations": max_iterations,
+    }
+
+    # Parse the predicate once (fail fast on a bad/unsupported condition).
+    try:
+        condition = monitoring._parse_condition(predicate)
+    except ValueError as e:
+        base_result["success"] = False
+        base_result["error"] = f"Invalid repeat_until condition: {e}"
+        base_result["iterations"] = 0
+        return base_result
+
+    iterations = 0
+    satisfied = await _predicate_satisfied(condition, account_id)
+    last_action_result = None
+
+    while not satisfied and iterations < max_iterations:
+        iterations += 1
+        last_action_result = await _execute_step_once(step, step_idx, routine_config, account_id)
+        satisfied = await _poll_predicate(condition, account_id, iter_timeout_ms, poll_interval_ms)
+
+    if not satisfied and iterations >= max_iterations:
+        _routine_logger.warning(
+            "[ROUTINE] repeat_until '%s' hit max-iteration cap (%d) at step %s "
+            "without becoming satisfied.", predicate, max_iterations, step_id)
+
+    base_result["iterations"] = iterations
+    base_result["satisfied"] = satisfied
+    base_result["success"] = satisfied
+    if not satisfied:
+        base_result["error"] = (
+            f"repeat_until '{predicate}' not satisfied after {iterations} "
+            f"iteration(s) (cap {max_iterations})")
+    if last_action_result is not None:
+        base_result["last_action_result"] = last_action_result
+    return base_result
 
 
 async def _execute_step_once(step: dict, step_idx: int, routine_config: dict, account_id: str) -> dict:
@@ -1465,6 +1593,11 @@ async def _execute_mcp_tool_step(step: dict, mcp_tool: str, account_id: str) -> 
         elif mcp_tool in ("click_widget", "find_and_click_widget"):
             # find_and_click_widget is the legacy name; click_widget is canonical
             result = await handle_click_widget(mcp_args)
+        elif mcp_tool == "click_text":
+            # Backed by handle_click_text -> handle_click_widget(dialogue_option=...)
+            # -> the plugin's CLICK_DIALOGUE. Section 10 uses this to advance/answer
+            # dialogue (click_text: {text: "continue" | "Yes" | "No"}).
+            result = await handle_click_text(mcp_args)
         else:
             step_result["success"] = False
             step_result["error"] = f"Unknown mcp_tool: {mcp_tool}"

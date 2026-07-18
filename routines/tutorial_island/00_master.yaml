@@ -1,0 +1,64 @@
+# Tutorial Island - MASTER CHAIN
+# Runs the section routines 01 -> 10 in order as a single command:
+#
+#     ./run_routine.py routines/tutorial_island/00_master.yaml --account <acct>
+#
+# (A directory also works: `./run_routine.py routines/tutorial_island/` globs the
+#  sections in sorted order, skipping this master and widget_reference.yaml.)
+#
+# SCOPE NOTE (2026-07-18): this file wires the ENGINE + chain so the tutorial is
+# runnable as one command. It does NOT transcribe the manual-drive coordinates
+# into the section YAMLs -- that is a separate later step. Sections 01-06 are
+# directionally runnable today; sections 07-10 remain gated on the Wave 6 plugin
+# fixes (DEFECT-7 GOTO-exact, DEFECT-8 modal dismissal, DEFECT-11 door filtering)
+# before they are trustworthy hands-off. See
+# journals/TUTORIAL_ROUTINE_READINESS_2026-07-18.md.
+#
+# progress_hint: metadata ONLY. It records the Tutorial-progress stage each
+# section starts at (tutorial progress widget group 263). The chain runner LOGS
+# it but does NOT gate on it yet -- active stage-gating (skip a completed
+# section) is part of the still-pending condition-dialect design. Kept in the
+# schema so the gate can be turned on later without moving the data.
+
+name: "Tutorial Island - Master Chain (01 -> 10)"
+type: chain
+category: tutorial_island
+
+chain:
+  - routine: 01_character_creation.yaml
+    description: "Section 1: Character creation"
+    progress_hint: 0
+  - routine: 01_experience_selection.yaml
+    description: "Section 1b: Experience-mode selection"
+    progress_hint: 1
+  - routine: 02_gielinor_guide.yaml
+    description: "Section 2: Gielinor Guide"
+    progress_hint: 2
+  - routine: 03_survival_expert.yaml
+    description: "Section 3: Survival Expert (fishing/fire/cooking)"
+    progress_hint: 3
+  - routine: 04_woodcutting_firemaking.yaml
+    description: "Section 4: Woodcutting + Firemaking"
+    progress_hint: 4
+  - routine: 05_cooking.yaml
+    description: "Section 5: Cooking"
+    progress_hint: 5
+  - routine: 05_cooking_to_quest_guide.yaml
+    description: "Section 5b: Cooking -> Quest Guide bridge"
+    progress_hint: 5
+  - routine: 06_quest_guide.yaml
+    description: "Section 6: Quest Guide"
+    progress_hint: 6
+  # --- Sections 07-10 gated on Wave 6 plugin fixes (see SCOPE NOTE) ---
+  - routine: 07_mining_smithing.yaml
+    description: "Section 7: Mining + Smithing"
+    progress_hint: 7
+  - routine: 08_combat.yaml
+    description: "Section 8: Combat"
+    progress_hint: 8
+  - routine: 09_banking.yaml
+    description: "Section 9: Banking"
+    progress_hint: 9
+  - routine: 10_prayer_magic.yaml
+    description: "Section 10: Prayer + Magic (exit Tutorial Island)"
+    progress_hint: 10
