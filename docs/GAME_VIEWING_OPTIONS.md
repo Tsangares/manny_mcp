@@ -8,11 +8,18 @@ the laptop and remotely over Tailscale (desktop **diort**, **pixel-6** phone).
 so viewer input must NOT reach `:2`. Any solution is view-only by default, or
 input is clearly gated off.
 
-**Verified environment (2026-07-17)**
-- `Xvfb :2` PID 90864, RuneLite java PID 94049 (~43% of one core, CPU renderer).
-- Tailscale up, taxi = `100.83.247.91`, tailscale 1.98.2 (`serve` supported).
+**Verified environment (2026-07-17, post-crash-reboot)**
+- `Xvfb :2` running (1600x1000x24, CPU renderer). Only `:2` exists right now;
+  `:3`–`:5` are the reserved pool for future accounts, not yet started.
+- Tailscale up, taxi = `100.83.247.91`.
 - Frame grab from `:2` works: `DISPLAY=:2 import -window root out.png`.
-- No root: cannot `pacman -S`. Install commands below are for the user to run.
+- **No root, and `sudo` requires an interactive password** (`sudo -n true`
+  fails) — cannot `pacman -S` anything unattended. `x11vnc`/`tigervnc` are
+  in the `extra` repo (confirmed via `pacman -Si`) but not installed
+  (`pacman -Q` reports "not found" for both). Install commands below are
+  for the user to run by hand when they choose to.
+- **Live status: the polished MJPEG viewer (option 4) is what's running,**
+  persisted via a systemd **user** unit (survives reboot — see below).
 
 ---
 
@@ -99,24 +106,100 @@ inapplicable — do not use it for this.
 
 ## RECOMMENDATION
 
-### Use right now (already running, zero install)
-The python MJPEG streamer — **option 4**. It is live on taxi:
+### Use right now — running as a systemd user service (survives reboot)
+The python MJPEG streamer — **option 4** — was polished (multi-display picker,
+adjustable FPS, auto-reconnect) and is installed as a **systemd --user** unit
+so it comes back automatically after any crash/reboot, no manual restart step
+needed.
 
-- Local: **http://127.0.0.1:8787/**
-- Any tailnet device (diort, phone): **http://100.83.247.91:8787/**
-- Overhead: **~6.6% of one core** at 1.5 fps, pauses to 0 when no one is watching.
-- Script: `/home/wil/Desktop/manny_mcp/scripts/mjpeg_viewer.py`
-- Log: `/tmp/manny_viewer.log`
+**Pixel phone URL (just open in the mobile browser):**
+```
+http://100.83.247.91:8787/
+```
+That's a picker page — tap "Display :2" + an fps (5/8/10) to get the live view
+at `/view?display=:2&fps=5`, which wraps the raw stream in a page with a
+status banner and JS auto-reconnect. To skip the picker and go straight to the
+view: **http://100.83.247.91:8787/view?display=:2&fps=5**
+
+Other endpoints:
+- Raw `<img>`-embeddable MJPEG: `http://100.83.247.91:8787/stream?display=:2&fps=5`
+- Health check: `http://100.83.247.91:8787/healthz`
+- Local (on taxi itself): `http://127.0.0.1:8787/`
+
+**Service management:**
+```bash
+systemctl --user status  mjpeg-viewer.service   # check it's up
+systemctl --user restart mjpeg-viewer.service   # manual restart if ever needed
+systemctl --user stop    mjpeg-viewer.service    # stop watching entirely
+journalctl --user -u mjpeg-viewer.service -e     # service-level logs
+tail -f /tmp/manny_viewer.log                    # app-level logs (per-client connect/disconnect)
+```
+Unit file: `/home/wil/.config/systemd/user/mjpeg-viewer.service`
+(`enabled` + `WantedBy=default.target`; `loginctl show-user wil` confirms
+`Linger=yes`, so it starts at boot even with nobody logged in — genuinely
+reboot-persistent, not just session-persistent).
+
+Script: `/home/wil/Desktop/manny_mcp/scripts/mjpeg_viewer.py`
+Env overrides (set in the unit file, or export before running manually):
+`MJPEG_PORT` (8787), `MJPEG_FPS` (default 5), `MJPEG_QUALITY` (70, JPEG %),
+`MJPEG_DISPLAY` (`:2`, used when no `?display=` query param is given),
+`MJPEG_CROP` (`on`/`off`, default on), `MJPEG_DETECT_INTERVAL` (30 s),
+`MJPEG_TRIM_FUZZ` (`8%`), `MJPEG_MIN_CROP` (200 px).
+
+#### Crop-to-game-window (default ON)
+
+The RuneLite client only fills part of the 1600x1000 Xvfb root (on `:2` it sits
+at `796x504+804+496`, the classic fixed-mode window flush to the bottom-right),
+so the phone previously saw the game shoved into a corner. The stream now
+**crops tight to the game window by default**.
+
+Detection is pure ImageMagick — this host has **no X introspection tools**
+(`xwininfo`/`xdotool`/`xrandr` are all absent, and `xprop` is useless because no
+window manager runs on Xvfb so `_NET_CLIENT_LIST`/EWMH doesn't exist). The
+grabber takes one root frame, finds the non-black bounding box
+(`convert … -fuzz 8% -trim`), and feeds that geometry to
+`import -window root -crop WxH+X+Y +repage` so the crop happens at capture time
+(no extra scaling pass). Geometry is cached and **re-detected every 30 s** (env
+`MJPEG_DETECT_INTERVAL`), so a window that moves or resizes is followed
+automatically within one detect cycle; add `&redetect=1` to force it immediately.
+
+Fallbacks (never a broken stream): if the grab/trim fails or the box is
+implausibly small (< `MJPEG_MIN_CROP`, e.g. a transient all-black loading
+screen), the grabber keeps the last good geometry, or streams the **full root**
+if it never got one. Displays without a client still cost 0 CPU (lazy grabber).
+
+Stream/view params:
+- `&crop=off` — stream the full 1600x1000 root instead of the game window.
+- `&redetect=1` — re-find the window now (window moved/resized).
+- The `/view` page shows the current mode in the status banner and has a
+  `full frame` / `crop to game` toggle link in the bottom-right corner.
+
+Caveat: the per-display grabber is shared, so `crop` (like `fps`) is
+last-request-wins, and the *first* frame a client receives after a crop-mode
+toggle can be the previously-cached frame in the old mode — it self-corrects on
+the next captured frame (~0.2 s). Irrelevant for the normal single-viewer,
+crop-on-by-default case.
+
+**Multi-display support is now built into one process** — no more one
+process-per-account. `?display=:2|:3|:4|:5` selects which Xvfb to grab (regex
+allow-listed, so a stray query param can't reach an arbitrary DISPLAY value).
+Each display gets its own lazily-started grabber thread that pauses (0 CPU)
+when nobody is watching it; `:3`–`:5` will "just work" once those Xvfb
+instances exist — no script changes or new services needed for more accounts.
+
+**Measured overhead (2026-07-17, live test running on :2):**
+- 0 clients connected: ~0% CPU (grabber thread blocks on a condvar).
+- 1 client @ 5 fps: **~21–22% of one core** (dominated by the `import`
+  grab subprocess, not the python server itself, which stays <1%).
+- Scales roughly linearly with fps (the old 1.5 fps measurement was ~6.6%).
+  Recommended phone fps: **5** (good motion, moderate CPU); use 8–10 only if
+  you need snappier feedback and can spare the core time.
 
 The **pixel-6 can just open the URL in its mobile browser** — an `<img>` MJPEG
-stream renders natively, no app needed.
-
-To restart it after a reboot:
-```bash
-cd /home/wil/Desktop/manny_mcp/scripts
-setsid python3 mjpeg_viewer.py </dev/null >/dev/null 2>&1 &
-```
-Env overrides: `MJPEG_PORT`, `MJPEG_FPS`, `MJPEG_QUALITY`, `MJPEG_DISPLAY`.
+stream renders natively, no app needed. The `/view` page adds a dark
+mobile-friendly frame, a live/lost status banner, and automatic reconnect if
+the stream drops (browser `onerror` + a 20s stall watchdog), so leaving the
+phone on the page unattended is fine.
 
 #### Optional: publish over Tailscale with HTTPS
 Plain HTTP over the tailnet is already private (WireGuard-encrypted). If you want
@@ -130,6 +213,12 @@ Then the phone/desktop open the `https://…ts.net/` URL. (Do **not** use
 `tailscale funnel` — that would expose it to the public internet.)
 
 ### Install for a "proper" setup (better latency, lower CPU, reconnect-safe)
+This needs root, and `sudo` on this box requires an interactive password (no
+passwordless sudo configured), so it could not be done unattended — it's a
+manual, one-time upgrade for the user to run whenever convenient. Everything
+else (systemd persistence, phone-friendly viewer) is already done above and
+does **not** depend on this.
+
 **x11vnc attached to the existing `:2`, view-only** — no client restart required:
 ```bash
 sudo pacman -S x11vnc
@@ -158,20 +247,25 @@ Keep viewers in ViewOnly mode to preserve input isolation.
 
 ## Multi-account future
 
-Scaling to several bot accounts = one headless display per account, one viewer
-port per account:
+**Update:** the viewer now handles this with **one running service**, not one
+process per account — `mjpeg-viewer.service` already serves every display via
+a query param:
 
-| Account | Display | Xvfb | Viewer port | Tailnet URL |
-|---|---|---|---|---|
-| 1 | `:2` | running | 8787 | `http://100.83.247.91:8787/` |
-| 2 | `:3` | `Xvfb :3 -screen 0 1600x1000x24` | 8788 | `…:8788/` |
-| 3 | `:4` | `Xvfb :4 -screen 0 1600x1000x24` | 8789 | `…:8789/` |
+| Account | Display | Xvfb | Tailnet URL |
+|---|---|---|---|
+| 1 (running) | `:2` | running | `http://100.83.247.91:8787/view?display=:2&fps=5` |
+| 2 (future) | `:3` | `Xvfb :3 -screen 0 1600x1000x24` | `…/view?display=:3&fps=5` |
+| 3 (future) | `:4` | `Xvfb :4 -screen 0 1600x1000x24` | `…/view?display=:4&fps=5` |
+| 4 (future) | `:5` | `Xvfb :5 -screen 0 1600x1000x24` | `…/view?display=:5&fps=5` |
 
-The MJPEG script already parameterizes display and port via env, so per-account
-instances are trivial:
-```bash
-MJPEG_DISPLAY=:3 MJPEG_PORT=8788 setsid python3 mjpeg_viewer.py </dev/null >/dev/null 2>&1 &
-```
-For x11vnc, run one per display on distinct `-rfbport`s (5900, 5901, …). A single
-`tailscale serve` config can map several paths to the several ports if you want
-one hostname with `/acct2`, `/acct3` routes.
+Nothing to start or configure when a new account's Xvfb comes up on `:3`–`:5` —
+the picker page at `http://100.83.247.91:8787/` already lists all four and the
+grabber thread for a display is created lazily on first request. If a display
+doesn't exist yet, that display's tile in the picker will just show a "stream
+lost / reconnecting" status until it does.
+
+For x11vnc (if installed later), run one instance per display on distinct
+`-rfbport`s (5900, 5901, …) — that server doesn't have a query-param
+multiplexing concept like the MJPEG one does. A single `tailscale serve`
+config can map several paths to the several ports if you want one hostname
+with `/acct2`, `/acct3` routes.

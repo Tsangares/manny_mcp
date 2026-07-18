@@ -337,11 +337,90 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
   merge onto clickNPCSafe). PH −707, CS −340, IS +1076. Live-gated (login exercises moved path).
   Note for W6-J1 Actions retirement: Actions.java has FOUR private matchesMenuEntry copies that
   collapse onto now-public InteractionSystem.matchesMenuEntry.
-- **REMAINING:** W6-J1 Actions retirement (fable; NEEDS user answer on strategy Q1 —
-  ScenarioEngine replay retire vs keep), W6-J2 PlayerHelpers split (fable; includes its 115
-  latches + full helper extraction), W6-P1 driver control-plane (sonnet, free now), follow-ups
-  (validator static index, repeat:N no-op, EAT threshold gap), Wave 7 docs+journal, then/or
-  Tutorial Island test run (strategy Q2: agent-first recommended).
+- **W6-P1 ✅ COMMITTED `c8da7db`:** driver in-process via new mcptools/bootstrap.py (no second
+  server spawn); command index fixed (13 w/ 3 false positives → 133, validate_routine_deep
+  works again); repeat:N implemented (await_condition short-circuits; 6 tests). pytest 82.
+- **USER DECISIONS (2026-07-17 ~20:00):** Q1 = YES, retire ScenarioEngine replay (routines are the
+  only execution format; recorder survives feeding routine drafts). Q2 = GO, tutorial test started
+  agent-first. Q5 REFRAMED into the project philosophy (saved to orchestrator memory as
+  project_manny_automation_philosophy): no final state; routines ARE the product; an LLM driver
+  either runs/monitors a routine or builds one; transitions must be unambiguous; atomic compound
+  commands (GOTO-style) good; combat not a priority. Build better routine-authoring tools.
+- **CRASH-REBOOT 2026-07-17 20:07:** machine crashed ~5 min after the three agents launched.
+  /tmp wiped (agent transcripts unrecoverable — they were freshly started, zero durable work
+  lost; both repos clean/pushed). Recovery recipe that worked: `setsid Xvfb :2 -screen 0
+  1600x1000x24 > /tmp/xvfb2.log 2>&1 < /dev/null &` (verify via /tmp/.X11-unix/X2, xdpyinfo not
+  installed), then standard client launch → login 12s (tokens SURVIVED the crash), smoke 5/5.
+  All three agents relaunched fresh ~20:12. LESSON: /tmp transcripts + session-only crons die
+  with the box; this handoff doc is the only durable state — keep it current.
+- **IN FLIGHT (2026-07-17 ~20:12 post-crash relaunch): DEPLOYMENT FREEZE — tutorial driver owns
+  the client on :2; Java work gates compile-only until the run ends.**
+  1. Tutorial driver (fable fork): agent-first through Tutorial Island on jar `5bd303e`,
+     repairing routines/tutorial_island/*.yaml as sections pass; defects are the product.
+  2. W6-J1 (fable fork) ✅ DONE (2026-07-17 ~20:35, compile ×2 green + independently verified,
+     UNCOMMITTED — full live gate + commit AFTER driver finishes/freeze lifts): net −8,344 lines.
+     DELETED: actions/ (Actions.java −5,372, Action, package-info, ActionContext), 
+     NavigationSystem (−291, zero callers), GameEngine.BehaviorExecutor (−208, zero callers),
+     LoadScenario/LoadCmdlogCommand. Commands REMOVED: LOAD_SCENARIO, LOAD_CMDLOG (133→131);
+     PAUSE/RESUME survive (skilling-resume). ScenarioEngine 2,293→1,332; PH −759 (→23,683);
+     CoreUtils −114. NEW: automation/replay/ScenarioExporter.java (recorder half extracted
+     verbatim, artifact formats unchanged — Python funnel input intact; UNTRACKED, git add it).
+     ScenarioPlayer kept at FQN as retirement stub (MannyPlugin locked + injects it; playScenario
+     logs [REPLAY-RETIRED]). MannyPlugin manifest notes: remove auto-play block :798-830 + 3
+     scenario imports/fields + :1959 callback when unlocked. NOTE: old KILL-gate recipe used
+     LOAD_CMDLOG — use `WAIT 30000` + KILL now. W6-J2 candidate: GameEngine private
+     matchesMenuEntry copy.
+  3. Viewer agent (sonnet) ✅ DONE (2026-07-17 ~20:40): MJPEG viewer shipped as systemd USER
+     unit `mjpeg-viewer.service` (enabled, linger=yes → reboot-persistent), port 8787 on
+     0.0.0.0. Pixel URL: http://100.83.247.91:8787/ (picker) or
+     /view?display=:2&fps=5. Rewritten scripts/mjpeg_viewer.py: multi-display :2–:5
+     (lazy grabbers, 0 CPU unwatched), fps 1–15, phone /view page w/ auto-reconnect,
+     view-only (no input APIs). ~21% of one core per client @5fps (ImageMagick import).
+     VNC skipped: x11vnc not installed + no passwordless sudo; upgrade one-liner documented
+     in docs/GAME_VIEWING_OPTIONS.md. UNCOMMITTED (mjpeg_viewer.py + docs) — fold into next
+     manny_mcp commit.
+- **IN FLIGHT (added ~21:00, all disjoint from driver):**
+  4. Viewer-crop agent (opus, user-requested): mjpeg_viewer.py crop-to-RuneLite-window
+     (auto-detect geometry, ?crop=off fallback), service restart + verify; view-only.
+  5. W6-J2 planning agent (fable, read-only code): full PlayerHelpers map + split design →
+     journals/W6J2_SPLIT_PLAN.md (execution contract for the post-freeze J2 fleet).
+  6. Routine-engine hardening agent (fable) ✅ DONE (~21:30): proposal at
+     journals/ROUTINE_ENGINE_HARDENING_2026-07-17.md (UNCOMMITTED). Core: unify the TWO
+     divergent condition dialects (monitoring.py:521-624 awaits vs routine.py:1485-1545 loop
+     exits) into one conditions.py; add hp:/hp_pct:/skill:/equipped:/dialogue_open/in_combat
+     atoms + only_if/skip_if step guards (single condition string, no boolean algebra); EAT
+     case = `only_if: "hp_pct:<50"`. Zero Java needed — state file already has all fields.
+     Per-step JSONL events + status snapshot + get_routine_status; on_fail: continue|retry:N|
+     goto:id|abort. First slice ~1 day. 6 open questions for USER in doc §(end).
+     **3 LATENT BUGS found (QUEUED post-freeze — do NOT hot-fix mcptools while driver runs,
+     fresh subprocess invocations would pick up mid-run code changes):**
+     (a) routine.py:1531 `no_item_in_bank:` stub always returns False;
+     (b) commands.py:402-411 handle_send_and_await writes command file RAW, bypassing
+         rid-correlated transport;
+     (c) routines/quests/restless_ghost.yaml:154 `action: MCP_TOOL` unrecognized by executor —
+         sends literal "MCP_TOOL Ghostspeak amulet" (needs proper EQUIP step or guard slice).
+- **SESSION LIMIT HIT (~22:0x 2026-07-17, reset 22:50 PT):** tutorial driver + J2 planner
+  terminated mid-flight (client SURVIVED, no reboot — transcripts intact this time). J2
+  planner's three research sub-agents delivered full reports post-mortem → preserved in
+  **journals/W6J2_CALL_EDGES.md** (Report A external consumers, B commands edges, C latch
+  classification: 77 sites = 75 CONVERT / 1 KEEP @6109 / 1 REVIEW @21685). Driver died right
+  after root-causing **DEFECT-1** (write-up lost); orchestrator re-derived it from
+  /tmp/runelite.log → **journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md**: INTERACT_OBJECT →
+  IllegalStateException "must be called on client thread" — CameraSystem.getYawToPoint:1064
+  calls TileObject.getWorldLocation() on manny-background thread, via
+  InteractionSystem.clickTileObjectSafe:766 → pointCameraAt:1141 (5 hits; Wave 5/6a
+  regression). Driver workaround validated: GOTO through doors (pathfinding opens them).
+  Recovery ~23:10: J1 committed (compile-gated; live gate still owed at freeze lift —
+  committed early to protect −8.3k-line change + unblock separate DEFECT-1 fix commit),
+  driver + planner resumed via SendMessage (transcripts intact), opus fix agent dispatched
+  for DEFECT-1 (compile-only). LESSON: session limit is a second hard-stop class like the
+  crash — same durability rule (journal docs survive, transcripts might not).
+- **REMAINING (ALL user-gated or sequenced):** W6-J1 Actions retirement (fable; NEEDS user
+  answer on strategy Q1 — ScenarioEngine replay retire vs keep), W6-J2 PlayerHelpers split
+  (fable, after J1; 115 latches + full helper extraction + stats-tracker merge + BURY_ALL
+  registry default), EAT threshold design gap (needs user), Wave 7 docs+journal (last),
+  Tutorial Island test run (awaiting user "go"; strategy Q2 rec: agent-first, orchestrator
+  recommended testing BEFORE J1/J2 surgery to bank a behavioral baseline).
 - **Routine repairs ✅ committed `6cb7ac7`:** DIALOGUE_CONTINUE→CLICK_CONTINUE,
   DIALOGUE_SELECT→CLICK_DIALOGUE, EAT_FOOD→EAT in the 4 broken routines. NEW FOLLOW-UPS
   from that agent (queue after W5-P2 frees mcptools/tools/):
@@ -352,6 +431,10 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
   2. `repeat: N` field in routine YAML is NEVER read by the executor (_execute_single_step) —
      silent no-op used by quest routines. Real bug: implement or strip.
   3. ROUTINE_CATALOG.md lists bare `ATTACK` which doesn't exist (docs-only, Wave 7 regen).
+     ALSO for Wave 7 doc regen (post-J1 removals, verified by grep 2026-07-17 ~21:20): purge
+     LOAD_SCENARIO/LOAD_CMDLOG from COMMAND_REFERENCE.md:701-708, ROUTINE_CATALOG.md:334,
+     TOOLS_USAGE_GUIDE.md:436, .claude/commands/validate.md:36 (ticket/ files are historical,
+     leave). No .py code references either command — docs only.
   4. EAT has no HP-threshold gating (old EAT_FOOD "25" semantics unrepresentable in YAML —
      no HP-based await/skip condition exists). Design gap for the routine engine.
 - **W5-P4 ✅ (2026-07-17 ~19:20, uncommitted — commit with P1 as Wave 5):** pyproject.toml created
