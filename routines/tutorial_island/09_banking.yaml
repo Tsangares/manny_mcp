@@ -1,37 +1,64 @@
 # Tutorial Island - Part 9: Banking
-# STATUS: VALIDATED (2026-01-18)
+# STATUS: VALIDATED (steps transcribed 2026-07-18 from
+# journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md, Driver #4 ~01:55 PT --
+# "BANK + ACCOUNT SECTIONS PASSED")
 #
 # This routine handles the Banking section:
-# 1. Climb ladder to banking area
-# 2. Climb down to bank floor
-# 3. Use bank booth
-# 4. Close bank
-# 5. Use poll booth
-# 6. Close poll booth
-# 7. Exit through door to chapel
+# 1. Climb ladder to banking area (up then immediately down -- Tutorial Island
+#    quirk: the bank entrance is only reachable via the roof)
+# 2. Use bank booth
+# 3. Use poll booth (auto-credits poll points)
+# 4. Exit through door to the Account Guide room
+#
+# DRIVER #4 CONFIRMATION (defects log:214-244): "Route: Bank booth used (bank
+# opened, 25gp) -> poll credit auto -> east door (3125,3124) -> Account Guide
+# talks..." -- the exit_door coordinate (3125,3124) below is DIRECTLY
+# confirmed by this run. Bank_booth/poll_booth coordinates were NOT
+# re-transcribed with fresh numbers this run (driver validated by object
+# name/action only); the pre-existing coordinates below are unchanged and not
+# contradicted by anything in the journal.
+#
+# ENGINE-LEVEL FIX: the old step 7 used `repeat_until: "poll_interface_open"`,
+# which is NOT a supported predicate (_parse_condition in monitoring.py only
+# knows plane/has_item/no_item/inventory_count/location/idle/dialogue/
+# no_dialogue -- see mcptools/tools/monitoring.py:521-573). Replaced with the
+# supported `no_dialogue` predicate below (see step 6 note for the caveat).
+#
+# RISKS NOTED BUT NOT FIXABLE IN YAML (Java-side, deployment-frozen):
+# - DEFECT-7: GOTO tolerance no-ops at distance <=3 tiles ("worse than
+#   documented" per Driver #4 -- no-ops even at distance 3). The GOTO in step
+#   9 below is short; await_condition (location-based) is used to verify
+#   actual arrival rather than trusting the GOTO command's own success flag.
+# - DEFECT-11: INTERACT_OBJECT has no action-aware door filtering -- if an
+#   open door and the target closed door are both in range, it can lock onto
+#   the wrong one (blocked Driver #4's bank RE-ENTRY x3). This routine only
+#   moves forward through each door once, so the failure mode Driver #4 hit
+#   (backtracking) should not apply here, but is noted as a residual risk.
+# - Doors on Tutorial Island auto-close behind the player (defects log:241) --
+#   if this routine is ever resumed mid-section, re-verify door state before
+#   assuming the ladder/door steps are no-ops.
 
 name: "Tutorial Island - Banking"
 type: tutorial
 phase: 9
 
-# Key Locations (VALIDATED)
+# Key Locations
 locations:
   from_combat_ladder: {x: 3123, y: 3128, plane: 0}  # Ladder from combat area
-  bank_roof: {x: 3123, y: 3127, plane: 1}  # After climbing up
-  bank_floor: {x: 3123, y: 3127, plane: 0}  # After climbing down
-  bank_booth: {x: 3120, y: 3123, plane: 0}  # Bank booth area
-  poll_booth: {x: 3119, y: 3121, plane: 0}  # Poll booth location
+  bank_roof: {x: 3123, y: 3127, plane: 1}           # After climbing up
+  bank_floor: {x: 3123, y: 3127, plane: 0}          # After climbing down
+  bank_booth: {x: 3120, y: 3123, plane: 0}
+  poll_booth: {x: 3119, y: 3121, plane: 0}
   exit_door_position: {x: 3124, y: 3124, plane: 0}  # Walk here before opening door
-  exit_door: {x: 3125, y: 3124, plane: 0}  # Door to Account Guide room
+  exit_door: {x: 3125, y: 3124, plane: 0}           # CONFIRMED (Driver #4, defects log:216-218): door to Account Guide room
 
-# Key Objects (VALIDATED)
+# Key Objects
 objects:
   bank_booth:
     name: "Bank booth"
-    id: unknown
     action: "Use"
   poll_booth:
-    name: "poll"  # NOTE: Search uses "poll", menu shows "Poll booth"
+    name: "poll"  # NOTE: menu shows "Poll booth", scan_tile_objects finds "poll"
     id: 26815
     action: "Use"
 
@@ -41,7 +68,7 @@ steps:
     description: "Open door to ladder area"
     action: INTERACT_OBJECT
     args: "Door Open"
-    status: "VALIDATED"
+    delay_before_ms: 1000
     notes: "Door at (3124, 3126) blocks access to ladder"
 
   - id: 2
@@ -49,7 +76,7 @@ steps:
     action: INTERACT_OBJECT
     args: "Ladder Climb-up"
     await_condition: "plane:1"
-    status: "VALIDATED"
+    delay_before_ms: 1000
     notes: "Ladder at (3123, 3128)"
 
   - id: 3
@@ -57,70 +84,83 @@ steps:
     action: INTERACT_OBJECT
     args: "Ladder Climb-down"
     await_condition: "plane:0"
-    status: "VALIDATED"
-    notes: "Climb down immediately after climbing up"
+    delay_before_ms: 1000
+    notes: "Climb down immediately after climbing up -- bank booth is on plane 0"
 
   # Phase 2: Use bank
   - id: 4
     description: "Use bank booth"
     action: INTERACT_OBJECT
     args: "Bank_booth Use"
-    status: "VALIDATED"
-    notes: "Opens bank interface, tutorial dialogue appears"
+    delay_before_ms: 1500
+    notes: "Opens bank interface, tutorial dialogue appears. Driver #4 confirmed: bank opens with 25gp."
 
   - id: 5
     description: "Close bank interface"
     action: KEY_PRESS
     args: "Escape"
-    status: "VALIDATED"
+    delay_before_ms: 500
 
   # Phase 3: Use poll booth
   - id: 6
     description: "Use poll booth"
     action: INTERACT_OBJECT
     args: "poll Use"
-    status: "VALIDATED"
-    notes: "Object name is 'poll', not 'Poll booth' or 'Poll_booth'"
+    delay_before_ms: 1000
+    notes: "Object name is 'poll', not 'Poll booth' or 'Poll_booth'. Driver #4: poll credit is auto-applied."
 
   - id: 7
-    description: "Advance poll dialogue"
+    description: "Advance any poll-booth message dialogue"
     action: KEY_PRESS
     args: "space"
-    repeat_until: "poll_interface_open"
-    status: "VALIDATED"
-    notes: "Press space multiple times until poll interface opens"
+    repeat_until: "no_dialogue"
+    delay_before_ms: 1000
+    notes: |
+      ENGINE FIX: replaces the old (unsupported) `repeat_until: "poll_interface_open"`
+      predicate -- the engine only implements no_dialogue/dialogue/plane/has_item/
+      no_item/inventory_count/location/idle (mcptools/tools/monitoring.py:521-573).
+      There is no "widget interface open" predicate, so this is the closest
+      supported substitute. Check-first semantics make this a safe no-op if the
+      poll booth opens its interface directly with no intermediate message pane.
 
   - id: 8
     description: "Close poll interface"
     action: KEY_PRESS
     args: "Escape"
-    status: "VALIDATED"
+    delay_before_ms: 500
 
   # Phase 4: Exit to Account Guide room
   - id: 9
     description: "Walk to door in front of Account Guide room"
     action: GOTO
     args: "3124 3124 0"
-    status: "VALIDATED"
-    notes: "Must walk to door position before clicking - multiple doors nearby!"
+    await_condition: "location:3124,3124"
+    delay_before_ms: 500
+    notes: "Must walk to door position before clicking - multiple doors nearby! Short GOTO -- DEFECT-7 tolerance no-op risk, verified via location await rather than the GOTO command's own success flag."
 
   - id: 10
     description: "Open door to Account Guide room"
     action: INTERACT_OBJECT
     args: "Door Open"
-    status: "VALIDATED"
-    notes: "Door at (3125, 3124) leads to Account Guide"
+    delay_before_ms: 1000
+    notes: "Door at (3125, 3124) leads to Account Guide -- CONFIRMED, Driver #4 (defects log:216-218)"
 
 # PITFALLS DISCOVERED:
 # 1. Bank booth is on plane 0, but you arrive on plane 1 after climbing up
 #    FIX: Must climb down ladder immediately after climbing up
 # 2. Poll booth object name is "poll" (lowercase, no "booth")
 #    The menu shows "Poll booth" but scan_tile_objects finds "poll"
-# 3. Dialogue appears but has no "Click here to continue" button
-#    These are informational panels, just interact with the objects
+# 3. Dialogue appears but has no "Click here to continue" button on some panes
+#    -- these are informational panels, just interact with the objects
+# 4. "poll_interface_open" is NOT a real engine predicate -- replaced with no_dialogue (step 7)
+# 5. DEFECT-7 (GOTO short-move no-op): step 9's GOTO is <=3 tiles; verified via
+#    location await rather than trusting GOTO's own reported success
 
 # WORKING PATTERNS:
 # - Bank booth: INTERACT_OBJECT Bank_booth Use
 # - Poll booth: INTERACT_OBJECT poll Use
 # - Close interfaces: KEY_PRESS Escape
-# - Advance dialogue: KEY_PRESS space
+# - Advance dialogue: KEY_PRESS space + repeat_until: no_dialogue
+
+# After this routine:
+# Player at Account Guide room door (3125, 3124), ready for 10_prayer_magic.yaml

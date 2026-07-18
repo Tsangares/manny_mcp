@@ -1,15 +1,43 @@
 # Tutorial Island - Part 8: Combat
-# STATUS: VALIDATED (2026-01-18)
+# STATUS: VALIDATED (coords/steps transcribed 2026-07-18 from
+# journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md, Driver #2 ~00:15-00:40 PT --
+# "COMBAT SECTION PASSED" after a documented 40-minute navigation saga)
 #
 # This routine handles the Combat section:
-# 1. Talk to Combat Instructor
-# 2. Open equipment tab and equip bronze dagger
-# 3. Get bronze sword and wooden shield
-# 4. Open combat tab
-# 5. Enter rat cage and attack giant rat (melee)
-# 6. Receive bow and arrows
-# 7. Attack giant rat (ranged)
-# 8. Exit to banking section
+# 1. Talk to Combat Instructor (receive dagger)
+# 2. Equip bronze dagger
+# 3. Talk to Combat Instructor again (receive sword/shield)
+# 4. Equip sword + shield
+# 5. Open combat-options tab
+# 6. Enter rat cage, kill Giant rat with melee
+# 7. Exit rat cage via the x=3111 double gate (the hard-won route)
+# 8. Talk to Combat Instructor (receive bow/arrows)
+# 9. Equip bow + arrows, kill Giant rat with ranged
+# 10. Exit to banking section (ladder)
+#
+# ROOT CAUSE OF THE 40-MIN SAGA (defects log:142-186), now encoded as fixes:
+# - DEFECT-7: GOTO tolerance no-ops at distance <=3 ("Already at ... distance: N
+#   tiles" without moving). Short precision GOTOs below intentionally target
+#   the confirmed exit-gate waypoint (3109,9515) rather than the instructor's
+#   tile directly, and use await_condition (location-based, NOT the GOTO
+#   command's own unreliable success flag -- DEFECT-10) to verify arrival.
+# - DEFECT-8: "I can't reach that!" is a MODAL that blocks ALL movement.
+#   CLICK_CONTINUE does NOT dismiss it; KEY_PRESS Space does. A defensive
+#   `repeat_until: no_dialogue` KEY_PRESS Space step follows every
+#   INTERACT_NPC attack/talk in this file (same pattern as 04's gate-refusal
+#   fix) so a stray modal self-clears instead of stalling the routine.
+# - The critical missing knowledge: the (3105,9511) pocket + rat pen are ONE
+#   enclosure; the ONLY exit is the double gate on the x=3111 N-S fence,
+#   reachable by walking to (3109,9515) first (defects log:167-173). The old
+#   version of this file had no explicit exit-gate step and relied on blind
+#   INTERACT_NPC retries back to the instructor -- that IS the saga. Fixed
+#   below with an explicit GOTO(3109,9515) -> Gate Open -> GOTO(3106,9505)
+#   sequence.
+# - equip_item pitfall (defects log:146-147, widget_reference.yaml): equipping
+#   an item switches the side panel back to the "worn equipment" view --
+#   MUST re-click the backpack/inventory tab before the next equip_item call
+#   or the widget scan won't find the next item. Explicit re-click steps added
+#   between every pair of equips below.
 
 name: "Tutorial Island - Combat"
 type: tutorial
@@ -27,176 +55,228 @@ npcs:
     action: "Attack"
     combat_level: 3
 
-# Key Locations (VALIDATED)
+# Key Locations
 locations:
   combat_area_entrance: {x: 3104, y: 9509, plane: 0}
-  rat_cage_gate: {x: 3111, y: 9519, plane: 0}
+  rat_pen_pocket: {x: 3105, y: 9511, plane: 0}  # Post-melee-kill parking spot (Driver #2)
+  exit_gate_approach: {x: 3109, y: 9515, plane: 0}  # CONFIRMED: "Open Gate" hotspot found here (defects log:169-173)
+  post_gate_waypoint: {x: 3106, y: 9505, plane: 0}  # CONFIRMED: routes back toward instructor (defects log:174-176)
   exit_ladder: {x: 3111, y: 9526, plane: 0}
 
-# Key Widgets (VALIDATED)
+# Key Widgets
 widgets:
   continue_button: 12648448
-  equipment_tab: 35913771  # Use find_and_click_widget(text="Worn Equipment")
-  combat_options_tab: 35913792  # Has action "Combat Options"
-  inventory_tab: 35913795  # Action: "Inventory", bounds (626, 168, 33, 36)
+  equipment_tab: 35913771       # find_and_click_widget(text="Worn Equipment")
+  combat_options_tab: 35913792  # Action "Combat Options"
+  inventory_tab: 35913795       # Action "Inventory" -- MUST re-click between equips (see header)
   inventory_container: 9764864  # Group 149 << 16
-  # Equipment stats panel (AVOID - blocks inventory):
-  equip_panel_title: 5505027  # Text: "Equip Your Character...", group 84 child 3
-  view_equipment_stats: 25362433  # DON'T USE - just for reference
-
-# PITFALLS DISCOVERED:
-# 1. Equipment stats panel BLOCKS INVENTORY - don't use it!
-#    Use get_game_state(fields=["equipment"]) instead for equipment info.
-#    DETECTION: find_widget("Equip your character") returns 5505027 when panel is open
-#    FIX: Press ESC to close panel, then click inventory_tab (35913795)
-# 2. find_widget for inventory items returned WRONG BOUNDS (slot 0 for all)
-#    FIX: ScanWidgetsCommand.java now calculates grid position from slot index
-# 3. equip_item() clicked first "Wield"-able item instead of specific item
-#    FIX: equip_item now uses xdotool with bounds from find_widget
-# 4. Dialogue advancement: Use KEY_PRESS space (most reliable)
 
 steps:
-  # Phase 1: Initial dialogue and equipment tab
+  # Phase 0: Safety approach (mining section 07 ends on an untranscribed
+  # gate/waypoint -- see 07's step 15 TODO). Re-anchor position here so this
+  # section is robust to wherever 07 actually left the player.
   - id: 1
+    description: "Walk to Combat Instructor / rat-cage entrance"
+    action: GOTO
+    args: "3104 9509 0"
+    delay_before_ms: 500
+
+  # Phase 1: Initial dialogue and equipment tab
+  - id: 2
     description: "Talk to Combat Instructor"
     action: INTERACT_NPC
     args: "Combat_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
     notes: "Player receives bronze dagger automatically"
 
-  - id: 2
+  - id: 3
     description: "Advance dialogue (receive bronze dagger)"
     action: KEY_PRESS
-    args: "space"
+    args: "Space"
     repeat_until: "no_dialogue"
-    status: "VALIDATED"
-    notes: "Press space multiple times until dialogue closes"
-
-  - id: 3
-    description: "Open equipment tab"
-    mcp_tool: "find_and_click_widget"
-    args:
-      text: "Worn Equipment"
-    status: "VALIDATED"
-    notes: "Widget 35913771, found via action text"
 
   - id: 4
+    description: "Open equipment/worn-equipment tab"
+    mcp_tool: click_widget
+    args:
+      text: "Worn Equipment"
+    notes: "Widget 35913771"
+
+  - id: 5
     description: "Equip bronze dagger"
-    mcp_tool: "equip_item"
+    mcp_tool: equip_item
     args:
       item_name: "Bronze dagger"
-    status: "VALIDATED"
-    notes: "equip_item now works correctly after fix"
 
   # Phase 2: Get sword and shield
-  - id: 5
+  - id: 6
     description: "Talk to Combat Instructor (get sword/shield)"
     action: INTERACT_NPC
     args: "Combat_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
-
-  - id: 6
-    description: "Advance dialogue (receive sword and shield)"
-    action: KEY_PRESS
-    args: "space"
-    repeat_until: "no_dialogue"
-    status: "VALIDATED"
-    notes: "Receive bronze sword and wooden shield"
 
   - id: 7
-    description: "Equip bronze sword"
-    mcp_tool: "equip_item"
-    args:
-      item_name: "Bronze sword"
-    status: "VALIDATED"
+    description: "Advance dialogue (receive sword and shield)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat_until: "no_dialogue"
 
   - id: 8
+    description: "Re-open inventory tab before equipping (panel reset after step 5's equip)"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+    notes: "Equipping switches the side panel to worn-equipment view -- must re-open backpack tab before the next equip_item scan (defects log:146-147)"
+
+  - id: 9
+    description: "Equip bronze sword"
+    mcp_tool: equip_item
+    args:
+      item_name: "Bronze sword"
+
+  - id: 10
+    description: "Re-open inventory tab before equipping shield"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+
+  - id: 11
     description: "Equip wooden shield"
-    mcp_tool: "equip_item"
+    mcp_tool: equip_item
     args:
       item_name: "Wooden shield"
-    status: "VALIDATED"
 
   # Phase 3: Combat tab and melee
-  - id: 9
+  - id: 12
     description: "Open combat options tab"
     action: CLICK_WIDGET
     args: "35913792"
-    status: "VALIDATED"
     notes: "Found via find_widget with action 'Combat Options'"
 
-  - id: 10
+  - id: 13
     description: "Enter rat cage through gate"
     action: INTERACT_OBJECT
     args: "Gate Open"
-    status: "VALIDATED"
+    delay_before_ms: 1000
+    # TODO: verify coord -- the journal only recorded a screen-relative
+    # hover-sweep pixel offset (259,161) for this ENTRY gate, not a world
+    # coordinate. Range-based INTERACT_OBJECT is left as-is (matches the
+    # pre-existing file); the CONFIRMED coordinate in this file is the EXIT
+    # gate approach (3109,9515), used below after the kill.
 
-  - id: 11
+  - id: 14
     description: "Attack giant rat (melee)"
     action: INTERACT_NPC
     args: "Giant_rat Attack"
-    status: "VALIDATED"
-    notes: "Wait for combat to complete, rat will die"
+    delay_before_ms: 1000
+    notes: "Wait for combat to complete, rat will die (\"Well done, you've made your first kill!\")"
+
+  - id: 15
+    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat_until: "no_dialogue"
+    delay_before_ms: 500
+
+  # Phase 3b: Exit the rat pen via the CONFIRMED double-gate route
+  # (defects log:167-173 -- this is the fix for the 40-min saga).
+  - id: 16
+    description: "Walk to the confirmed exit-gate approach tile"
+    action: GOTO
+    args: "3109 9515 0"
+    await_condition: "location:3109,9515"
+    delay_before_ms: 500
+    notes: "The (3105,9511) pocket and the rat pen are ONE enclosure; this is the only exit -- the double gate on the x=3111 N-S fence."
+
+  - id: 17
+    description: "Open the exit gate"
+    action: INTERACT_OBJECT
+    args: "Gate Open"
+    delay_before_ms: 1000
+
+  - id: 18
+    description: "Walk back toward the Combat Instructor"
+    action: GOTO
+    args: "3106 9505 0"
+    await_condition: "location:3106,9505"
+    delay_before_ms: 500
+    notes: "GOTO result reporting is unreliable here (DEFECT-10 -- reports 'failed' but moves); await_condition (location, not the command's own success flag) is what actually gates this step."
 
   # Phase 4: Ranged combat
-  - id: 12
+  - id: 19
     description: "Talk to Combat Instructor (get bow)"
     action: INTERACT_NPC
     args: "Combat_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
     notes: "Exit rat cage first if still inside"
 
-  - id: 13
+  - id: 20
     description: "Advance dialogue (receive bow and arrows)"
     action: KEY_PRESS
-    args: "space"
+    args: "Space"
     repeat_until: "no_dialogue"
-    status: "VALIDATED"
-    notes: "Receive shortbow and 50 bronze arrows"
 
-  - id: 14
+  - id: 21
+    description: "Re-open inventory tab before equipping bow"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+
+  - id: 22
     description: "Equip shortbow"
-    mcp_tool: "equip_item"
+    mcp_tool: equip_item
     args:
       item_name: "Shortbow"
-    status: "VALIDATED"
 
-  - id: 15
+  - id: 23
+    description: "Re-open inventory tab before equipping arrows"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+
+  - id: 24
     description: "Equip bronze arrows"
-    mcp_tool: "equip_item"
+    mcp_tool: equip_item
     args:
       item_name: "Bronze arrow"
-    status: "VALIDATED"
 
-  - id: 16
+  - id: 25
     description: "Attack giant rat (ranged)"
     action: INTERACT_NPC
     args: "Giant_rat Attack"
-    status: "VALIDATED"
-    notes: "Stay outside cage, attack through fence"
+    delay_before_ms: 1000
+    notes: "Stay outside cage, attack through fence. \"Moving on: click the indicated ladder.\""
+
+  - id: 26
+    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat_until: "no_dialogue"
+    delay_before_ms: 500
 
   # Phase 5: Exit to banking
-  - id: 17
+  - id: 27
     description: "Walk to exit ladder"
     action: GOTO
     args: "3111 9525 0"
-    status: "VALIDATED"
+    delay_before_ms: 500
 
-  - id: 18
+  - id: 28
     description: "Climb up ladder"
     action: INTERACT_OBJECT
     args: "Ladder Climb-up"
     await_condition: "plane:0"
-    status: "VALIDATED"
     notes: "Exits to surface, continue to banking section"
 
-# WORKING PATTERNS SUMMARY:
-# - Dialogue: KEY_PRESS space (most reliable)
-# - Equipment tab: find_and_click_widget(text="Worn Equipment")
+# WORKING PATTERNS SUMMARY (updated 2026-07-18):
+# - Dialogue: KEY_PRESS Space + repeat_until: no_dialogue (self-terminating, timing-independent)
+# - Modal recovery: same repeat_until: no_dialogue pattern doubles as DEFECT-8 cleanup
+# - Equipment tab: click_widget(text="Worn Equipment")
 # - Combat tab: CLICK_WIDGET 35913792
-# - Equipping: equip_item(item_name="X") - works after fix
+# - Equipping: mcp_tool equip_item(item_name="X") -- MUST re-click inventory_tab (35913795)
+#   before each call after the first equip (panel resets to worn view)
 # - Attacking: INTERACT_NPC Giant_rat Attack
 # - Object interaction: INTERACT_OBJECT Gate Open
+# - Exit-gate route (CONFIRMED, defects log:167-173): GOTO (3109,9515) -> Gate Open -> GOTO (3106,9505)
+# - Short-distance GOTOs: verify via await_condition location:X,Y (state-based), not the
+#   GOTO command's own success flag (DEFECT-7/DEFECT-10 make that flag unreliable)

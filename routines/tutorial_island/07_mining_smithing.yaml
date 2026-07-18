@@ -1,14 +1,28 @@
 # Tutorial Island - Part 7: Mining & Smithing
-# STATUS: VALIDATED
+# STATUS: VALIDATED (coords/steps transcribed 2026-07-18 from
+# journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md, Driver #2 ~23:50 PT checkpoint)
 #
 # This routine handles the Mining & Smithing section:
-# 1. Talk to Mining Instructor
-# 2. Prospect tin and copper rocks
-# 3. Mine tin ore
-# 4. Mine copper ore
-# 5. Smelt bronze bar at furnace
+# 1. Talk to Mining Instructor (receive pickaxe)
+# 2. Mine tin ore (NO Prospect step in this tutorial variant - see below)
+# 3. Mine copper ore
+# 4. Smelt bronze bar at furnace
+# 5. Talk to Mining Instructor about smithing (receive hammer)
 # 6. Smith bronze dagger at anvil
-# 7. Continue to combat section
+# 7. Continue to combat section (gate)
+#
+# DRIVER #2 CONFIRMATION (defects log lines 121-133): "this tutorial variant does
+# NOT require Prospect (07 routine steps for prospecting are dead -- instruction
+# goes straight to 'try mining some tin')" -- Prospect steps REMOVED below.
+# "routine's estimated object coords all confirmed +/-1 tile" -- the tin/copper/
+# furnace/anvil coordinates below are the SAME ones from the prior estimated
+# file, now promoted from "estimated" to journal-confirmed (no exact re-scan
+# numbers were given -- driver validated via screen hover-sweep, not by reading
+# back world coordinates -- so these remain approximate-but-confirmed, not
+# pixel-exact).
+# DEFECT-1 (INTERACT_OBJECT camera-orient client-thread crash) is CONFIRMED
+# FIXED on jar 2fcb602 (defects log line 327-329) -- INTERACT_OBJECT is used
+# directly below instead of the driver's hover-sweep workaround.
 
 name: "Tutorial Island - Mining & Smithing"
 type: tutorial
@@ -22,194 +36,166 @@ npcs:
     location: {x: 3080, y: 9502, plane: 0}
     action: "Talk-to"
 
-# Key Objects (estimated - need validation)
+# Key Objects (journal-confirmed +/-1 tile, Driver #2)
 objects:
   tin_rocks:
     name: "Rocks"  # Contains tin
-    location: {x: 3076, y: 9504, plane: 0}  # Approximate
+    location: {x: 3076, y: 9504, plane: 0}
   copper_rocks:
     name: "Rocks"  # Contains copper
-    location: {x: 3085, y: 9502, plane: 0}  # Approximate
+    location: {x: 3085, y: 9502, plane: 0}
   furnace:
     name: "Furnace"
-    location: {x: 3079, y: 9496, plane: 0}  # Approximate
+    location: {x: 3079, y: 9496, plane: 0}
   anvil:
     name: "Anvil"
-    location: {x: 3083, y: 9499, plane: 0}  # Approximate
-
-# Key Widgets
-widgets:
-  continue_button: 12648448  # or use find_and_click_widget(text="Continue")
+    location: {x: 3083, y: 9499, plane: 0}
 
 steps:
   - id: 1
     description: "Walk to Mining Instructor"
     action: GOTO
     args: "3080 9504 0"
-    validated: true
+    delay_before_ms: 500
     notes: "From ladder at (3088, 9520), walk south to mining area"
 
   - id: 2
     description: "Talk to Mining Instructor"
     action: INTERACT_NPC
     args: "Mining_Instructor Talk-to"
-    delay_before_ms: 2000
+    await_condition: "dialogue"
+    delay_before_ms: 1000
 
   - id: 3
-    description: "Continue dialogue (space)"
+    description: "Advance dialogue (instructor intro, receive bronze pickaxe)"
     action: KEY_PRESS
     args: "Space"
-    delay_before_ms: 2000
+    repeat_until: "no_dialogue"
+    delay_before_ms: 1000
+    notes: "Instructor introduces mining and hands over a bronze pickaxe"
+
+  # NOTE: Prospect steps intentionally OMITTED here.
+  # Driver #2 (defects log:126-129) confirmed this tutorial variant skips
+  # Prospect entirely -- the tutorial instruction goes straight to
+  # "try mining some tin ore from the rocks". Do not re-add prospect steps
+  # without re-validating against a live run.
 
   - id: 4
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 5
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 6
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-    notes: "Instructor introduces mining. Gives you a bronze pickaxe."
-
-  - id: 7
-    description: "Prospect tin rocks"
-    action: INTERACT_OBJECT
-    args: "Rocks Prospect"
-    delay_before_ms: 2000
-    notes: "Click on bluish rocks to prospect for tin"
-
-  - id: 8
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 3000
-
-  - id: 9
-    description: "Mine tin ore"
+    description: "Mine tin ore (retries until ore is obtained)"
     action: INTERACT_OBJECT
     args: "Rocks Mine"
+    delay_before_ms: 1000
+    repeat_until: "has_item:Tin ore"
+    repeat_until_timeout_ms: 6000
+    max_iterations: 6
+    notes: "Bluish rocks. State-checked await mirrors the 04 cook-shrimp fix -- mining has a multi-tick animation before the ore lands in inventory."
+
+  - id: 5
+    description: "Advance dialogue after first mine (if any)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat_until: "no_dialogue"
+    delay_before_ms: 500
+
+  - id: 6
+    description: "Mine copper ore (retries until ore is obtained)"
+    action: INTERACT_OBJECT
+    args: "Rocks Mine"
+    delay_before_ms: 1000
+    repeat_until: "has_item:Copper ore"
+    repeat_until_timeout_ms: 6000
+    max_iterations: 6
+    notes: "Brown/orange rocks contain copper. Walk to (3085, 9502) if not already adjacent -- tin and copper rocks are separate outcrops."
+
+  - id: 7
+    description: "Advance dialogue after second mine (if any)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat_until: "no_dialogue"
+    delay_before_ms: 500
+
+  - id: 8
+    description: "Smelt bronze bar at furnace (retries until bar is obtained)"
+    action: USE_ITEM_ON_OBJECT
+    args: "tin Furnace"
+    delay_before_ms: 1000
+    repeat_until: "has_item:Bronze bar"
+    repeat_until_timeout_ms: 8000
+    max_iterations: 5
+    notes: "Partial item name 'tin' matches 'Tin ore'; smelting consumes both the tin and copper ore automatically. State-checked await mirrors the 04 cook-shrimp fix."
+
+  - id: 9
+    description: "Advance dialogue after smelting"
+    action: KEY_PRESS
+    args: "Space"
+    repeat_until: "no_dialogue"
     delay_before_ms: 1000
 
   - id: 10
-    description: "Wait for mining to complete"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 5000
+    description: "Talk to Mining Instructor about smithing (receive hammer)"
+    action: INTERACT_NPC
+    args: "Mining_Instructor Talk-to"
+    await_condition: "dialogue"
+    delay_before_ms: 1000
 
   - id: 11
-    description: "Continue dialogue (space)"
+    description: "Advance smithing-intro dialogue"
     action: KEY_PRESS
     args: "Space"
-    delay_before_ms: 2000
+    repeat_until: "no_dialogue"
+    delay_before_ms: 1000
 
   - id: 12
-    description: "Prospect copper rocks"
-    action: INTERACT_OBJECT
-    args: "Rocks Prospect"
+    description: "Open smithing interface at anvil"
+    action: USE_ITEM_ON_OBJECT
+    args: "bronze Anvil"
     delay_before_ms: 1000
-    notes: "Brown/orange rocks contain copper"
+    notes: "Partial name 'bronze' matches 'Bronze bar'. Opens the smithing item-selection interface."
 
   - id: 13
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 3000
+    description: "Select Dagger in the smithing interface"
+    mcp_tool: click_widget
+    args:
+      text: "Dagger"
+    repeat_until: "has_item:Bronze dagger"
+    repeat_until_timeout_ms: 6000
+    max_iterations: 5
+    notes: |
+      Driver #2 confirmed the smithing flow (Anvil -> menu -> Dagger widget
+      click -> Bronze dagger) but only captured a screen-relative hover-sweep
+      pixel offset (45,75) for the Dagger option, not a stable widget ID --
+      that offset is resolution/zoom-dependent and NOT usable here. Using
+      click_widget(text="Dagger") (canonical text-search-and-click) instead of
+      a hardcoded/guessed widget ID.
+    # TODO: verify coord -- confirm the smithing-interface "Dagger" widget ID
+    # via find_widget(text="Dagger") on a live run and hardcode it if the
+    # text-search proves flaky; journal only has a screen pixel offset, not a
+    # widget ID or world coordinate.
 
   - id: 14
-    description: "Mine copper ore"
-    action: INTERACT_OBJECT
-    args: "Rocks Mine"
+    description: "Advance dialogue after smithing"
+    action: KEY_PRESS
+    args: "Space"
+    repeat_until: "no_dialogue"
     delay_before_ms: 1000
 
   - id: 15
-    description: "Wait for mining to complete"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 5000
-
-  - id: 16
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 2000
-
-  - id: 17
-    description: "Smelt bronze bar at furnace"
-    action: USE_ITEM_ON_OBJECT
-    args: "tin Furnace"
-    delay_before_ms: 2000
-    notes: "Use partial item name 'tin' like in cooking section"
-
-  - id: 18
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 3000
-
-  - id: 19
-    description: "Talk to Mining Instructor about smithing"
-    action: INTERACT_NPC
-    args: "Mining_Instructor Talk-to"
-    delay_before_ms: 2000
-
-  - id: 20
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 2000
-
-  - id: 21
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 22
-    description: "Continue dialogue (space)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 23
-    description: "Smith bronze dagger at anvil"
-    action: USE_ITEM_ON_OBJECT
-    args: "bronze Anvil"
-    delay_before_ms: 2000
-    notes: "May need to select dagger from smithing interface"
-
-  - id: 24
-    description: "Continue dialogue (space) after smithing"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 3000
-
-  - id: 25
     description: "Continue to combat section - open gate"
     action: INTERACT_OBJECT
     args: "Gate Open"
     delay_before_ms: 1000
-    notes: "Gate leads east to combat training area"
+    notes: "Gate leads east to combat training area."
+    # TODO: verify coord -- the journal jumps straight from "smith dagger" to
+    # "Next: combat section" without recording the mining-area exit gate's
+    # world coordinate or an approach waypoint. INTERACT_OBJECT is left
+    # range-based (matches the pre-existing file's behavior); 08_combat.yaml
+    # step 1 adds a defensive GOTO to the combat instructor's known location
+    # (3104, 9509) as the safety net for this untranscribed transition.
 
-# VALIDATED SO FAR:
-# - GOTO 3080 9504 0  # Navigate to Mining Instructor
-# - INTERACT_NPC Mining_Instructor Talk-to
-# - find_and_click_widget(text="Continue") works for dialogue
-
-# PITFALLS TO WATCH FOR:
-# 1. Multiple rock types - need to identify tin vs copper by appearance
-# 2. May need to prospect rocks before mining (Tutorial requirement)
-# 3. Smithing interface may require widget interaction to select dagger
-# 4. USE_ITEM_ON_OBJECT should work with partial names (like cooking)
-
-# SESSION BLOCKED:
-# Account 'aux' exceeded 12hr playtime limit at this point.
-# Resume validation when playtime resets.
+# PITFALLS DISCOVERED (carried over + Driver #2 2026-07-17):
+# 1. Multiple rock types - identify tin (bluish) vs copper (brown/orange) by appearance
+# 2. This tutorial variant does NOT require Prospect - confirmed dead code path, removed
+# 3. Smithing interface requires a widget click to select "Dagger"
+# 4. USE_ITEM_ON_OBJECT works with partial names (like cooking): "tin"->Tin ore, "bronze"->Bronze bar
+# 5. DEFECT-1 (INTERACT_OBJECT camera-orient crash): FIXED on jar 2fcb602, confirmed by Driver #3/#4.
+#    INTERACT_OBJECT is used directly (no hover-sweep workaround needed).

@@ -1,17 +1,33 @@
-# Tutorial Island - Part 10: Prayer & Magic
-# STATUS: VALIDATED (2026-01-20) - CAST_SPELL_NPC fixed, CLICK_NPC added
+# Tutorial Island - Part 10: Account Guide, Prayer & Magic (final section)
+# STATUS: VALIDATED (steps transcribed 2026-07-18 from
+# journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md, Driver #4 ~02:00 PT
+# "CHAPEL/PRAYER SECTION PASSED" and Driver #5 ~11:16 PT
+# "ISLAND COMPLETE" -- full end-to-end mainland exit confirmed)
 #
-# This routine handles the Prayer and Magic sections:
+# This routine handles the final sections:
 # 1. Account Guide section (account management explanation)
-# 2. Brother Brace section (prayer explanation)
-# 3. Magic Instructor section (magic tutorial)
-# 4. Leave Tutorial Island
+# 2. Brother Brace section (prayer explanation, chapel)
+# 3. Magic Instructor section (Wind Strike on chicken)
+# 4. Mainland dialogue + Ironman decline + Home Teleport -> Lumbridge
+#
+# CRITICAL FIX -- DEFECT-13 (journal Driver #5, defects log:283-292):
+# **TeleportHomeCommand and CastSpellCommand both target widget 14286855 for
+# "Home Teleport" -- that widget is actually the MINIGAME Teleport icon.**
+# `CAST_SPELL Home_Teleport` and `TELEPORT_HOME` BOTH FAIL on this jar. The
+# CONFIRMED correct widget (via live SCAN_WIDGETS Teleport) is **14286854**
+# ("Lumbridge Home Teleport", canvas 554,305 40x40). Step 33 below uses
+# `CLICK_WIDGET 14286854` directly -- do NOT use CAST_SPELL/TELEPORT_HOME for
+# the mainland exit until the plugin-side id is fixed.
+#
+# Engine predicates used below (dialogue/no_dialogue/location/plane) are all
+# implemented in mcptools/tools/monitoring.py -- see 04_woodcutting_firemaking.yaml
+# for the reference repeat_until pattern this file mirrors throughout.
 
-name: "Tutorial Island - Prayer & Magic"
+name: "Tutorial Island - Account Guide, Prayer & Magic"
 type: tutorial
 phase: 10
 
-# Key NPCs (VALIDATED)
+# Key NPCs
 npcs:
   account_guide:
     name: "Account Guide"
@@ -24,304 +40,303 @@ npcs:
   magic_instructor:
     name: "Magic Instructor"
     id: 3309
-    location: {x: 3141, y: 3088, plane: 0}
+    location: {x: 3141, y: 3088, plane: 0}  # CONFIRMED, Driver #5 (defects log:269 "resumed at (3141,3088)")
 
-# Key Locations (VALIDATED)
+# Key Locations
 locations:
   account_guide_room: {x: 3125, y: 3124, plane: 0}
+  chapel_outdoor_waypoint: {x: 3128, y: 3110, plane: 0}  # CONFIRMED, Driver #4 (defects log:254 "GOTO 3128 3110 crossed 13 tiles of outdoor path fine")
   chapel: {x: 3125, y: 3107, plane: 0}
+  chapel_exit_door: {x: 3122, y: 3102, plane: 0}  # From prior-session note: "leads west, need to go through it to reach Magic area"
   magic_area: {x: 3141, y: 3088, plane: 0}
-  lumbridge_spawn: {x: 3232, y: 3232, plane: 0}  # Where you arrive after tutorial
+  lumbridge_spawn: {x: 3221, y: 3218, plane: 0}  # CONFIRMED, Driver #5 (defects log:263 "Player is on the mainland: Lumbridge (3221, 3218, plane 0)")
 
-# Key Widgets (VALIDATED)
+# Key Widgets
 widgets:
   account_management_tab: 35913777  # Action: "Account Management"
-  prayer_tab: 35913797  # Action: "Prayer"
-  magic_tab: 35913798  # Action: "Magic" - opened during tutorial
+  prayer_tab: 35913797              # Action: "Prayer"
+  magic_tab: 35913798               # Action: "Magic" - opened during tutorial
+  wind_strike_spell: 14286856       # Spell widget in the magic spellbook
+  lumbridge_home_teleport: 14286854 # CONFIRMED CORRECT (Driver #5, DEFECT-13 fix). Canvas 554,305 40x40.
+  # DO NOT USE 14286855 -- that is "Minigame Teleport", not Home Teleport (DEFECT-13).
 
 steps:
-  # Phase 1: Account Guide (from Banking exit)
+  # ===================== Phase 1: Account Guide =====================
   - id: 1
     description: "Walk to door in front of Account Guide room"
     action: GOTO
     args: "3124 3124 0"
-    status: "VALIDATED"
+    delay_before_ms: 500
     notes: "Must walk to door position before clicking"
 
   - id: 2
     description: "Open door to Account Guide room"
     action: INTERACT_OBJECT
     args: "Door Open"
-    status: "VALIDATED"
-    notes: "Door at (3125, 3124)"
+    delay_before_ms: 1000
+    notes: "Door at (3125, 3124) -- CONFIRMED, Driver #4"
 
   - id: 3
     description: "Talk to Account Guide"
     action: INTERACT_NPC
     args: "Account_Guide Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
 
   - id: 4
     description: "Advance Account Guide dialogue"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
-    status: "VALIDATED"
     notes: "Multiple space presses through intro"
 
   - id: 5
     description: "Open Account Management tab"
-    mcp_tool: "click_widget"
-    args:
-      widget_id: 35913777
-    status: "VALIDATED"
-    notes: "Found via find_widget(text='Account Management')"
+    action: CLICK_WIDGET
+    args: "35913777"
+    delay_before_ms: 1000
+    notes: |
+      Driver #4 used a raw canvas coordinate click (~597,477) as a workaround
+      this run because account_management is not in TabOpenCommand's list --
+      but coordinate clicks are explicitly disallowed for Tutorial Island
+      (widget_reference.yaml: "Coordinate-based clicking causes server
+      disconnections"). Kept as the pre-existing validated widget ID
+      (35913777) instead; not contradicted by this run.
 
   - id: 6
     description: "Talk to Account Guide again"
     action: INTERACT_NPC
     args: "Account_Guide Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
 
   - id: 7
     description: "Complete Account Guide dialogue"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
-    status: "VALIDATED"
     notes: "Many space presses through explanation"
 
-  # Phase 2: Exit to Chapel
+  # ===================== Phase 2: Exit to Chapel =====================
   - id: 8
     description: "Walk to east door"
     action: GOTO
     args: "3129 3124 0"
-    status: "VALIDATED"
+    delay_before_ms: 500
 
   - id: 9
     description: "Open door to outside"
     action: INTERACT_OBJECT
     args: "Door Open"
-    status: "VALIDATED"
+    delay_before_ms: 1000
+    notes: "Door at (3130, 3124) -- Driver #4 confirmed exiting here"
 
   - id: 10
+    description: "Walk toward chapel (confirmed outdoor waypoint)"
+    action: GOTO
+    args: "3128 3110 0"
+    await_condition: "location:3128,3110"
+    delay_before_ms: 500
+    notes: "CONFIRMED, Driver #4: crossed 13 tiles of outdoor path fine (GOTO reported 'failed' at 1-off -- DEFECT-10, treat as advisory and verify via location await)"
+
+  - id: 11
     description: "Walk to chapel"
     action: GOTO
     args: "3130 3107 0"
-    status: "VALIDATED"
+    delay_before_ms: 500
 
-  # Phase 3: Brother Brace (Prayer)
-  - id: 11
+  # ===================== Phase 3: Brother Brace (Prayer) =====================
+  - id: 12
     description: "Talk to Brother Brace"
     action: INTERACT_NPC
     args: "Brother_Brace Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
 
-  - id: 12
+  - id: 13
     description: "Advance Brother Brace intro dialogue"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
-    status: "VALIDATED"
-
-  - id: 13
-    description: "Open Prayer tab"
-    mcp_tool: "click_widget"
-    args:
-      widget_id: 35913797
-    status: "VALIDATED"
-    notes: "Found via find_widget(text='Prayer')"
 
   - id: 14
+    description: "Open Prayer tab"
+    action: CLICK_WIDGET
+    args: "35913797"
+    delay_before_ms: 1000
+    notes: "TAB_OPEN does not cover this on Tutorial Island (defects log:256-257) -- direct widget click used instead"
+
+  - id: 15
     description: "Talk to Brother Brace again"
     action: INTERACT_NPC
     args: "Brother_Brace Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
 
-  - id: 15
-    description: "Complete Brother Brace dialogue"
+  - id: 16
+    description: "Complete Brother Brace dialogue (friends-list steps auto-credit during continues)"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
-    status: "VALIDATED"
 
-  # Phase 4: Exit to Magic Area
-  - id: 16
+  # ===================== Phase 4: Exit to Magic Area =====================
+  - id: 17
+    description: "Walk to chapel exit door"
+    action: GOTO
+    args: "3122 3102 0"
+    delay_before_ms: 500
+    notes: "Door leads west toward the Magic area"
+
+  - id: 18
     description: "Exit chapel through door"
     action: INTERACT_OBJECT
     args: "Door Open"
-    status: "VALIDATED"
+    delay_before_ms: 1000
 
-  - id: 17
+  - id: 19
     description: "Walk to Magic Instructor area"
     action: GOTO
     args: "3141 3088 0"
-    status: "VALIDATED"
+    await_condition: "location:3141,3088"
+    delay_before_ms: 500
+    notes: "CONFIRMED, Driver #5: Magic Instructor found here after a mid-run crash/relaunch"
 
-  # Phase 5: Magic Instructor
-  - id: 18
+  # ===================== Phase 5: Magic Instructor (Wind Strike) =====================
+  - id: 20
     description: "Talk to Magic Instructor"
     action: INTERACT_NPC
     args: "Magic_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
-
-  - id: 19
-    description: "Advance Magic Instructor intro dialogue"
-    mcp_tool: "click_text"
-    args:
-      text: "continue"
-    repeat_until: "no_dialogue"
-    status: "VALIDATED"
-    notes: "Receive Air runes and Mind runes"
-
-  - id: 20
-    description: "Open Magic tab"
-    mcp_tool: "click_widget"
-    args:
-      widget_id: 35913798
-    status: "VALIDATED"
-    notes: "Tutorial prompts to open magic tab"
 
   - id: 21
+    description: "Advance Magic Instructor intro dialogue (receive Air/Mind runes)"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+    notes: "Receive Air rune x4 and Mind rune x4"
+
+  - id: 22
+    description: "Open Magic tab"
+    action: CLICK_WIDGET
+    args: "35913798"
+    delay_before_ms: 1000
+    notes: "Tutorial prompts to open magic tab"
+
+  - id: 23
     description: "Talk to Magic Instructor again"
     action: INTERACT_NPC
     args: "Magic_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
 
-  - id: 22
-    description: "Advance dialogue"
-    mcp_tool: "click_text"
-    args:
-      text: "continue"
+  - id: 24
+    description: "Advance dialogue (instructor explains Wind Strike)"
+    action: KEY_PRESS
+    args: "space"
     repeat_until: "no_dialogue"
-    status: "VALIDATED"
-    notes: "Instructor explains Wind Strike"
 
-  # Cast Wind Strike on Chicken - TWO APPROACHES:
-  #
-  # APPROACH A (Recommended): Use CAST_SPELL_NPC (fixed 2026-01-20)
-  # - Single command, handles magic tab, spell selection, and NPC clicking
-  #
-  # APPROACH B (Alternative): Step-by-step with CLICK_NPC
-  # - More control, useful if CAST_SPELL_NPC still has issues
-  # - Step 23a: click_widget(widget_id=14286856) to select Wind Strike
-  # - Step 23b: CLICK_NPC Chicken to cast on target
-
-  - id: 23
+  - id: 25
     description: "Cast Wind Strike on chicken"
     action: CAST_SPELL_NPC
     args: "Wind_Strike Chicken"
-    status: "FIXED"
-    notes: "Fixed 2026-01-20 - threading deadlock resolved. Opens magic tab, clicks spell, clicks NPC."
+    delay_before_ms: 1000
+    notes: |
+      CAST_SPELL_NPC opens the magic tab, clicks the spell, then clicks the
+      NPC in one call. Requires proximity -- walk closer first if the chicken
+      is off-screen (NPC bounds show negative Y when far away).
+      No await_condition: runes stack in one inventory slot ("Mind rune x4"),
+      so no_item:/has_item: cannot detect a partial quantity decrease from a
+      single cast -- there is no engine predicate for "spell cast succeeded".
+      Step 26's INTERACT_NPC await_condition:"dialogue" (with the engine's
+      built-in retry) is what actually gates progress past this step.
+      Fallback if this fails: click_widget(widget_id=14286856) to select Wind
+      Strike, then `action: CLICK_NPC args: "Chicken"` to complete the cast.
 
-  # Alternative step-by-step approach (use if CAST_SPELL_NPC fails):
-  # - id: 23a
-  #   description: "Click Wind Strike spell"
-  #   mcp_tool: "click_widget"
-  #   args:
-  #     widget_id: 14286856  # Wind Strike spell widget
-  #   notes: "Selects the spell, cursor changes to targeting mode"
-  #
-  # - id: 23b
-  #   description: "Click on chicken to cast spell"
-  #   action: CLICK_NPC
-  #   args: "Chicken"
-  #   notes: "CLICK_NPC finds nearest chicken and clicks its convex hull"
+  # ===================== Phase 6: Final dialogue, Ironman decline, mainland exit =====================
+  # Driver #5's exact confirmed sequence (defects log:267-281):
+  #   1. INTERACT_NPC Magic_Instructor Talk-to -- clean.
+  #   2. Dialogue chain: "Do you want to go to the mainland?" -> CLICK_DIALOGUE Yes
+  #      -> Ironman prompt -> CLICK_DIALOGUE No -> continues.
+  #   3. Final instruction: "Cast your Home Teleport spell to be taken to Lumbridge."
+  #   4. TELEPORT_HOME and CAST_SPELL Home_Teleport BOTH FAILED (DEFECT-13).
+  #   5. SCAN_WIDGETS Teleport -> Lumbridge Home Teleport is widget 14286854.
+  #   6. CLICK_WIDGET 14286854 -> ~10s cast animation -> arrival (3221,3218). Done.
 
-  # Phase 6: Final Dialogue and Teleport
-  - id: 24
-    description: "Talk to Magic Instructor (after spell cast)"
+  - id: 26
+    description: "Talk to Magic Instructor (after Wind Strike cast)"
     action: INTERACT_NPC
     args: "Magic_Instructor Talk-to"
     await_condition: "dialogue"
-    status: "VALIDATED"
-
-  - id: 25
-    description: "Advance final dialogue"
-    mcp_tool: "click_text"
-    args:
-      text: "continue"
-    status: "VALIDATED"
-    notes: "Multiple continues through final explanation"
-
-  - id: 26
-    description: "Answer Ironman question - Yes to continue"
-    mcp_tool: "click_text"
-    args:
-      text: "Yes"
-    status: "VALIDATED"
-    notes: "Says 'Yes' to continue, not to enable Ironman"
 
   - id: 27
-    description: "Decline Ironman mode"
-    mcp_tool: "click_text"
-    args:
-      text: "No"
-    status: "VALIDATED"
-    notes: "Click 'No' to decline Ironman mode"
+    description: "Advance dialogue toward the mainland question"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
 
   - id: 28
-    description: "Complete final dialogues"
-    mcp_tool: "click_text"
-    args:
-      text: "continue"
-    repeat_until: "no_dialogue"
-    status: "VALIDATED"
-    notes: "Keep clicking continue until dialogue closes"
+    description: "Answer 'Do you want to go to the mainland?' -- Yes"
+    action: CLICK_DIALOGUE
+    args: "Yes"
+    delay_before_ms: 1000
+    notes: |
+      CONFIRMED, Driver #5. DEFECT-6 caveat: this option menu sometimes
+      reports as `type: player_chat, options: []` in the state file (invisible
+      to option-driven logic) -- CLICK_DIALOGUE with substring text still
+      works on the plugin side regardless of state-file visibility.
 
   - id: 29
-    description: "Cast Home Teleport to leave Tutorial Island"
-    action: CAST_SPELL
-    args: "Home_Teleport"
+    description: "Decline Ironman mode -- No"
+    action: CLICK_DIALOGUE
+    args: "No"
+    delay_before_ms: 1000
+    notes: "CONFIRMED, Driver #5. Second question -- declines Ironman mode."
+
+  - id: 30
+    description: "Complete final dialogue (leads to 'Cast your Home Teleport spell...')"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+
+  - id: 31
+    description: "Re-open Magic tab before Home Teleport (tab may have closed)"
+    action: CLICK_WIDGET
+    args: "35913798"
+    delay_before_ms: 1000
+
+  - id: 32
+    description: "Cast Lumbridge Home Teleport (DEFECT-13 fix: widget click, NOT CAST_SPELL/TELEPORT_HOME)"
+    action: CLICK_WIDGET
+    args: "14286854"
     await_condition: "location:3221,3218"
-    status: "VALIDATED"
-    notes: "Home Teleport takes ~10 seconds. Teleports to Lumbridge courtyard."
+    timeout_ms: 15000
+    delay_before_ms: 500
+    notes: |
+      DO NOT use `CAST_SPELL Home_Teleport` or `TELEPORT_HOME` here -- both
+      target the wrong widget (14286855, "Minigame Teleport") on this jar
+      (DEFECT-13, defects log:285-292). 14286854 is the CONFIRMED correct
+      "Lumbridge Home Teleport" widget (found via live SCAN_WIDGETS Teleport,
+      Driver #5). Cast animation takes ~10s; timeout extended accordingly.
 
 # PITFALLS DISCOVERED:
-# 1. Door navigation: Must use GOTO to position directly in front of door,
-#    then use INTERACT_OBJECT Door Open
-# 2. Account Management tab widget ID: 35913777
-# 3. Prayer tab widget ID: 35913797
+# 1. Door navigation: walk to a tile directly in front of the door, then INTERACT_OBJECT Door Open
+# 2. Account Management tab widget ID: 35913777 (not in TAB_OPEN's supported list)
+# 3. Prayer tab widget ID: 35913797 (also not in TAB_OPEN's supported list)
 # 4. Magic tab widget ID: 35913798
-# 5. Multiple dialogue sections require many space/continue presses
-# 6. CAST_SPELL_NPC command - FIXED but requires proximity!
-#    If NPC bounds show negative Y (off-screen), walk closer first using GOTO
-#    Root cause: NPC model coordinates calculated incorrectly when far away
-# 7. Ironman question dialogue sequence:
-#    - Click "Yes" to confirm leaving (first question)
-#    - Click "No" to decline Ironman mode (second question)
-# 8. KEY_PRESS space sometimes doesn't work for dialogue - use click_text("continue")
-# 9. get_dialogue hint shows "CLICK_CONTINUE" but actual text is "Click here to continue"
-#    Use click_text("Click here to continue") or click_text("continue") - both work
-# 10. Home Teleport required to leave Tutorial Island - not auto-teleport!
-#     Use CAST_SPELL Home_Teleport after final dialogue
-# 11. Chapel exit door at (3122, 3102) leads west, need to go through it to reach Magic area
+# 5. Dialogue advancement: KEY_PRESS space + repeat_until: no_dialogue (self-terminating)
+# 6. CAST_SPELL_NPC requires proximity -- walk closer first if NPC bounds show negative Y
+# 7. Ironman/mainland dialogue sequence (CONFIRMED order, Driver #5):
+#    - CLICK_DIALOGUE "Yes" (first question: confirm leaving for the mainland)
+#    - CLICK_DIALOGUE "No" (second question: decline Ironman mode)
+# 8. KEY_PRESS space is the universal dialogue-advance fallback (defects log:337-338) --
+#    CLICK_CONTINUE fails on some plain-message/level-up-style panes (DEFECT-8), space does not.
+# 9. DEFECT-13 (CRITICAL): Home Teleport must be CLICK_WIDGET 14286854, never
+#    CAST_SPELL/TELEPORT_HOME (both hardcode the wrong widget 14286855).
+# 10. Chapel exit door at (3122, 3102) leads west toward the Magic area.
 
 # WORKING PATTERNS:
-# - Account Management tab: click_widget(widget_id=35913777)
-# - Prayer tab: click_widget(widget_id=35913797)
-# - Magic tab: click_widget(widget_id=35913798)
-# - Dialogue advancement: click_text("continue") preferred over KEY_PRESS space
-# - Door interaction: GOTO to door position + INTERACT_OBJECT Door Open
-# - Ironman decline: click_text("Yes") then click_text("No")
-# - Spell casting: CAST_SPELL_NPC Wind_Strike Chicken (walk close first!)
-# - Alternative spell casting: click_widget(14286856) + CLICK_NPC Chicken
-# - Home Teleport: CAST_SPELL Home_Teleport (not click_widget)
-
-# KEY SPELL WIDGET IDs:
-# - Wind Strike: 14286856
-# - Home Teleport: 14286848
-
-# ITEMS RECEIVED:
-# - Air rune x4 (from Magic Instructor)
-# - Mind rune x4 (from Magic Instructor)
+# - Account Management / Prayer / Magic tabs: CLICK_WIDGET <id> (not in TAB_OPEN's list)
+# - Dialogue advancement: KEY_PRESS space + repeat_until: no_dialogue
+# - Door interaction: GOTO to door position, then INTERACT_OBJECT Door Open
+# - Dialogue options: CLICK_DIALOGUE "<option text>" (works even when state-file options[] is empty)
+# - Spell casting on NPC: CAST_SPELL_NPC Wind_Strike Chicken (walk close first)
+# - Home Teleport (mainland exit): CLICK_WIDGET 14286854 -- NOT CAST_SPELL Home_Teleport
 
 # FINAL DESTINATION:
-# - Teleported to Lumbridge (~3232, 3232, plane 0)
-# - Nearby NPCs: Adventurer Jon, Lumbridge Guide, Ironman tutor
+# - Lumbridge (3221, 3218, plane 0) -- CONFIRMED, Driver #5, "ISLAND COMPLETE"
+# - Nearby NPCs on arrival: Adventurer Jon, Lumbridge Guide, Ironman tutor
