@@ -136,10 +136,23 @@ steps:
   - id: 9
     phase: "mining"
     action: MINE_ORE
-    args: "iron"
+    args: "iron 1"
     description: "Mine one iron ore"
-    await_condition: "has_item:Iron ore"
-    timeout_ms: 15000
+    timeout_ms: 45000
+    notes: "MINE_ORE is blocking - no await_condition needed (matches
+      mine_iron_ore.yaml step 7 and superheat_steel_bars.yaml steps 7-9).
+      Was previously await_condition:has_item + timeout_ms:15000, which paired
+      a redundant state-poll with a timeout too short for contested Mining
+      Guild iron (observed 15-23s elsewhere in this corpus), risking spurious
+      failures on the send_command_with_response dispatch itself.
+      Args fixed 2026-07-18: was `args: \"iron\"` with no count -- per
+      MineOreCommand.java's own doc comment, omitting [count] means
+      targetCount=-1 = 'mine until inventory full', not 'mine one ore'. That
+      silently broke the whole mine-then-superheat inner loop design (this
+      step would try to fill the ENTIRE inventory with iron before ever
+      reaching step 10's superheat cast, and outrun the 45s timeout doing
+      it). Added the missing count=1, matching the identical, working
+      pattern in mine_iron_ore.yaml and superheat_steel_bars.yaml."
 
   - id: 10
     phase: "superheat"
@@ -161,19 +174,62 @@ steps:
     description: "Check inventory state"
     notes: "Use this to decide if we need to bank"
 
+  # ========== PHASE 6: EXIT MINE (when loop exits) ==========
+  # Added 2026-07-18: the routine had no way back to the surface before
+  # re-running step 1 (GOTO Falador East Bank) from underground -- GOTO
+  # cannot path through a ladder transition on its own (CLAUDE.md Indoor
+  # Navigation Protocol). Mirrors superheat_steel_bars.yaml steps 11-12,
+  # using this file's own pre-recorded mining_guild_underground /
+  # mining_guild_entrance coordinates.
+  - id: 12
+    phase: "exit"
+    action: GOTO
+    args: "3019 9737 0"
+    description: "Walk to ladder in Mining Guild"
+    await_condition: "location:3019,9737"
+    timeout_ms: 15000
+
+  - id: 13
+    phase: "exit"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb up ladder to exit Mining Guild"
+    await_condition: "location:3019,3337"
+    timeout_ms: 10000
+    notes: "Surface location after climbing up (mining_guild_entrance)"
+
 # Loop configuration
 loop:
-  enabled: true
-  start_step: 9
-  end_step: 10
-  exit_conditions:
-    - "inventory_full"
-    - "no_item:Nature rune"
-  notes: |
-    Loop mining and superheating until:
-    - Inventory is full of iron bars (27), OR
-    - Out of nature runes
-    Then return to step 1 (banking phase)
+  # Inner loop: Mine and superheat until inventory full or out of runes.
+  # FIXED 2026-07-18: this was previously a FLAT loop block
+  # (enabled/start_step/end_step/exit_conditions at the top level), but the
+  # executor's flat-loop path (handle_execute_routine, routine.py) only reads
+  # `enabled`, `repeat_from_step`, and `stop_conditions` -- start_step/
+  # end_step/exit_conditions are ONLY meaningful nested under loop.inner/
+  # loop.outer. The flat form silently ran ALL steps 1-11 every pass (full
+  # re-bank after a single ore+superheat) instead of looping steps 9-10 until
+  # full. Restructured to match the proven inner/outer schema already used by
+  # mine_iron_ore.yaml and superheat_steel_bars.yaml.
+  inner:
+    enabled: true
+    start_step: 9
+    end_step: 10
+    exit_conditions:
+      - "inventory_full"
+      - "no_item:Nature rune"
+    on_exit: "goto_step:11"
+
+  # Outer loop: full bank -> travel -> mine loop -> exit cycle repeats
+  outer:
+    enabled: true
+    start_step: 1
+    end_step: 13
+    exit_conditions: []
+    notes: |
+      Loop mining and superheating (steps 9-10) until:
+      - Inventory is full of iron bars (27), OR
+      - Out of nature runes
+      Then exit the mine (steps 12-13) and return to step 1 (banking phase).
 
 # Execution notes
 notes: |

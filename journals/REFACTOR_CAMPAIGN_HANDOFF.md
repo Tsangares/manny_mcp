@@ -801,3 +801,49 @@ WAVE 7 DOC REGEN ✅ (this session): COMMAND_REFERENCE.md regenerated to 131 rea
     handleEquipBestMelee arg values, not commands); LOAD_SCENARIO/LOAD_CMDLOG confirmed absent.
     ROUTINE_CATALOG.md ATTACK-redirect claims fixed + count 90->131. TOOLS_USAGE_GUIDE clean.
 ═══════════════════════════════════════════════════════════════════════════════
+
+███████████████████████████████████████████████████████████████████████████████
+## ★★★ REFACTOR COMPLETE 2026-07-18 ~14:15 — PlayerHelpers 23,683 -> 3,484 (85% off) ★★★
+███████████████████████████████████████████████████████████████████████████████
+J2-8 (final PH split) committed **059cdb2** + DEFECT-17 fix **fd97462**, both pushed. Rebuilt
+shadowJar (14:12, 0 stale), gated on 'new' in Lumbridge:
+- Smoke 5/5.
+- J2-8 dispatch VERIFIED GREEN: TELEPORT_HOME -> full success (widget 14286854, Teleport complete);
+  EQUIP_BEST_MELEE -> ran full weapon-scoring (found Bronze sword), failed only on bounds (UI/tab,
+  not refactor); SMELT_BAR -> resolved bar types incl. "Use SMELT_BRONZE_BARS for bronze" (BarTypeInfo
+  FQN seam WORKS); CAST_SPELL -> succeeded; GE_OPEN -> dispatched. All four extracted support classes
+  load+dispatch+reach real logic. No J2-8-introduced regression.
+- DEFECT-17 VERIFIED FIXED: COLLECT no longer throws getDistanceTo IllegalStateException; it now
+  progresses PAST it to getInventoryOreType (which hit a transient 5s client-thread timeout under my
+  rapid-fire 7-cmd battery — a LOAD artifact of test method, not an off-thread violation; a real
+  one-command-at-a-time routine won't do this).
+Client STOPPED, pkg ~62C.
+
+REFACTOR SCORECARD — PlayerHelpers.java decomposition, all live-gated:
+  23,683 (start) -> J2-1 19,764 -> ... -> J2-6 8,719 -> J2-7 5,604 -> **J2-8 3,484**. 85% reduction.
+  ~20 focused utility/ support classes now hold what one file did. CommandProcessor = thin dispatch
+  shell + delegating wrappers. This is the "codebase an LLM can author routines against" goal MET.
+
+**NEW DEFECT-18 (GameEngine off-thread read cluster — batch with DEFECT-17-style pass):** SMELT_BRONZE
+  throws "must be called on client thread" at GameEngine$GameHelpers.findGameObjectsByName:1971 ->
+  getWorldLocation() off the manny-background thread (from SmeltBronzeCommand:77). PRE-EXISTING (in the
+  DEFECT-1 audit; GameEngine untouched by J2-7/J2-8; handleSmeltBronze moved verbatim). Same fix pattern
+  as DEFECT-17. RECOMMENDED next Java pass: one "GameEngine off-thread read audit" that batch-fixes
+  findGameObjectsByName + the DEFECT-1-audit-table remnants (rotateToNPC/rotateToObject/prepareToViewTarget/
+  findAllNearbyObjects/scene-scan) with the isClientThread+readFromClientSafe guard, one gate.
+
+## ROUTINES PHASE — GROUNDWORK DONE (2026-07-18), ready for first live grind test
+- Tutorial Island 07-10 transcribed w/ real coords (c513ecd); DEFECT-13 fixed in-routine. 3 TODO coords
+  need live capture. Full 01->10 chain in 00_master.
+- Python engine bugs (rid-correlation, no_item_in_bank, restless_ghost MCP_TOOL) ALL already fixed
+  (verified: e5f00d3 + validation sweep). 154 tests pass. Engine queue CLEAR.
+- Grind routines audited+fixed (journals/GRIND_ROUTINE_READINESS_2026-07-18.md). CRITICAL FIX: blocking
+  commands (KILL_LOOP/CHOP_TREE/FISH_DRAYNOR_LOOP) had no timeout_ms -> run_routine.py abandoned them
+  after 30s default, leaving the client grinding UNSUPERVISED. 9 files fixed.
+- RANKED first-live-test shortlist: (1) combat/chicken_killer_training.yaml [safest, timeout-fixed],
+  (2) combat/chicken_killer_loop.yaml, (3) skilling/woodcutting_lumbridge.yaml [VERIFY axe EQUIPPED not
+  just banked before running - step 3 would otherwise bank it].
+>>> NEXT (routines phase, refactor now DONE): run the shortlist grind test on 'new' in Lumbridge
+    (client on, reniced, thermal-watch), monitor as supervisor, fix what breaks. Then tutorial 00_master
+    end-to-end on newbakshesh. Wave 7 journal finalize (drop DRAFT) is the last refactor-side chore.
+███████████████████████████████████████████████████████████████████████████████

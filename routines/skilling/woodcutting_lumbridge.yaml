@@ -63,7 +63,14 @@ steps:
     action: CHOP_TREE
     args: "Tree"
     description: "Chop regular trees until inventory full"
-    notes: "Will automatically chop until 28 logs collected"
+    timeout_ms: 1800000
+    notes: "Will automatically chop until 28 logs collected. timeout_ms
+      explicit (fixed 2026-07-18): CHOP_TREE blocks synchronously in the
+      plugin (ChopTreeCommand.java: `while (getEmptySlots() > 0)`, responds
+      only once full) -- the 30s default meant run_routine.py would give up
+      and exit (misreporting completion) long before a full inventory of logs
+      could be chopped, leaving the client chopping completely unsupervised.
+      30min ceiling; returns as soon as the plugin actually responds."
     expected_result: "Full inventory of logs"
 
   # ========== PHASE 3: BANK LOGS ==========

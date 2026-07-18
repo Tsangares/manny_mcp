@@ -51,18 +51,25 @@ steps:
     action: INTERACT_OBJECT
     args: "door Open"
     description: "Open brass key door"
-    delay_after: 2000
+    delay_after_ms: 2000
 
   - id: 3
     action: INTERACT_OBJECT
     args: "ladder Climb-down"
     description: "Climb down to dungeon"
-    delay_after: 3000
+    delay_after_ms: 3000
 
   - id: 4
     action: KILL_LOOP
     args: "Hill_Giant 500"
     description: "Start killing Hill Giants"
+    timeout_ms: 14400000
+    notes: "timeout_ms explicit (fixed 2026-07-18, see
+      chicken_killer_training.yaml for the full explanation): KILL_LOOP blocks
+      synchronously until max_kills, so the 30s default would make
+      run_routine.py give up and exit long before 500 kills finish. 4hr
+      ceiling given the larger kill count; returns as soon as the plugin
+      actually responds."
 
 # ISSUES DISCOVERED:
 # - Pathfinder API (osrspathfinder.com) can return 500 errors

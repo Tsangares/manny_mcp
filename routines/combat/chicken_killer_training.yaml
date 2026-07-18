@@ -42,10 +42,19 @@ steps:
     action: KILL_LOOP
     args: "Chicken 200"
     description: "Kill 200 chickens for combat XP"
+    timeout_ms: 3600000
     notes: |
       Chickens are level 1 - safe for any account.
       Drops: Feathers (5-15, ~3gp each), Raw chicken, Bones
       200 kills = ~2400 combat XP spread across attack/strength/defence
+
+      timeout_ms explicit (fixed 2026-07-18): KILL_LOOP blocks synchronously
+      in the plugin until max_kills or interrupt (KillLoopCommand.java) --
+      the 30s default timeout_ms meant run_routine.py would give up and exit
+      (misreporting the run as finished, with a spurious step-2 timeout error)
+      long before 200 kills could complete, leaving the client fighting
+      completely unsupervised for the real duration. 1hr ceiling; returns as
+      soon as the plugin actually responds.
 
 # Combat settings
 combat_settings:

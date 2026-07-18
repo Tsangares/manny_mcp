@@ -63,10 +63,26 @@ steps:
     phase: "fishing"
     action: FISH_DRAYNOR_LOOP
     args: "45"
-    description: "Fish at Draynor until inventory nearly full (45/28 slots)"
+    description: "Fish at Draynor until fishing level 45 is reached"
     location: draynor_fishing_spot
-    notes: "This command handles fishing + banking automatically"
-    expected_result: "Fishing XP gained, inventory fills then banks"
+    timeout_ms: 14400000
+    notes: "This command handles fishing + banking + travel entirely
+      internally (FishDraynorLoopCommand.java: a single blocking
+      while(true) that only returns once the target fishing level is
+      reached or it's interrupted) -- like POWER_MINE, it's a full
+      self-contained grind loop, not a one-trip action.
+
+      Fixed 2026-07-18 (verified against source, not a guess): the '45' arg
+      is a TARGET FISHING LEVEL, not an inventory-slot count -- the original
+      description ('until inventory nearly full (45/28 slots)') misdescribed
+      it. Also added timeout_ms: with no override this used the 30s step
+      default, so run_routine.py would give up and exit (misreporting the
+      run as finished) long before level 45 could be reached from a fresh
+      account, leaving the client fishing completely unsupervised. 4hr
+      ceiling; lower the '45' arg or raise the ceiling further for a longer
+      unattended session."
+    expected_result: "Fishing XP gained continuously; command itself returns
+      only once fishing level 45 is reached or interrupted"
 
 # Execution notes
 notes: |

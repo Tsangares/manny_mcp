@@ -70,16 +70,30 @@ steps:
     action: KILL_LOOP
     args: "Cow 100"
     description: "Kill 100 cows for combat XP"
-    notes: "Automatically attacks, waits for kill, finds next target, repeats"
+    timeout_ms: 3600000
+    notes: "Automatically attacks, waits for kill, finds next target, repeats.
+      timeout_ms explicit (fixed 2026-07-18, see chicken_killer_training.yaml
+      for the full explanation): KILL_LOOP blocks synchronously until
+      max_kills, so the 30s default would make run_routine.py give up and
+      exit long before 100 kills finish."
     expected_result: "Combat XP gained, 100 cows defeated"
 
   # ========== PHASE 3: COLLECT HIDES (OPTIONAL) ==========
+  # NOTE (flagged 2026-07-18, not changed): steps 7 and 8 are documented below
+  # as two ALTERNATIVE modes ("Two modes available"), but both run
+  # unconditionally back-to-back in this flat steps: list -- 100 no-loot kills
+  # immediately followed by 200 more kills with hide collection. Left as-is;
+  # picking one mode over the other is a content/design decision, not a
+  # mechanical defect.
   - id: 8
     phase: "collection"
     action: KILL_COW_GET_HIDES
     args: "200"
     description: "Kill cows and collect hides for money"
-    notes: "Alternative: Kills cows AND picks up cowhide drops"
+    timeout_ms: 3600000
+    notes: "Alternative: Kills cows AND picks up cowhide drops. timeout_ms
+      explicit (fixed 2026-07-18): same blocking-command timeout issue as
+      step 7 above."
     expected_result: "Combat XP + cowhide inventory"
 
 # Combat settings

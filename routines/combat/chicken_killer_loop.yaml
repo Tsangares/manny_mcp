@@ -12,11 +12,34 @@ locations:
     plane: 0
 
 steps:
+  # Added 2026-07-18: this step was missing entirely -- the `steps:` list
+  # jumped straight to KILL_LOOP with no travel step, so an unattended run
+  # only works if the character already happens to be standing at the coop.
+  # The `lumbridge_chicken_coop` location above was already defined but never
+  # referenced by any step. Reuses the identical GOTO used by the sibling
+  # routine chicken_killer_training.yaml step 1 (same coordinates).
   - id: 1
+    phase: "travel"
+    action: GOTO
+    args: "3180 3288 0"
+    description: "Walk to chicken coop north of Lumbridge"
+    location: lumbridge_chicken_coop
+    await_condition: "location:3180,3288"
+    timeout_ms: 20000
+
+  - id: 2
     phase: "combat"
     action: KILL_LOOP
     args: "Chicken 100"
     description: "Kill 100 chickens"
+    timeout_ms: 3600000
+    notes: "KILL_LOOP blocks synchronously in the plugin (KillLoopCommand.java
+      executeCommand loops until max_kills or interrupt, only responding at the
+      end) -- with no timeout_ms it used the 30s default, so run_routine.py
+      would give up waiting and exit (reporting a step timeout) after 30s while
+      the client kept fighting completely unsupervised for the real duration of
+      a 100-kill batch (many minutes). 1hr ceiling; returns as soon as the
+      plugin actually responds, so this only affects the worst case."
 
 # Auto-restart loop - eliminates dead time
 loop:

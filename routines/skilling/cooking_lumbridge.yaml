@@ -243,5 +243,12 @@ loop:
   enabled: true
   repeat_from_step: 1
   stop_conditions:
-    - "no_item_in_bank:${raw_food}"
     - "cooking_level:99"
+  notes: "no_item_in_bank:${raw_food} was removed 2026-07-18: check_stop_condition
+    (routine.py) now raises NotImplementedError for no_item_in_bank (bank contents
+    aren't in the state snapshot) instead of the old silent-False stub. Since
+    handle_execute_routine's flat-loop stop_conditions check has no try/except,
+    this crashed the whole unattended run on the very first loop-completion
+    check. cooking_level:99 alone is effectively never true, so the loop now
+    runs until --loops is exhausted (same practical behavior as before, minus
+    the crash) -- pass --loops N externally to bound a session."
