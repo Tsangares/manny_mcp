@@ -69,11 +69,20 @@ steps:
     args: "Space"
     delay_before_ms: 3000
 
+  # FIX 2026-07-18 (journals/TUTORIAL_ROUTINE_LIVE_TEST_2026-07-18.md rec #1):
+  # the cook command was firing ~5s after the tinderbox-on-logs dispatch, before the
+  # Fire GameObject had actually spawned ("Object not found: fire" -- reproduced
+  # twice, identical). repeat_until retries USE_ITEM_ON_OBJECT (check-first) until
+  # Raw shrimps leaves the inventory (cooked or burnt either way removes it), giving
+  # each attempt up to repeat_until_timeout_ms for the fire to spawn/settle.
   - id: 10
-    description: "Cook shrimp on fire"
+    description: "Cook shrimp on fire (retries until fire exists and shrimp is cooked)"
     action: USE_ITEM_ON_OBJECT
     args: "shrimps fire"
     delay_before_ms: 1000
+    repeat_until: "no_item:Raw shrimps"
+    repeat_until_timeout_ms: 7000
+    max_iterations: 6
     # VALIDATED: lowercase "fire" is correct (case-sensitive!)
     # Format: <item> <object> (no action needed)
 
@@ -98,11 +107,43 @@ steps:
     delay_before_ms: 1000
     # VALIDATED: "Gate" capitalized
 
+  # FIX 2026-07-18 (journals/TUTORIAL_ROUTINE_LIVE_TEST_2026-07-18.md rec #2):
+  # if the cook attempt above never lands, the tutorial refuses passage through the
+  # gate with a plain-message modal ("You need to talk to the Survival Guide and
+  # complete her tasks before you are allowed to proceed through this gate." --
+  # DEFECT-8). KEY_PRESS Space dismisses it (CLICK_CONTINUE does not). Check-first
+  # repeat_until means this is a genuine no-op when the gate opened cleanly (no
+  # dialogue open -> zero presses).
+  - id: 14
+    description: "Dismiss gate-refusal modal if present (no-op if gate opened cleanly)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+    repeat_until: "no_dialogue"
+
+  # Recovery: only fires if Raw shrimps is still in the inventory (i.e. the cook
+  # attempt above never succeeded and the gate refused). max_iterations: 1 makes
+  # this a single conditional GOTO, not a retry loop -- walking doesn't change the
+  # predicate, so looping would just burn the iteration cap. If the shrimp was
+  # already cooked (success path) this is a genuine no-op and does not disturb the
+  # player's position at (3089, 3091) for 05_cooking.yaml.
+  - id: 15
+    description: "Recovery: walk back to Survival Expert start tile for safe re-entry (no-op on success)"
+    action: GOTO
+    args: "3100 3095 0"
+    delay_before_ms: 500
+    repeat_until: "no_item:Raw shrimps"
+    max_iterations: 1
+
 # PITFALLS DISCOVERED:
 # 1. Object name is lowercase "tree" (case-sensitive)
 # 2. Action "Chop down" uses SPACE (args.split(" ", 2) allows spaces in action)
 # 3. USE_ITEM_ON_OBJECT format is just "<item> <object>" - no action
 # 4. Partial item names work (e.g., "shrimps" matches "Raw shrimps")
+# 5. Cook step (10) and gate-refusal recovery (14/15) use repeat_until -- see
+#    journals/TUTORIAL_ROUTINE_LIVE_TEST_2026-07-18.md for the root-cause writeup.
+#    Engine-side false-positive crash detection / relogin (that journal's rec #3)
+#    is NOT addressed here -- out of scope for this routine-content fix.
 
 # After this routine:
 # Player at (3089, 3091), ready for 05_cooking.yaml (cooking building)
