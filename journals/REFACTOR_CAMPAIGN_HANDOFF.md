@@ -585,3 +585,18 @@ command time, so DI/instantiation wiring broke. NOT progression-critical (TILE i
 driver unblocked, core commands fine) but a clear J2-2 regression. Post-freeze: trace where
 tileMarkerManager is constructed/assigned (nested class, MannyPlugin-pinned — manifest note only, do
 not edit MannyPlugin) and restore the wiring; add a smoke check for TILE. Likely a quick fix.
+
+## FREEZE LIFTED 2026-07-18 ~11:10 — Tutorial Island COMPLETE (Driver #5, Lumbridge 3221,3218)
+End-to-end acceptance test PASSED on jar 2fcb602. All sections cleared across Drivers #2-#5.
+Two new defects to the post-freeze queue:
+- DEFECT-13: TELEPORT_HOME / CAST_SPELL hardcodes widget 14286855 (Minigame Teleport) — correct
+  Lumbridge Home Teleport is 14286854. Worked around live via CLICK_WIDGET 14286854. Fix: correct
+  the hardcoded widget id (and/or make it spell-name driven). Java (post-freeze).
+- DEFECT-14: MOUSE_MOVE rejects sidebar/off-viewport coordinates as "Invalid coordinates" — clamps
+  to game viewport only, so tab/inventory-region moves fail. Java (post-freeze).
+Full re-test matrix + 9-item priority list in journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md
+(Driver #5 — ISLAND COMPLETE section). Verdict: viable NOW as LLM-driven; fix DEFECT-8/7/13 for
+blind (unattended) replay.
+Client is LIVE on 2fcb602, logged in, character in Lumbridge — ideal state for grind-loop routine
+tests (chicken_killer_training, woodcutting_lumbridge). NEXT: after engine agent lands routine.py
+changes, run grind tests on this Lumbridge character, THEN Java post-freeze fixes + J2-4 (rebuild).

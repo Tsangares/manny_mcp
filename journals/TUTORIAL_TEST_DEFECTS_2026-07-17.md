@@ -257,3 +257,121 @@ TAB_OPEN prayer between (TAB_OPEN works for standard tabs; account_management is
 TabOpenCommand's list — clicked the flashing icon manually via canvas coords instead).
 Friends-list steps apparently auto-credited during dialogue continues. Next: chapel exit door
 → path → Magic Instructor (final).
+
+## Driver #5 — ISLAND COMPLETE (~11:16 PT, 2026-07-18)
+
+**Player is on the mainland: Lumbridge (3221, 3218, plane 0).** "Welcome to Lumbridge!"
+dialog confirmed on screen and dismissed. Tutorial Island run is DONE end-to-end on the
+`new` account, jar 2fcb602.
+
+### Magic section / mainland exit log (Driver #5)
+
+Post-crash relaunch resumed at (3141,3088) with the magic section's chicken cast ALREADY
+credited (instruction read "speak to the Magic Instructor to continue" — the crash landed
+after the Wind Strike step). Sequence that finished the island:
+
+1. `INTERACT_NPC Magic_Instructor Talk-to` — clean.
+2. Dialogue chain: "Do you want to go to the mainland?" → `CLICK_DIALOGUE Yes` →
+   Ironman prompt → `CLICK_DIALOGUE No` → continues.
+3. Final instruction is NOT an instructor teleport in this variant: "Cast your Home
+   Teleport spell to be taken to Lumbridge."
+4. `TELEPORT_HOME` and `CAST_SPELL Home_Teleport` both FAILED (see DEFECT-13).
+5. `SCAN_WIDGETS Teleport` → Lumbridge Home Teleport is widget **14286854**
+   (canvas 554,305 40x40); 14286855 is Minigame Teleport.
+6. `CLICK_WIDGET 14286854` → ~10s cast animation → arrival (3221,3218). Done.
+
+### NEW DEFECTS (Driver #5)
+
+- **DEFECT-13 (HIGH for any home-teleport routine): TeleportHomeCommand and
+  CastSpellCommand both target widget 14286855 for "Home Teleport" — that widget is
+  MINIGAME Teleport.** smartMove's hover verification correctly reads "Minigame
+  Teleport", retries, and fails ("Failed to target Home Teleport spell"); a raw
+  CLICK_WIDGET 14286855 opens the Minigames panel. Correct id: 14286854
+  ("Lumbridge Home Teleport"). Fix: update the hardcoded id, or resolve by widget
+  name at runtime. (The failed 14286855 click also triggered a "Please finish what
+  you're doing first." modal mid-tutorial — harmless, space-dismissed.)
+- **DEFECT-14 (medium): MOUSE_MOVE rejects sidebar coordinates.** `MOUSE_MOVE 552,324`
+  → "Invalid coordinates" despite canvas being 765x503. Bounds check appears limited
+  to the 3D viewport region; hover-sweep primitive is unusable on the sidebar/spellbook.
+  Workaround: CLICK_WIDGET / CLICK_AT for anything right of the viewport.
+- **DEFECT-6 addendum (dialogue state misreporting, worse than lag):** the Ironman
+  three-option menu reported as `type: player_chat, options: []` in the state file —
+  invisible to option-driven logic; only a screenshot revealed it. CLICK_DIALOGUE with
+  substring text ("No") worked despite state showing no options. Same session, the
+  mainland Yes/No menu DID report correctly. Options-widget coverage is inconsistent.
+- DEFECT-8 re-confirmed on new jar: mid-conversation plain-message panes fail
+  CLICK_CONTINUE ("failed", no error detail) but KEY_PRESS space advances them.
+
+### Full-night section recap (all drivers, both jars)
+
+| # | Section | Driver | Result |
+|---|---------|--------|--------|
+| 0 | Character creation + Gielinor Guide | 1 | PASSED |
+| 1 | Survival (fishing, fire, cooking shrimp) | 1 | PASSED |
+| 2 | Chef (door, dough, range, bread) | 1→2 | PASSED (DEFECT-1 door workaround) |
+| 3 | Run orb + path to Quest Guide | 2 | PASSED |
+| 4 | Quest Guide + journal tab + ladder | 2 | PASSED |
+| 5 | Mining & Smithing (tin/copper/furnace/anvil/dagger) | 2 | PASSED (all objects via hover-sweep) |
+| 6 | Combat (equip, melee rat, ranged rat) | 2 | PASSED (40-min DEFECT-7/8 saga) |
+| 7 | Banking + poll booth + Account Guide | 3→4 | PASSED (new jar) |
+| 8 | Chapel/Prayer (Brother Brace, friends tab) | 4 | PASSED |
+| 9 | Magic + mainland exit (Home Teleport) | 5 | PASSED — **ISLAND COMPLETE** |
+
+Machine crash between chapel and magic-section completion; recovery smoke test 5/5;
+the magic chicken-cast step was credited before the crash, so Wind Strike itself was
+not re-exercised by Driver #5 this run (it demonstrably completed pre-crash — the
+game does not offer the mainland dialogue otherwise).
+
+### New-jar (2fcb602) defect re-test results
+
+- **DEFECT-1 (INTERACT_OBJECT camera-orient off-thread): FIXED — yes.** Door opens
+  succeeded repeatedly (Drivers #3/#4); zero IllegalStateException from the interact
+  path on the new jar.
+- **DEFECT-2 (CLICK_AT/MOUSE coords vs stretched screenshots): STILL PRESENT** (by
+  design mismatch). Quantified: window_x = canvas_x * 796/765. Convert or use widget
+  commands.
+- **DEFECT-3 (SCAN_TILEOBJECTS off-thread crash): NOT FIXED.** Repro'd twice on new
+  jar at ScanTileObjectsCommand.java:119. Avoided entirely by Driver #5.
+- **DEFECT-7 (GOTO tolerance no-op): NOT FIXED, WORSE than first documented** —
+  no-ops at distance 2 AND 3; target ≥4 tiles away to force movement.
+- **DEFECT-8 (CLICK_CONTINUE fails on plain-message panes): NOT FIXED.** Re-confirmed
+  by Driver #5 in the Magic Instructor chain. Space is the universal fallback.
+- **DEFECT-11 (INTERACT_OBJECT no action-aware filtering): PRESENT** (new-jar
+  discovery, Driver #4). Untouched since.
+- **DEFECT-12 (TILE command NPE, J2 regression): PRESENT** on new jar. Not needed
+  for tutorial driving.
+- CAMERA_STABILIZE off-thread crash (DEFECT-1 audit site in getVisibleTiles):
+  PRESENT on new jar; zoom still applies before the crash (partial utility).
+
+### Final defect-priority list (post-freeze fix queue)
+
+1. **DEFECT-8** — CLICK_CONTINUE must handle plain-message/level-up-style panes
+   (add widget group or fall through to space keypress). Single biggest driver-loop
+   killer: it silently blocks movement AND muddies GOTO diagnosis.
+2. **DEFECT-7** — GOTO needs `exact:true` (or tolerance 0-1 for ≤5-tile moves).
+   Compounds with 8 into multi-attempt spirals.
+3. **DEFECT-13** — Home Teleport widget id 14286855→14286854 (or name-resolve).
+   One-line fix; blocks every teleport-home routine, not just the tutorial.
+4. **DEFECT-3** — ScanTileObjectsCommand off-thread getWorldLocation (fix spec'd in
+   DEFECT3_FIX_SPEC.md pattern; same as the shipped DEFECT-1 fix).
+5. **DEFECT-11** — INTERACT_OBJECT action-aware candidate filtering.
+6. **DEFECT-6/dialogue-state** — options menus intermittently reported as
+   player_chat/empty; state consumers can't trust `type`/`options`.
+7. **DEFECT-2/14** — unify coordinate spaces (MOUSE_* sidebar bounds + stretched-mode
+   conversion) or expose a canvas→window helper.
+8. **DEFECT-12** — TILE NPE (J2 regression), low urgency for driving.
+9. CAMERA_STABILIZE diagnostics crash — wrap getVisibleTiles in client-thread read.
+
+### Verdict: tutorial-island routine viability
+
+**Viable NOW as an LLM-driven (supervised-agent) routine; not yet as a blind YAML
+replay.** Every section completed tonight with generic primitives, and the new jar's
+DEFECT-1 fix restores INTERACT_OBJECT — the single biggest blocker for unattended
+replay. Remaining gaps for blind replay: DEFECT-8 (a stray "I can't reach that!"
+pane stalls everything), DEFECT-7 (short precise moves silently no-op), DEFECT-13
+(final mainland-exit step fails), and dialogue-state misreporting (routine can't see
+some option menus). Fix 8/7/13 and annotate the 05-09 YAMLs' INTERACT_OBJECT steps
+as now-valid, and a full unattended island run is realistic. The winning driver
+pattern stands: INTERACT_NPC + CLICK_DIALOGUE/CLICK_CONTINUE + space-fallback +
+QUERY_TRANSITIONS + screenshot-verified MOUSE_MOVE/CLICK in-viewport +
+CLICK_WIDGET (SCAN_WIDGETS-verified ids) on the sidebar.
