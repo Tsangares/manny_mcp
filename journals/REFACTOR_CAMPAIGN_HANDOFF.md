@@ -916,3 +916,29 @@ needs the parked **diort** LAN-host migration (residential IP, presumably better
 the gating item for the routines-phase end-goal, not code. Recommend surfacing to user as the next
 strategic step. Short-range routines (already at the resource, no long travel) may be viable here.
 ███████████████████████████████████████████████████████████████████████████████
+
+## ★ CAMPAIGN COMPLETE + diort MIGRATION = GO (awaiting USER go on cred/login) 2026-07-18 ~15:05 ★
+SOFTWARE CAMPAIGN DONE: refactor (PlayerHelpers 23,683->3,484, 85%, all gated) + DEFECT-15/16/17/18
++ DEFECT-19 (v2 gated GREEN, char walks) + DEFECT-19b (progress-aware timeout, committed 1403107,
+compile-green, full-walk gate deferred to diort). Routines hardened corpus-wide (60 GOTO awaits).
+Docs/journal/lessons done. mcptools ruff-clean, 154 tests. The ONLY thing left is a thermally-stable
+host to run/prove a full unattended grind.
+DIORT = GO (plan: journals/DIORT_MIGRATION_PLAN.md): 2011 iMac, Arch, i5 4-core, dedicated GPU,
+desktop active cooling, IDLE 50C vs crit 86C (huge margin vs this laptop's 90C-in-2min). Passwordless
+sudo, Xvfb+x11vnc+vncserver+ffmpeg, Tailscale (100.91.42.96), 229G free. Only gap: jdk21 not installed
+(has 17+26) but jdk21-openjdk is a one-package Arch 'extra' install. Fresh jar ready to ship (~39MB).
+>>> DECISION FOR USER (the one consequential, account-affecting, hard-to-reverse step I did NOT do
+    autonomously): approve copying account creds to diort + first game login from its residential IP.
+    Everything up to that gate is planned/ready. On 'go': install jdk21 -> rsync jar+manny_mcp (no
+    creds/venv) -> venv+deps -> [USER GATE] creds+login -> Xvfb :2 launch -> gate DEFECT-19b (GOTO
+    3235 3295 0 must walk FULL 76 tiles) -> short grind. Orchestration: run client+run_routine.py ON
+    diort, drive via ssh (IPC is local-file /tmp/manny_*). View via mjpeg/x11vnc over LAN/Tailscale.
+QUEUED for the diort phase (needs a gate-capable host, do NOT speculatively fix on the laptop):
+  - DEFECT-19b full-walk live gate + full grind proof.
+  - GameEngine off-thread REMNANTS (DEFECT-18 agent's deferred list: collision/combat-scan/camera
+    methods ~isTileWalkable/getEmptyTile/5594/5787/5998/6097/7907/8099/8220) — fix+gate together
+    (KILL_LOOP grinds exercise combat scanning, so relevant to grind stability). NOT done on laptop:
+    hot-path wraps need a live gate, can't gate here.
+  - tutorial-04 cook fix + engine disconnect-recovery live-verify on newbakshesh; 3 tutorial TODO
+    coords (live capture); short-range routine tests.
+███████████████████████████████████████████████████████████████████████████████
