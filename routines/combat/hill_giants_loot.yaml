@@ -67,14 +67,16 @@ steps:
     delay_after_ms: 1000
     notes: "Big bones = 15 Prayer XP each"
 
-  # Step 7: Check health and eat if needed
+  # Step 7: Eat food (EAT_FOOD was removed; EAT has no HP-threshold arg -
+  # it always eats the best available food when called, unlike the old
+  # "eat if HP below 25" behavior. This now eats every loop iteration.)
   - id: 7
     phase: "sustain"
-    action: EAT_FOOD
-    args: "25"
-    description: "Eat food if HP below 25"
+    action: EAT
+    args: ""
+    description: "Eat best available food"
     delay_after_ms: 500
-    notes: "Threshold eat to stay safe"
+    notes: "EAT has no threshold arg - eats unconditionally each iteration (was: eat if HP below 25). Consider adding a CHECK_HP_THRESHOLD-gated flow or switching to KILL_LOOP if unconditional eating wastes food."
 
 # Notes for manual execution
 notes: |

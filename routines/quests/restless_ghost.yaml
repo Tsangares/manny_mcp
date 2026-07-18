@@ -114,13 +114,13 @@ steps:
 
   - id: 3
     phase: "start_quest"
-    action: DIALOGUE_SELECT
+    action: CLICK_DIALOGUE
     args: "restless ghost"
     description: "Ask about the ghost"
 
   - id: 4
     phase: "start_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     repeat: 5
     description: "Continue through dialogue"
 
@@ -139,13 +139,13 @@ steps:
 
   - id: 7
     phase: "get_amulet"
-    action: DIALOGUE_SELECT
+    action: CLICK_DIALOGUE
     args: "Father Aereck sent me"
     description: "Mention Father Aereck"
 
   - id: 8
     phase: "get_amulet"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     repeat: 5
     description: "Receive Ghostspeak amulet"
     await_condition: "has_item:Ghostspeak amulet"
@@ -188,13 +188,13 @@ steps:
 
   - id: 14
     phase: "talk_ghost"
-    action: DIALOGUE_SELECT
+    action: CLICK_DIALOGUE
     args: "Yep, now tell me what the problem is"
     description: "Ask the ghost about its problem"
 
   - id: 15
     phase: "talk_ghost"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     repeat: 10
     description: "Listen to ghost's story about stolen skull"
 
@@ -264,7 +264,7 @@ steps:
 
   - id: 25
     phase: "return_skull"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     repeat: 3
     description: "Quest complete!"
     expected_result: "Quest complete! 1125 Prayer XP"

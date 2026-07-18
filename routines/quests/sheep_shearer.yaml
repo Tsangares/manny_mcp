@@ -73,7 +73,7 @@ steps:
 
   - id: 3
     phase: "start_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Accept quest - need to bring 20 balls of wool"
     notes: "Multiple continue clicks needed through dialogue"
 
@@ -160,13 +160,13 @@ steps:
 
   - id: 14
     phase: "complete_quest"
-    action: DIALOGUE_SELECT
+    action: CLICK_DIALOGUE
     args: "shearing these sheep"
     description: "Select dialogue option about wool"
 
   - id: 15
     phase: "complete_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     repeat: 5
     description: "Continue through dialogue to complete quest"
     expected_result: "Quest complete!"

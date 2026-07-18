@@ -92,30 +92,30 @@ steps:
 
   - id: 6
     phase: "complete_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     description: "Click through initial dialogue"
 
   - id: 7
     phase: "complete_quest"
-    action: DIALOGUE_SELECT
+    action: CLICK_DIALOGUE
     args: "Give me a quest please"
     description: "Select quest dialogue option"
 
   - id: 8
     phase: "complete_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     repeat: 5
     description: "Click through Mizgog explaining about imps and beads"
 
   - id: 9
     phase: "complete_quest"
-    action: DIALOGUE_SELECT
+    action: CLICK_DIALOGUE
     args: "Yes"
     description: "Confirm starting quest - beads auto-given if you have all 4"
 
   - id: 10
     phase: "complete_quest"
-    action: DIALOGUE_CONTINUE
+    action: CLICK_CONTINUE
     repeat: 2
     description: "Click through completion dialogue"
     expected_result: "Quest complete! Received Amulet of accuracy"
