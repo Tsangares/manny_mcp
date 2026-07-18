@@ -79,7 +79,7 @@ hosts:
   #   venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
   #   temp_refuse_c: 88
   #   temp_warn_c: 80
-  #   egress: "residential-proxy fallback"
+  #   egress: "residential-proxy fallback — dataimpulse residential proxy available in ~/.manny/credentials.yaml (proxies.dataimpulse) for server-IP egress"
   #   viewer_host: 100.123.10.30
   #   viewer_port: 8787
-  #   notes: "Phase 2 candidate."
+  #   notes: "Phase 2 candidate. If this host has a datacenter IP, route egress through the dataimpulse residential proxy (creds at ~/.manny/credentials.yaml -> proxies.dataimpulse); pointer only, no secrets in this file."

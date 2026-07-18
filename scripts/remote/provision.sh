@@ -48,7 +48,7 @@ H_STAGING="$(hf staging_dir)"
 H_LIBS="$(hf runelite_libs)"
 
 is_local() { [ "$H_LOCAL" = "True" ] || [ "$H_LOCAL" = "true" ]; }
-onhost()   { if is_local; then bash -lc "$1"; else ssh -o BatchMode=yes "$H_SSH" "$1"; fi; }
+onhost()   { if is_local; then bash -lc "$1"; else ssh -o BatchMode=yes "$H_SSH" "bash -lc $(printf %q "$1")"; fi; }
 
 echo "=== provisioning host '$HOST' (local=$H_LOCAL ssh=$H_SSH) ==="
 

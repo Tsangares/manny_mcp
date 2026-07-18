@@ -99,7 +99,10 @@ run_on_host() {
   else
     [ -n "$H_SSH" ] && [ "$H_SSH" != "None" ] || die "host '$HOST' is not local but has no ssh: set"
     # -o BatchMode=yes: fail fast instead of hanging on a password prompt.
-    ssh -o BatchMode=yes "$H_SSH" "$cmd"
+    # Wrap in `bash -lc` (mirrors the local branch): the remote login shell may be
+    # fish (diort), which rejects the bash env-prefix / printf %q / ${var@Q}
+    # ANSI-C quoting these commands rely on. printf %q makes it survive the fish hop.
+    ssh -o BatchMode=yes "$H_SSH" "bash -lc $(printf %q "$cmd")"
   fi
 }
 
@@ -147,8 +150,11 @@ from mcptools import transport
 r = transport.send_command_sync(${command@Q}, account_id=${acct@Q}, await_response=True, timeout=10.0)
 print(json.dumps(r, indent=2))
 ")"
-  # TODO(live): confirm ${var@Q} quoting survives the ssh hop on the target's
-  # bash version; if not, drop to a heredoc-on-stdin form.
+  # VERIFIED(live, diort/fish 4.6, 2026-07-18): ${var@Q} quoting survives the hop.
+  # ${command@Q}/${acct@Q} expand locally (bash) to correct quoting; the inner
+  # printf %q collapses newlines to $'\n' so $cmd has NO literal newlines, hence
+  # the outer run_on_host `printf %q "$cmd"` stays fish-parseable and bash -lc
+  # reconstructs it. Round-trips 'GOTO 3235 3295 0' / 'KILL_LOOP Chicken 200' intact.
 }
 
 do_logs() {
