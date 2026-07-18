@@ -19,7 +19,7 @@ one, open the doc named in its row.
 | 4 | **Routines phase** | 🔄 groundwork DONE; **live grind proof blocked on a cool host** | GRIND_ROUTINE_READINESS_*.md, ROUTINE_CORPUS_HARDENING_*.md |
 | 5 | **diort migration** (thermal-stable run host) | ✅✅ **PROVEN LIVE (2026-07-18)** — remote login+nav+sustained chicken grind; **~70°C plateau vs laptop 90°C/crash. Thermal crash SOLVED.** | 2026-07-18_diort_bringup_parallel.md |
 | 6 | **Machine-agnostic remote-client** | ✅ **PROTOTYPE + validated live** — `scripts/remote/mannyctl` drives diort end-to-end (fish SSH-quoting bug fixed, commit 16b410e) | REMOTE_CLIENT_ARCHITECTURE.md |
-| 7 | **Grind robustness** (NEW next phase) | 🔄 **DEFECT-21**: routes crossing the Lumbridge river mis-route through water not the bridge (north-side grinds OK); auto-play "Play_Game" issues competing cmds; do_run should detach | ROUTINE_AUDIT_2026-07-18.md, task #21 |
+| 7 | **Grind robustness** (NEW next phase) | 🔄 **DEFECT-21**: routes crossing the Lumbridge river mis-route through water not the bridge (north-side grinds OK). ✅ do_run now detaches (`0eefb5f`, setsid). CORRECTION: the "competing auto-play scenario" was a MISDIAGNOSIS — `Play_Game` scenario file is absent so login auto-play is a NO-OP; the stray EQUIP_BEST_MELEE/BURY_ALL were normal grind byproducts (level-up auto-equip + KILL_LOOP bone-bury), and the "two combat threads" were the two-session collision. Real rule = one session per account. Optional: `SET_CONFIG autoPlayScenarioOnLogin=` to formally disable. | ROUTINE_AUDIT_2026-07-18.md, task #21 |
 
 > ⚠️ **COORDINATION:** a forked session OWNS the live diort client. On 2026-07-18 TWO sessions drove the
 > `new` account at once → duplicate KILL_LOOP threads + mutual command cancellation (uuid rids = mannyctl;
@@ -98,7 +98,7 @@ tutorial 05/06 double-run + 6 fire-and-forget GOTOs (need a fresh-tutorial-accou
 ## OPERATIONAL ESSENTIALS
 **Git (per repo, both):** author MUST be `Tsangares <Tsangares@gmail.com>`; **NO Co-Authored-By / Claude
 lines**; prefix every git cmd with explicit `cd /home/wil/Desktop/<repo> &&`. CLAUDE.md is gitignored.
-Current HEADs: manny=`1403107`, manny_mcp=`e4c27d1`. Both pushed to origin.
+Current HEADs: manny=`a6da377` (DEFECT-20 off-thread collision/tile wraps), manny_mcp=`0eefb5f` (do_run detach). Both pushed to origin.
 
 **diort access:** `ssh diort` (key-based, no password; user=wil; it's the user's own machine). Arch, 4-core i5,
 15Gi RAM, Xvfb + x11vnc + vncserver + ffmpeg, Tailscale 100.91.42.96, passwordless sudo. **Gap:** needs
