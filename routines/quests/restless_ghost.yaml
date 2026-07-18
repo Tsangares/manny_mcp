@@ -153,11 +153,11 @@ steps:
   # ========== PHASE 3: TALK TO GHOST ==========
   - id: 9
     phase: "talk_ghost"
-    action: MCP_TOOL
-    tool: "equip_item"
-    args: "Ghostspeak amulet"
+    mcp_tool: equip_item
+    args:
+      item_name: "Ghostspeak amulet"
     description: "Equip the Ghostspeak amulet"
-    notes: "EQUIP_ITEM command doesn't exist - use MCP equip_item() tool"
+    notes: "action: MCP_TOOL is not a real command (executor only dispatches a top-level mcp_tool: key, routine.py:1371-1374). Uses the same mcp_tool: equip_item / args.item_name shape already VALIDATED in tutorial_island/08_combat.yaml and 10_prayer_magic.yaml."
 
   - id: 10
     phase: "talk_ghost"

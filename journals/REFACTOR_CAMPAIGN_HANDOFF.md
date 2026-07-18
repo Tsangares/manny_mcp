@@ -415,6 +415,37 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
   driver + planner resumed via SendMessage (transcripts intact), opus fix agent dispatched
   for DEFECT-1 (compile-only). LESSON: session limit is a second hard-stop class like the
   crash — same durability rule (journal docs survive, transcripts might not).
+- **IN FLIGHT post-recovery (~23:15-23:30):** driver v2 (fable fork, fresh with salvaged
+  context — owns client + routines/tutorial_island/ + defect journal appends), J2 planner
+  (resumed, finishing W6J2_SPLIT_PLAN.md from W6J2_CALL_EDGES.md, read-only), routine
+  validation sweep ✅ DONE (~23:50 → journals/ROUTINE_VALIDATION_SWEEP_2026-07-17.md): 42
+  routines = 33 clean, 1 REAL defect FIXED (restless_ghost.yaml step 9: bogus `action:
+  MCP_TOOL` → proper `mcp_tool: equip_item` + args map, pattern matched from validated
+  tutorial routines), 8 validator FALSE POSITIVES = validator bugs for the post-freeze queue:
+  (d) validate_routine_deep doesn't recognize the supported `mcp_tool:` step shape
+  (routine.py:1371-1477) — flags "Missing 'action'"; (e) flags 5 non-executable
+  reference/config YAMLs for missing `steps` — needs an exemption convention.
+  Judgment items: sheep_shearer.yaml:86 dead `skip_if:` key (engine doesn't implement —
+  converges with hardening proposal), hill_giants/cow_killer_no_bones look like superseded
+  design docs (archive?), 05_cooking_to_quest_guide.yaml missing `plane` on 5 locations
+  (driver's turf).
+- **DEFECT-1 FIX ✅ COMMITTED `73c7256` (~23:45, compile ×2, DEPLOY DEFERRED to freeze lift):**
+  real culprit was the PLAYER read (not the target): getYawToPoint read
+  player.getWorldLocation() on manny-background. Fix = thread-aware
+  CameraSystem.readPlayerWorldLocation() (isClientThread ? direct : readFromClient —
+  unconditional wrap would DEADLOCK overlay callers UIOverlays:3310/3421), applied in
+  getYawToPoint + calculateYawToPoint; clickTileObjectSafe target read wrapped too.
+  AUDIT FLAGGED unfixed (whole-method batch reads needed — fold into W6-J2 as a thread-audit
+  phase): rotateToNPC (1484 + getConvexHull), rotateToObject (1394), prepareToViewTarget
+  (2052), findAllNearbyObjects (860), scene scan ~1270-1299, getVisibleTiles/isNPCTileVisible/
+  logViewportDiagnostics (652/617/2262 — primary combat caller already wraps, risk only if
+  called off-thread elsewhere).
+- **Driver v2 findings so far (from defect journal):** client HAD disconnected to red login
+  screen during the idle gap; LOGIN command does NOT handle the "You were disconnected" Ok
+  dialog (coords miss it — LoginHandlers gap, logged; driver dismissed via CLICK_AT 383 301
+  then LOGIN worked). CHEF SECTION had PASSED before the disconnect (bread baked) — driver #1's
+  door workaround + dough + range all validated. Resumed at: exit chef building → emotes/run →
+  Quest Guide.
 - **REMAINING (ALL user-gated or sequenced):** W6-J1 Actions retirement (fable; NEEDS user
   answer on strategy Q1 — ScenarioEngine replay retire vs keep), W6-J2 PlayerHelpers split
   (fable, after J1; 115 latches + full helper extraction + stats-tracker merge + BURY_ALL
