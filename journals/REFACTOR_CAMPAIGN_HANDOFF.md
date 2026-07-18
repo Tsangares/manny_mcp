@@ -703,3 +703,39 @@ NOT a stranded-instance risk — structurally safe. Rebuilt shadowJar (12:xx), g
   cooking naturally exercises ItemUseHelpers.useItemOnItem/lightFire/cookOnFire + AnimationHelpers waits).
 - NEW: DEFECT-15 queued (UiHelpers.getHull/getMinimap off-thread, pre-existing/verbatim; batch next Java pass).
 Client STOPPED to cool. NEXT = Phase D: J2-6/7/8 (CP shell/wrappers) per W6J2_SPLIT_PLAN.md.
+
+═══════════════════════════════════════════════════════════════════════════════
+## ⭐ COMPACTION CHECKPOINT 2026-07-18 ~12:55 — RESUME HERE FIRST ⭐
+═══════════════════════════════════════════════════════════════════════════════
+REFACTOR STATUS — PlayerHelpers.java: 23,683 (campaign start) -> 8,719 lines (and shrinking in J2-6).
+  Phase A  defect batch DEFECT-3/11/13/14 ...... DONE, live-gated GREEN (manny 124a2c1)
+  Phase B  J2-4 nav extraction ................. DONE, live-gated GREEN incl KILL-during-GOTO (manny ad288ab)
+  Phase C  J2-5 UI/item/anim ................... DONE, gated (UI/spell/nav green; item/anim deferred) (manny bf83463)
+  Phase D  J2-6 CP shell/wrappers ............. ⚠️ IN FLIGHT, UNCOMMITTED. Agent id ae7a4735f77a5d8cd.
+      manny working tree: NEW utility/InventoryActionSupport.java + utility/ItemQuerySupport.java;
+      MODIFIED PlayerHelpers.java (8,719) + BankingSupport.java. compileJava NOT yet confirmed.
+      manny HEAD still bf83463 (J2-6 not committed). Plan in journals/J2-6_PREFLIGHT.md.
+
+>>> ON RESUME (do this first):
+1. Is J2-6 agent (ae7a4735f77a5d8cd) alive/finished? Check `cd /home/wil/Desktop/manny && git -c core.pager=cat log --oneline -2`.
+   - If a NEW commit past bf83463 exists (J2-6 committed): rebuild shadowJar, then GATE via
+     `scripts/client.sh start new` -> test the commands its report named
+     (inventory/bank/item-query wrappers) -> `scripts/client.sh stop`. Record in handoff, continue.
+   - If ORPHANED (no new commit, dirty tree): `cd /home/wil/Desktop/manny && git status` + run
+     `cd /home/wil/Desktop/runelite && ./gradlew :client:compileJava -x checkstyleMain -x pmdMain --console=plain`.
+     If GREEN + coherent -> commit as J2-6 (author Tsangares, no co-author). If broken/partial ->
+     `cd /home/wil/Desktop/manny && git checkout -- . && git clean -f utility/InventoryActionSupport.java utility/ItemQuerySupport.java`
+     to reset, then RE-DISPATCH J2-6 fresh (opus, single-writer PlayerHelpers, read J2-6_PREFLIGHT.md).
+2. Remaining refactor: J2-7/8 (unless J2-6 folded them in — check its report) -> Wave 7 (regen COMMAND_REFERENCE/
+   ROUTINE_CATALOG/TOOLS_USAGE from registry; finalize journals/2026-07-18_progress.md + campaign journal, drop DRAFT).
+3. THEN routines phase (user priority is REFACTOR FIRST): live-verify on newbakshesh (still on Tutorial Island
+   ~section 04, early-saved token still valid as of 11:25) the tutorial-04 cook fix (manny_mcp 40f213d) +
+   engine disconnect-recovery (manny_mcp 1a4b5da); run grind-loop tests (chicken_killer_training, woodcutting_lumbridge
+   on 'new' in Lumbridge); transcribe tutorial 07-10 coords from TUTORIAL_TEST_DEFECTS journal into the section YAMLs.
+
+OPEN DEFECT QUEUE (batch into next Java defect pass): DEFECT-15 (UiHelpers.getHull/getMinimap off-thread, DEFECT-3 class).
+THERMAL: HEAT = crash root cause. Client OFF during source phases; only up (reniced, via scripts/client.sh) for gates.
+  Client is OFF now, pkg ~49°C. Long-term fix = migrate client to LAN host `diort` (residential IP, no bans) — parked.
+CRON: 92415571 (:13,:43) session-only — RE-ARM after any restart. Accounts: new (tutorial done, Lumbridge) /
+  newbakshesh (on Tutorial Island, ROUTINE test bed) / main. Detect client via `pgrep -x java`+environ, NOT pgrep -f.
+═══════════════════════════════════════════════════════════════════════════════
