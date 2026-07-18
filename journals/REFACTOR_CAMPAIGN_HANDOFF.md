@@ -739,3 +739,20 @@ THERMAL: HEAT = crash root cause. Client OFF during source phases; only up (reni
 CRON: 92415571 (:13,:43) session-only — RE-ARM after any restart. Accounts: new (tutorial done, Lumbridge) /
   newbakshesh (on Tutorial Island, ROUTINE test bed) / main. Detect client via `pgrep -x java`+environ, NOT pgrep -f.
 ═══════════════════════════════════════════════════════════════════════════════
+
+── UPDATE (right after checkpoint): J2-6 COMPLETED + COMMITTED ──
+Phase D J2-6 is NO LONGER in flight — it committed as manny `069b71d` (compileJava GREEN):
+  NEW utility/ItemQuerySupport.java (221) + utility/InventoryActionSupport.java (1005);
+  BankingSupport.java 742->1129; PlayerHelpers 10,118 -> 8,719 lines. CommandProcessor stays
+  MannyPlugin-pinned with thin wrappers. J2-7 and J2-8 deliberately NOT combined (kept separate).
+>>> ON RESUME step 1 is now: GATE J2-6 (it is committed, not orphaned): rebuild shadowJar ->
+    `scripts/client.sh start new` -> exercise PICK_UP_ITEM, BURY_ITEM, BURY_ALL, DROP_ALL,
+    BANK_DEPOSIT_ITEM, BANK_WITHDRAW (+ wrapper cmds: SMELT_BAR, KILL_LOOP dropall, BURY_ALL,
+    BUY_GE withdraw). NOTE: 'new' has EMPTY inventory + likely nothing banked -> bank/pickup/bury
+    tests may need items; consider gating item-free paths + deferring item paths to routines-phase
+    tutorial/grind verify (as done for J2-5). -> `scripts/client.sh stop`. Record + continue.
+Then remaining refactor: J2-7 (MINE_ORE — highest Group-C risk, OWN live gate) -> J2-8 (spell/equip/
+    GE/smithing) -> Wave 7. Both plans/boundaries: re-derive by symbol (PlayerHelpers now 8,719).
+NEW DEFECT-16 (queue with DEFECT-15 for next Java defect pass): handlePickUpItem's background task
+    calls LocalPoint.fromWorld / cameraSystem.isTileVisible / prepareToViewTarget on the background
+    executor (DEFECT-3 class, off-thread). Pre-existing, moved verbatim in J2-6, NOT introduced by it.
