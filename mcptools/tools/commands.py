@@ -358,7 +358,6 @@ async def handle_send_and_await(arguments: dict) -> dict:
     poll_interval_ms = arguments.get("poll_interval_ms", 500)
     account_id = arguments.get("account_id")
 
-    command_file = config.get_command_file(account_id)
     state_file = config.get_state_file(account_id)
 
     # Parse condition first to fail fast on invalid conditions
@@ -399,26 +398,48 @@ async def handle_send_and_await(arguments: dict) -> dict:
         # Don't block on pre-flight check failures, just proceed
         pass
 
-    # Send the command
+    # Send the command through the rid-correlated transport -- the SAME path the
+    # rest of the command layer uses (see handle_equip_item / handle_click_widget,
+    # which both call send_command_with_response). Under the hood this writes
+    # "<command> --rid=<id>" atomically and correlates the plugin's response by
+    # top-level request_id (payload under `result`), polling
+    # /tmp/manny_new_response.json for the matching id. Previously this handler
+    # wrote the raw command straight to the command file with no --rid, bypassing
+    # correlation entirely -- responses could be mismatched or dropped.
+    #
+    # The dispatch also counts toward the total timeout budget, so a fast command
+    # response simply leaves the remainder of the budget for state polling.
+    start_time = time.time()
     try:
-        with open(command_file, "w") as f:
-            f.write(command + "\n")
+        command_response = await send_command_with_response(command, timeout_ms, account_id)
     except Exception as e:
         return {
             "success": False,
             "error": f"Failed to send command: {e}",
-            "command": command
+            "command": command,
+            "condition": condition_str,
         }
 
-    # Wait for condition
-    start_time = time.time()
+    # If the transport reports the command was never delivered to the plugin,
+    # fail fast rather than polling for a condition that can never be met.
+    if isinstance(command_response, dict) and command_response.get("delivered") is False:
+        return {
+            "success": False,
+            "error": command_response.get("error", "Command was not delivered to plugin"),
+            "command": command,
+            "condition": condition_str,
+            "command_response": command_response,
+        }
+
+    # Wait for condition. Use a do-while shape so at least one state check always
+    # runs, even if the dispatch above already consumed the whole timeout budget.
     timeout_sec = timeout_ms / 1000.0
     poll_interval_sec = poll_interval_ms / 1000.0
 
     last_state = None
     checks = 0
 
-    while (time.time() - start_time) < timeout_sec:
+    while True:
         checks += 1
 
         # Read current state
@@ -427,11 +448,10 @@ async def handle_send_and_await(arguments: dict) -> dict:
                 state = json.load(f)
             last_state = state
         except (FileNotFoundError, json.JSONDecodeError):
-            await asyncio.sleep(poll_interval_sec)
-            continue
+            state = None
 
         # Check condition
-        if _check_condition(state, condition):
+        if state is not None and _check_condition(state, condition):
             elapsed_ms = int((time.time() - start_time) * 1000)
             return {
                 "success": True,
@@ -440,9 +460,12 @@ async def handle_send_and_await(arguments: dict) -> dict:
                 "condition": condition_str,
                 "elapsed_ms": elapsed_ms,
                 "checks": checks,
+                "command_response": command_response,
                 "final_state": _extract_relevant_state(state)
             }
 
+        if (time.time() - start_time) >= timeout_sec:
+            break
         await asyncio.sleep(poll_interval_sec)
 
     # Timeout
@@ -454,6 +477,7 @@ async def handle_send_and_await(arguments: dict) -> dict:
         "condition": condition_str,
         "elapsed_ms": elapsed_ms,
         "checks": checks,
+        "command_response": command_response,
         "error": f"Timeout after {elapsed_ms}ms waiting for condition",
         "final_state": _extract_relevant_state(last_state) if last_state else None
     }

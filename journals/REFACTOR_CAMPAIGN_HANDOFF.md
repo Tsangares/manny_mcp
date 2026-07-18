@@ -565,3 +565,14 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
 Drive GrimmsFairly through Tutorial Island end-to-end with the refactored stack as the acceptance
 test, then continue development. Write a journal entry (lessons format, see journals/TEMPLATE.md)
 at the end of Wave 7.
+
+---
+## POST-FREEZE QUEUE — DEFECT-3 Java fix (added 2026-07-18, spec ready)
+SCAN_TILEOBJECTS crashes off-thread (getWorldLocation on manny-background). Full ready-to-apply
+patch spec at `journals/DEFECT3_FIX_SPEC.md`. Fix = wrap result-building in
+`helper.readFromClientSafe(buildResults(...))` with an `isClientThread()` fast-path guard
+(mirrors DEFECT-1 CameraSystem pattern). Requires injecting ClientThreadHelper into
+ScanTileObjectsCommand via constructor (it has none today) — pattern copy from
+SwitchCombatStyleCommand; wire from PlayerHelpers.java ~7207 in-scope `helper` field.
+Apply AFTER freeze lifts (driver done), then build+smoke+live SCAN_TILEOBJECTS gate. Same bug
+class likely lurks in other result-building command paths — audit during J2-5 (UI/item/anim).

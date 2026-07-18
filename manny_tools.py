@@ -2489,6 +2489,71 @@ Great for learning how to use a command or finding proven patterns.""",
 # ROUTINE VALIDATION TOOLS
 # =============================================================================
 
+# MCP-tool steps use a `mcp_tool:` key instead of `action:` (dispatched by
+# mcptools/tools/routine.py:_execute_mcp_tool_step). Keep this list in sync with
+# that executor's dispatch table.
+_KNOWN_MCP_TOOLS = {"equip_item", "click_widget", "find_and_click_widget"}
+
+
+def _has_nested_steps(obj, _depth: int = 0) -> bool:
+    """True if any nested mapping carries a `steps` list (library/snippet pattern,
+    e.g. routines/common_actions.yaml where steps live under stairs.*/banking.*)."""
+    if _depth > 6 or not isinstance(obj, dict):
+        return False
+    for key, value in obj.items():
+        if key == "steps" and isinstance(value, list):
+            return True
+        if isinstance(value, dict) and _has_nested_steps(value, _depth + 1):
+            return True
+    return False
+
+
+def _routine_is_non_executable(routine: dict, routine_path: str) -> bool:
+    """Decide whether a YAML under routines/ is intentionally NOT an executable
+    routine (a reference / library / catalog / config sidecar / manual runbook),
+    and therefore exempt from the top-level `steps`-required check.
+
+    Only positive, self-describing signals qualify -- a plain routine that simply
+    forgot its `steps` is NOT exempted, so genuine defects still surface. Covers
+    the demonstrated false positives in
+    journals/ROUTINE_VALIDATION_SWEEP_2026-07-17.md (widget_reference.yaml,
+    common_actions.yaml, gravestone_retrieval.yaml, hill_giants.yaml,
+    cow_killer_no_bones.yaml)."""
+    if not isinstance(routine, dict):
+        return False
+
+    # Explicit opt-out markers (future-proof; nothing currently sets these).
+    if routine.get("executable") is False or routine.get("reference") is True:
+        return True
+    if str(routine.get("type", "")).strip().lower() in {
+        "reference", "library", "catalog", "docs", "documentation",
+    }:
+        return True
+
+    # Human/LLM runbook format instead of machine `steps` (gravestone_retrieval).
+    if "manual_steps" in routine:
+        return True
+
+    # Filename signals a reference/catalog/library doc (widget_reference,
+    # common_actions).
+    base = os.path.basename(routine_path).lower()
+    if any(tok in base for tok in ("reference", "catalog", "common_actions")):
+        return True
+
+    # No top-level steps but a library of nested step snippets (common_actions).
+    if "steps" not in routine and _has_nested_steps(routine):
+        return True
+
+    # Combat config sidecar: metadata-only file describing loot/eating for a
+    # target NPC with no executable steps (hill_giants, cow_killer_no_bones).
+    if "steps" not in routine and "manual_steps" not in routine and (
+        "loot" in routine or "eating" in routine or "bones" in routine
+    ):
+        return True
+
+    return False
+
+
 def validate_routine_deep(
     routine_path: str,
     plugin_dir: str,
@@ -2541,8 +2606,14 @@ def validate_routine_deep(
         }
 
     # Structural validation
+    non_executable = _routine_is_non_executable(routine, routine_path)
     if 'steps' not in routine:
-        errors.append("Missing required field: 'steps'")
+        # Reference/library/catalog/config-sidecar/manual-runbook files legitimately
+        # have no `steps` -- don't flag them as broken routines (see
+        # journals/ROUTINE_VALIDATION_SWEEP_2026-07-17.md). Genuine routines that
+        # merely forgot their steps are NOT exempted and still error.
+        if not non_executable:
+            errors.append("Missing required field: 'steps'")
     else:
         steps = routine['steps']
         if not isinstance(steps, list):
@@ -2563,9 +2634,20 @@ def validate_routine_deep(
             step_errors = []
             step_warnings = []
 
-            # Required fields
-            if 'action' not in step:
-                step_errors.append(f"Step {i}: Missing required field 'action'")
+            # Required fields. A step is valid with EITHER a game-command
+            # `action:` or an `mcp_tool:` key (the alternate step shape dispatched
+            # by mcptools/tools/routine.py:_execute_mcp_tool_step, used live in
+            # tutorial_island/08_combat.yaml, 10_prayer_magic.yaml, and
+            # quests/restless_ghost.yaml).
+            if 'mcp_tool' in step:
+                mcp_tool = step['mcp_tool']
+                if mcp_tool not in _KNOWN_MCP_TOOLS:
+                    step_errors.append(
+                        f"Step {i}: Unknown mcp_tool '{mcp_tool}' "
+                        f"(known: {', '.join(sorted(_KNOWN_MCP_TOOLS))})"
+                    )
+            elif 'action' not in step:
+                step_errors.append(f"Step {i}: Missing required field 'action' (or 'mcp_tool')")
             else:
                 action = step['action']
 
@@ -2674,7 +2756,8 @@ def validate_routine_deep(
         "suggestions": suggestions,
         "stats": stats,
         "routine_name": routine.get('name', 'Unknown'),
-        "routine_type": routine.get('type', 'Unknown')
+        "routine_type": routine.get('type', 'Unknown'),
+        "non_executable": non_executable
     }
 
 

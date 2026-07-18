@@ -1528,10 +1528,27 @@ async def check_stop_condition(condition: str, account_id: str = None) -> bool:
         # Invert no_item check
         return not await check_stop_condition(f"no_item:{item_name}", account_id)
 
-    # no_item_in_bank:ItemName - No more of item in bank (can't withdraw)
+    # no_item_in_bank:ItemName - No more of item in bank (can't withdraw).
+    #
+    # The game state snapshot (get_game_state / the state file) carries
+    # inventory, equipment, skills, location, dialogue, etc. but NEVER bank
+    # contents -- a bank snapshot would require sending a QUERY_BANK command
+    # through the plugin transport, which this pure state-file reader
+    # deliberately does not do. Silently returning False was actively
+    # dangerous: a loop gating on `no_item_in_bank:X` would behave as if the
+    # bank still held the item forever and never stop. Until bank-snapshot
+    # infrastructure exists, fail LOUDLY rather than guess.
     if condition.startswith("no_item_in_bank:"):
-        # Bank contents not available in state file - return False
-        return False
+        item_name = condition[len("no_item_in_bank:"):].strip()
+        msg = (
+            f"Unimplemented stop condition 'no_item_in_bank:{item_name}': bank "
+            "contents are not present in the game state snapshot, so this "
+            "condition cannot be evaluated without new QUERY_BANK infrastructure. "
+            "Refusing to silently return False. Use an inventory-based condition "
+            "(e.g. 'no_item:<name>' after a withdraw) or add bank-snapshot support."
+        )
+        _routine_logger.error("[ROUTINE] %s", msg)
+        raise NotImplementedError(msg)
 
     # skill_level:N - Skill reached level N
     if "_level:" in condition:
