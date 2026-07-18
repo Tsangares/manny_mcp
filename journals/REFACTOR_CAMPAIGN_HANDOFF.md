@@ -446,6 +446,68 @@ The Python repo is disjoint from B2's Java files, so two Wave-5 agents were disp
   then LOGIN worked). CHEF SECTION had PASSED before the disconnect (bread baked) — driver #1's
   door workaround + dough + range all validated. Resumed at: exit chef building → emotes/run →
   Quest Guide.
+- **W6-J2 PLAN ✅ COMPLETE (committed `30335cc`):** journals/W6J2_SPLIT_PLAN.md, 12 phases.
+  Headlines: ~3,950 LOC dead handleX bodies (§1.7 delete list = phase J2-1);
+  CommandProcessor = 13,428-line nested class (57% of file), PH-proper only ~9k;
+  7 un-nests + 5 domain files + 10 CP support classes → PH ends ~2,600, all <5k;
+  TileMarkerManager/RandomEventHandler/CommandProcessor CANNOT move (MannyPlugin pins them);
+  no context object — Wave-6a-style ctor injection; latches 75 CONVERT/1 KEEP/1 REVIEW
+  (net 67 after dead purge); 13 sign-off flags in §6 (stats merge, BURY_ALL registry —
+  now shown low-risk/cosmetic default, borderline public deletes, ActionVerifier semantics).
+- **J2-1 ✅ COMMITTED `bc4838c` (~00:15 07-18):** PlayerHelpers 23,683→19,764 (−3,919).
+  ~45 dead handleX bodies in 21 blocks deleted, each proven dead by tree-wide grep first;
+  keepers verified (handleBuryAll, handleGotoCommand, handleBankOpen, handleMineOre etc.);
+  4 orphaned imports out; compile ×2. NOTE: J2-1 shifted PlayerHelpers line numbers —
+  W6J2_SPLIT_PLAN/CALL_EDGES ranges for PH are now stale below ~10385 (locate by NAME).
+- **J2-9 ✅ COMMITTED `4080b11` (~00:25):** last matchesMenuEntry duplicate gone — body
+  promoted to static InteractionSystem.matchesMenuEntryLoose; IS public 3-arg + GameEngine
+  ActionVerifier both delegate; zero behavior change; plugin-wide grep = no copies left.
+- **J2-2 ✅ COMMITTED `ebeb3c0` (~01:50 07-18):** 83/90 latches → ClientThreadHelper.
+  CORRECTION: Report C undercounted by 21 (grep missed fully-qualified
+  `new java.util.concurrent.CountDownLatch`). 7 survivors: KEEP ×2 (useItemOnItem +
+  handleBuryItem — 2nd executor barrier newly found), DEFERRED ×4 (Conditions → J2-3),
+  REVIEW ×1 (clickWidgetWithParam mutation, §6.12 comment, needs runOnClient in J2-8).
+  TileMarkerManager gained ClientThreadHelper @Inject ctor param; PlayerHelpers gained
+  public getClientThreadHelper() (MiningHelper routes via back-ref). **DEFECT-1 AUDIT
+  TABLE (~10 methods with off-thread scene/client reads, REPORTED not fixed — thread-audit
+  phase input): handlePickUpItem (getCameraPitch 11603; tile reads ~11527-35),
+  handleCastSpellOnGroundItem (~11289-305), chopNearestOakTree (13772/13930/13888),
+  handleMineOre (14683-4), handleSmeltBronze (16292), pickUpLootAt (~15516/15562),
+  MiningHelper.selectNextRock (18476+stream), isNearLocation (~16412, bonus).**
+  NOTE: source level is Java 11 — NO records in J2 phases. Git tag `pre-j2` = 73c7256.
+- **J2-3 ✅ COMMITTED `2fcb602` (~02:30 07-18):** 7 new utility/ files (EquipmentSystem
+  1,105 / ControlSystem 507 / MiningHelper 466 / CombatStyleSystem 247 / CommandStateManager
+  177 / PathfindingStateManager 169 / LocationManager 155); PH 18,830→16,075 (−2,755);
+  Condition interface → ClientThreadHelper + 4 Conditions latches converted; GameEngine
+  dead import gone; repo-wide re-point (26 files) zero residual. Latch residual VERIFIED 3:
+  KEEP useItemOnItem:6115 + handleBuryItem:9600, REVIEW clickWidgetWithParam:15063 (agent
+  said 2 — its grep missed the fully-qualified site; orchestrator verified intact).
+  ORCHESTRATOR NEAR-MISS during commit: ran `git add -A && commit` from the runelite repo
+  (committed the symlink to manny-integration branch; push failed on https creds) and the
+  follow-up `reset HEAD~1` landed in manny, silently undoing the J2-2 commit locally.
+  Recovered (mixed reset preserves working tree; `git reset ebeb3c0` + runelite reset).
+  **LESSON: in multi-repo sessions, prefix EVERY git command with an explicit
+  `cd /home/wil/Desktop/<repo> &&` — never rely on inherited cwd.**
+- **JAVA PAUSE POINT (~02:35): J2-4 (nav extraction) is next but is the highest-risk
+  semantic move and carries its own GATE-LIVE — deliberately HELD until the driver finishes
+  and the freeze lifts. Sequence at freeze lift: rebuild jar from committed 2fcb602 →
+  relaunch → login → smoke 5/5 → live-gate J1+fix+J2-1/2/3/9 as a batch → then dispatch
+  J2-4 with its own live gate. Do NOT stack J2-4 on the un-live-tested pile.
+- **HARNESS RESTART (~01:20 07-18): FREEZE LIFTED BY EVENT.** The Claude Code process
+  restarted; driver v2's agent, the RuneLite client (PID 4833), and Xvfb :2 ALL died with it
+  (session tokens should still be valid — they survived the 20:07 crash too). Driver v2's
+  last checkpoint: COMBAT PASSED (~00:40), next = exit ladder (~3111,9526) → banking (09).
+  10 defects logged total (see TUTORIAL_TEST_DEFECTS; priority for tutorial driving:
+  DEFECT-8 modal CLICK_CONTINUE > DEFECT-7 GOTO exact > DEFECT-1 fixed-awaiting-deploy).
+  **FREEZE-LIFT EXECUTION (in progress ~01:25):** Xvfb :2 restarted ✅; shadowJar rebuilt
+  from clean 2fcb602 ✅ (BUILD SUCCESSFUL, 0 stale sources — jar now CONTAINS the DEFECT-1
+  fix + J1 + J2-1/2/3/9). NEXT STEPS (resume here if interrupted): (1) launch client via
+  standard recipe (account `new`), grep 'Command processor started' then 'Game state is now
+  LOGGED_IN'; (2) ipc_smoke.sh new → 5/5; (3) live-gate spot checks: PING, LIST_COMMANDS
+  (expect 131), INTERACT_OBJECT on a door (DEFECT-1 fix validation — should no longer throw
+  IllegalStateException); (4) dispatch driver v3 (fable fork) to finish banking + prayer/
+  magic + advisor on the NEW jar, appending to the defect journal; (5) after island done,
+  dispatch J2-4 with its own live gate.
 - **REMAINING (ALL user-gated or sequenced):** W6-J1 Actions retirement (fable; NEEDS user
   answer on strategy Q1 — ScenarioEngine replay retire vs keep), W6-J2 PlayerHelpers split
   (fable, after J1; 115 latches + full helper extraction + stats-tracker merge + BURY_ALL

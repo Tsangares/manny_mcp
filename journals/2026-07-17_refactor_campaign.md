@@ -248,3 +248,33 @@ routine fixes.
   compound guard conditions, auto-abort defaults for repeated step failures).
 - Documentation regeneration (both CLAUDE.md files, from the actual current code rather than
   the stale "24 files" description that started this campaign) is the last planned wave.
+
+---
+
+## Addendum (2026-07-18 ~01:30, written during crash-#3 recovery)
+
+Events after the main entry was drafted:
+
+- **W6-J2 executed four phases in one night**, each compile-gated and committed separately:
+  J2-1 dead purge `bc4838c` (−3,919), J2-9 matchesMenuEntry collapse `4080b11`, J2-2 latch
+  conversion `ebeb3c0` (83/90 sites; the survey grep had missed 21 fully-qualified
+  `new java.util.concurrent.CountDownLatch` sites — twice, ironically: the phase agent's
+  final count made the same grep mistake, caught by orchestrator verification), J2-3
+  Group-A un-nest `2fcb602` (7 new utility files; PlayerHelpers 23,683 → 16,075 across the
+  night). J2-4 (nav extraction) deliberately held for its own live gate.
+- **Tutorial Island test reached the banking section.** Sections passed: character creation,
+  Gielinor Guide, survival, chef, emotes/run, Quest Guide, mining/smithing, combat (melee +
+  ranged rat kills). Ten defects logged; the big lesson is that GOTO's arrival tolerance
+  (DEFECT-7) and an undismissable modal message (DEFECT-8) compounded into a 40-minute
+  diagnostic loop — driver-priority fixes are those two, not the flashier threading bug.
+  The validated door workaround (hover-sweep + walk-through) carried the whole run on the
+  old jar.
+- **DEFECT-1 was fixed and committed** (`73c7256`) same-night: the real culprit was the
+  player-position read, not the target's, and the naive wrap would have deadlocked overlay
+  callers — a thread-aware read (direct on client thread, hop otherwise) was the answer.
+- **Crash #3 (~01:20): the harness process restart took the driver agent, the RuneLite
+  client, and Xvfb :2 with it.** Third hard-stop in one campaign night (machine crash,
+  session limit, harness restart). The durable-journal discipline paid off again: recovery
+  is a checklist in the handoff doc, and the freeze lift turned the crash into the deploy
+  window — the rebuilt jar now carries the DEFECT-1 fix, so the final tutorial sections
+  double as its live validation.
