@@ -670,3 +670,16 @@ POLICY:
 4. Don't stack many concurrent subagents WHILE the client runs — agents + client together is the
    hot combination. Source-phase agents (client off) are fine.
 This is the real fix until the `diort` LAN-host migration (parked) or better cooling.
+
+## PHASE B (J2-4) COMPLETE — nav extraction LIVE-GATED GREEN (2026-07-18 ~12:24)
+manny ad288ab: PathfindingHelpers.java (1,372) + NavigationHelpers.java (3,662) extracted;
+PlayerHelpers 16,076 -> 11,302 lines (campaign start was 23,683). Rebuilt shadowJar (12:19),
+gated on 'new' in Lumbridge via scripts/client.sh (reniced, thermal-guarded):
+- Smoke 5/5.
+- Navigation FUNCTIONS from extracted NavigationHelpers (walked ~35 tiles to targets; A*/waypoint/
+  minimap all fire from the new class).
+- KILL-during-GOTO PASS: walked 8 tiles, KILL halted it 22 tiles short of target; [NAV-CANCEL] fired
+  from NavigationHelpers -> shouldCancelNavigation seam works on the live single instance.
+- Note: GOTO arrival precision / east-Lumbridge "stuck" = pre-existing DEFECT-7 (not a regression);
+  isMoving state field is unreliable (reports False while walking) — detect movement via location delta.
+Client STOPPED after gate to cool. NEXT = Phase C: J2-5 (UI/item/anim + clearUseMode) per W6J2_SPLIT_PLAN.md.
