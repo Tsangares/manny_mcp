@@ -756,3 +756,48 @@ Then remaining refactor: J2-7 (MINE_ORE — highest Group-C risk, OWN live gate)
 NEW DEFECT-16 (queue with DEFECT-15 for next Java defect pass): handlePickUpItem's background task
     calls LocalPoint.fromWorld / cameraSystem.isTileVisible / prepareToViewTarget on the background
     executor (DEFECT-3 class, off-thread). Pre-existing, moved verbatim in J2-6, NOT introduced by it.
+
+═══════════════════════════════════════════════════════════════════════════════
+## ★ BATCH GATE GREEN 2026-07-18 ~13:53 — J2-7 + DEFECT-15/16 + J2-6 deployed ★
+═══════════════════════════════════════════════════════════════════════════════
+REFACTOR STATUS — PlayerHelpers.java: 23,683 (campaign start) -> **5,604 lines** (−76%).
+  Phase A/B/C (124a2c1/ad288ab/bf83463) + J2-6 (069b71d) all prior.
+  J2-7 committed **ee525e1**: WorldActionSupport (991) + CookingFiremakingSupport (1635) +
+    MiningWorkflowSupport (786). Enum FQNs (WorkflowLocation/InventoryOreType) + public fields
+    (lastDepositedOre/nextOreToMine) moved to MiningWorkflowSupport; CollectLumbridgeTinCopperCommand
+    rewired; CP keeps 11 thin wrappers.
+  DEFECT-15/16 committed **5d3b7a1**: UiHelpers.getHull/getMinimap + InventoryActionSupport
+    .handlePickUpItem off-thread reads wrapped (readFromClientSafe + isClientThread guard).
+Both pushed to origin/master. Rebuilt shadowJar 13:48 (0 stale). Gated on 'new' in Lumbridge:
+- Smoke 5/5.
+- J2-7 dispatch VERIFIED: MINE_ORE ("Pickaxe verified" then KILL-interrupt clean), COLLECT_LUMBRIDGE_
+  TIN_COPPER (workflow started), LIGHT_FIRE (client-thread ground check ran), COOK_ALL (inventory
+  search ran), SCAN_TILEOBJECTS (clean scan) — all extracted classes load + dispatch + reach real
+  logic; "failed" outcomes are expected (empty inv / nothing nearby), not crashes.
+- DEFECT-16 VERIFIED: PICK_UP_ITEM Jug -> "Command succeeded", no client-thread exception.
+- DEFECT-15 VERIFIED: MOUSE_MOVE -> "Command succeeded" (exercises moveMouse->getHull/getMinimap),
+  no client-thread exception.
+- Zero NEW client-thread/NPE exceptions from any tested command. Only log exceptions: (a) benign
+  startup WidgetInspectorTool NPE (xz.ch null, known, not a regression); (b) DEFECT-17 below.
+Client STOPPED after gate, pkg ~61C.
+
+**NEW DEFECT-17 (queue for next Java defect pass, DEFECT-3 class, PRE-EXISTING not a J2-7 regression):**
+  COLLECT_LUMBRIDGE_TIN_COPPER workflow throws IllegalStateException "must be called on client thread"
+  at GameEngine$GameHelpers.getDistanceTo(GameEngine.java:2964) -> getWorldLocation() off the
+  manny-background thread (hit when the char is NOT at the mine, so the distance-calc branch runs).
+  GameEngine untouched by J2-7 (verbatim handler move); flagged in the old DEFECT-1 audit as deferred.
+  Fix = wrap getDistanceTo's getWorldLocation read (readFromClientSafe) OR guard the caller in
+  MiningWorkflowSupport.detectCurrentLocation. Batch with DEFECT-17 whenever the mining money-maker
+  routine is built (needed for COLLECT/MINE workflows to run unattended).
+
+>>> ON RESUME: J2-7 + defects are DEPLOYED + gated. NEXT = **J2-8** (final PH split phase): C7
+    SpellCombatSupport + C8 EquipmentSupport + C9 GEInterfaceSupport + C10 SmithingSupport (incl.
+    BarTypeInfo FQN update in SmeltBarsCommand). Files: PlayerHelpers.java + 4 new + SmeltBarsCommand.
+    Map by SYMBOL (plan line numbers stale; PH now 5,604). Then Wave 7 (doc regen DONE below; just
+    finalize journal). Then routines phase.
+WAVE 7 DOC REGEN ✅ (this session): COMMAND_REFERENCE.md regenerated to 131 real commands (121
+    register() + 10 legacy-switch: PING/PAUSE/RESUME/CAMERA_RESET/BURY_ALL/LIGHT_FIRE/LOGIN/
+    LIST_OBJECTS/INTERACT_OBJECT/LIST_COMMANDS); bogus ATTACK/STRENGTH/BALANCED removed (they are
+    handleEquipBestMelee arg values, not commands); LOAD_SCENARIO/LOAD_CMDLOG confirmed absent.
+    ROUTINE_CATALOG.md ATTACK-redirect claims fixed + count 90->131. TOOLS_USAGE_GUIDE clean.
+═══════════════════════════════════════════════════════════════════════════════

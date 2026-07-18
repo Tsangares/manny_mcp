@@ -1,8 +1,8 @@
 # Manny Plugin Command Reference
 
 **Auto-generated command documentation**
-**Total Commands**: 90
-**Categories**: 10
+**Total Commands**: 131
+**Categories**: 11
 
 ## Table of Contents
 - [Banking](#banking)
@@ -15,6 +15,7 @@
 - [Query](#query)
 - [Skilling](#skilling)
 - [System](#system)
+- [Grand Exchange](#grand-exchange)
 
 ## Banking
 
@@ -88,17 +89,17 @@
 
 ## Combat
 
-### `ATTACK`
-
-**Handler**: `None`
-**Location**: PlayerHelpers.java:10192
-
-*No usage examples found yet*
-
 ### `ATTACK_NPC`
 
 **Handler**: `handleAttackNPC`
 **Location**: PlayerHelpers.java:9063
+
+*No usage examples found yet*
+
+### `CAST_SPELL`
+
+**Handler**: `CastSpellCommand`
+**Location**: `utility/commands/CastSpellCommand.java`
 
 *No usage examples found yet*
 
@@ -132,6 +133,20 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `CAST_SPELL_ON_INVENTORY_ITEM`
+
+**Handler**: `CastSpellOnInventoryItemCommand`
+**Location**: `utility/commands/CastSpellOnInventoryItemCommand.java`
+
+*No usage examples found yet*
+
+### `IMP_HUNT`
+
+**Handler**: `ImpHuntCommand`
+**Location**: `utility/commands/ImpHuntCommand.java`
+
+*No usage examples found yet*
+
 ### `KILL`
 
 **Handler**: `handleKill`
@@ -157,6 +172,13 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 **Handler**: `handleKillLoop`
 **Location**: PlayerHelpers.java:9104
+
+*No usage examples found yet*
+
+### `KILL_LOOP_CONFIG`
+
+**Handler**: `KillLoopConfigCommand`
+**Location**: `utility/commands/KillLoopConfigCommand.java`
 
 *No usage examples found yet*
 
@@ -190,6 +212,13 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `CAMERA_STABILIZE`
+
+**Handler**: `CameraStabilizeCommand`
+**Location**: `utility/commands/CameraStabilizeCommand.java`
+
+*No usage examples found yet*
+
 ### `CAMERA_YAW`
 
 **Handler**: `handleCameraYaw`
@@ -211,7 +240,28 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `ZOOM`
+
+**Handler**: `ZoomCommand`
+**Location**: `utility/commands/ZoomCommand.java`
+
+*No usage examples found yet*
+
 ## Interaction
+
+### `CLICK_AT`
+
+**Handler**: `ClickAtCommand`
+**Location**: `utility/commands/ClickAtCommand.java`
+
+*No usage examples found yet*
+
+### `CLICK_CHILD_WIDGET`
+
+**Handler**: `ClickChildWidgetCommand`
+**Location**: `utility/commands/ClickChildWidgetCommand.java`
+
+*No usage examples found yet*
 
 ### `CLICK_CONTINUE`
 
@@ -236,6 +286,20 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 **Handler**: `handleClickWidget`
 **Location**: PlayerHelpers.java:9174
+
+*No usage examples found yet*
+
+### `CLOSE_INTERFACE`
+
+**Handler**: `CloseInterfaceCommand`
+**Location**: `utility/commands/CloseInterfaceCommand.java`
+
+*No usage examples found yet*
+
+### `DESELECT`
+
+**Handler**: `DeselectCommand`
+**Location**: `utility/commands/DeselectCommand.java`
 
 *No usage examples found yet*
 
@@ -300,6 +364,13 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `EAT`
+
+**Handler**: `EatCommand`
+**Location**: `utility/commands/EatCommand.java`
+
+*No usage examples found yet*
+
 ### `EQUIPMENT_LOG`
 
 **Handler**: `handleEquipmentLog`
@@ -326,6 +397,13 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
   description: "Pick up egg from ground"
 ```
 > *Note: Egg spawns inside chicken coop fence*
+
+### `LOOT_GRAVE`
+
+**Handler**: `LootGraveCommand`
+**Location**: `utility/commands/LootGraveCommand.java`
+
+*No usage examples found yet*
 
 ### `QUERY_INVENTORY`
 
@@ -387,6 +465,20 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `TELEPORT`
+
+**Handler**: `TeleportCommand`
+**Location**: `utility/commands/TeleportCommand.java`
+
+*No usage examples found yet*
+
+### `TELEPORT_HOME`
+
+**Handler**: `TeleportHomeCommand`
+**Location**: `utility/commands/TeleportHomeCommand.java`
+
+*No usage examples found yet*
+
 ### `VIZ_PATH`
 
 **Handler**: `handleVizPath`
@@ -395,13 +487,6 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 *No usage examples found yet*
 
 ## Other
-
-### `BALANCED`
-
-**Handler**: `None`
-**Location**: PlayerHelpers.java:10198
-
-*No usage examples found yet*
 
 ### `BUY_GE`
 
@@ -439,6 +524,20 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
   description: "Climb to top floor of windmill"
 ```
 > *Note: Need to climb 2 ladders to reach hopper*
+
+### `DUMP_COLLISION`
+
+**Handler**: `DumpCollisionCommand`
+**Location**: `utility/commands/DumpCollisionCommand.java`
+
+*No usage examples found yet*
+
+### `RANDOMIZE_CHARACTER`
+
+**Handler**: `RandomizeCharacterCommand`
+**Location**: `utility/commands/RandomizeCharacterCommand.java`
+
+*No usage examples found yet*
 
 ### `SAVE_LOCATION`
 
@@ -479,13 +578,6 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 **Handler**: `handleSmeltBronzeBars`
 **Location**: PlayerHelpers.java:9235
-
-*No usage examples found yet*
-
-### `STRENGTH`
-
-**Handler**: `None`
-**Location**: PlayerHelpers.java:10195
 
 *No usage examples found yet*
 
@@ -547,10 +639,24 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 ## Query
 
+### `FIND_GRAVE`
+
+**Handler**: `FindGraveCommand`
+**Location**: `utility/commands/FindGraveCommand.java`
+
+*No usage examples found yet*
+
 ### `FIND_NPC`
 
 **Handler**: `handleFindNPC`
 **Location**: PlayerHelpers.java:9191
+
+*No usage examples found yet*
+
+### `FIND_OBJECT`
+
+**Handler**: `FindObjectCommand`
+**Location**: `utility/commands/FindObjectCommand.java`
 
 *No usage examples found yet*
 
@@ -568,6 +674,13 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `GET_QUEST_STATUS`
+
+**Handler**: `GetQuestStatusCommand`
+**Location**: `utility/commands/GetQuestStatusCommand.java`
+
+*No usage examples found yet*
+
 ### `LIST_COMMANDS`
 
 **Handler**: `handleListCommands`
@@ -579,6 +692,13 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 **Handler**: `handleListObjects`
 **Location**: PlayerHelpers.java:9200
+
+*No usage examples found yet*
+
+### `QUERY_EQUIPMENT`
+
+**Handler**: `QueryEquipmentCommand`
+**Location**: `utility/commands/QueryEquipmentCommand.java`
 
 *No usage examples found yet*
 
@@ -596,10 +716,38 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `QUERY_PLAYERS`
+
+**Handler**: `QueryPlayersCommand`
+**Location**: `utility/commands/QueryPlayersCommand.java`
+
+*No usage examples found yet*
+
+### `QUERY_TRANSITIONS`
+
+**Handler**: `QueryTransitionsCommand`
+**Location**: `utility/commands/QueryTransitionsCommand.java`
+
+*No usage examples found yet*
+
+### `SCAN_BANK`
+
+**Handler**: `ScanBankCommand`
+**Location**: `utility/commands/ScanBankCommand.java`
+
+*No usage examples found yet*
+
 ### `SCAN_OBJECTS`
 
 **Handler**: `handleScanObjects`
 **Location**: PlayerHelpers.java:9197
+
+*No usage examples found yet*
+
+### `SCAN_TILEOBJECTS`
+
+**Handler**: `ScanTileObjectsCommand`
+**Location**: `utility/commands/ScanTileObjectsCommand.java`
 
 *No usage examples found yet*
 
@@ -614,6 +762,13 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 **Handler**: `handleTileList`
 **Location**: PlayerHelpers.java:9162
+
+*No usage examples found yet*
+
+### `WIKI_QUERY`
+
+**Handler**: `WikiQueryCommand`
+**Location**: `utility/commands/WikiQueryCommand.java`
 
 *No usage examples found yet*
 
@@ -698,10 +853,33 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
+### `F2P_MODE`
+
+**Handler**: `F2PModeCommand`
+**Location**: `utility/commands/F2PModeCommand.java`
+
+*No usage examples found yet*
+
+### `LOGIN`
+
+**Handler**: `LOGIN` (legacy switch case, inline in PlayerHelpers.java)
+**Location**: PlayerHelpers.java (legacy switch, uses `LoginHandlers`)
+
+Triggers the Java login routine (clicks the "Play Now" button).
+
+*No usage examples found yet*
+
 ### `PAUSE`
 
 **Handler**: `handlePause`
 **Location**: PlayerHelpers.java:9007
+
+*No usage examples found yet*
+
+### `PING`
+
+**Handler**: `PingCommand`
+**Location**: `utility/commands/PingCommand.java`
 
 *No usage examples found yet*
 
@@ -732,3 +910,129 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 **Location**: PlayerHelpers.java:9022
 
 *No usage examples found yet*
+
+## Grand Exchange
+
+### `GE_ABORT`
+
+**Handler**: `GEAbortCommand`
+**Location**: `utility/commands/GEAbortCommand.java`
+
+*No usage examples found yet*
+
+### `GE_ADJUST_PRICE`
+
+**Handler**: `GEAdjustPriceCommand`
+**Location**: `utility/commands/GEAdjustPriceCommand.java`
+
+*No usage examples found yet*
+
+### `GE_BUY`
+
+**Handler**: `GEBuyCommand`
+**Location**: `utility/commands/GEBuyCommand.java`
+
+*No usage examples found yet*
+
+### `GE_CANCEL`
+
+**Handler**: `GECancelCommand`
+**Location**: `utility/commands/GECancelCommand.java`
+
+*No usage examples found yet*
+
+### `GE_CLICK_BUY`
+
+**Handler**: `GEClickSlotCommand` (buy mode)
+**Location**: `utility/commands/GEClickSlotCommand.java`
+
+*No usage examples found yet*
+
+### `GE_CLICK_SELL`
+
+**Handler**: `GEClickSlotCommand` (sell mode)
+**Location**: `utility/commands/GEClickSlotCommand.java`
+
+*No usage examples found yet*
+
+### `GE_COLLECT`
+
+**Handler**: `GECollectCommand`
+**Location**: `utility/commands/GECollectCommand.java`
+
+*No usage examples found yet*
+
+### `GE_CONFIRM`
+
+**Handler**: `GEConfirmCommand`
+**Location**: `utility/commands/GEConfirmCommand.java`
+
+*No usage examples found yet*
+
+### `GE_INPUT_PRICE`
+
+**Handler**: `GEInputPriceCommand`
+**Location**: `utility/commands/GEInputPriceCommand.java`
+
+*No usage examples found yet*
+
+### `GE_INPUT_QUANTITY`
+
+**Handler**: `GEInputQuantityCommand`
+**Location**: `utility/commands/GEInputQuantityCommand.java`
+
+*No usage examples found yet*
+
+### `GE_OPEN`
+
+**Handler**: `GEOpenCommand`
+**Location**: `utility/commands/GEOpenCommand.java`
+
+*No usage examples found yet*
+
+### `GE_SEARCH`
+
+**Handler**: `GESearchCommand`
+**Location**: `utility/commands/GESearchCommand.java`
+
+*No usage examples found yet*
+
+### `GE_SELECT_ITEM`
+
+**Handler**: `GESelectItemCommand`
+**Location**: `utility/commands/GESelectItemCommand.java`
+
+*No usage examples found yet*
+
+### `GE_SELL`
+
+**Handler**: `GESellCommand`
+**Location**: `utility/commands/GESellCommand.java`
+
+*No usage examples found yet*
+
+### `GE_SELL_ITEM`
+
+**Handler**: `GESellItemCommand`
+**Location**: `utility/commands/GESellItemCommand.java`
+
+*No usage examples found yet*
+
+### `GE_SET_QUANTITY`
+
+**Handler**: `GESetQuantityCommand`
+**Location**: `utility/commands/GESetQuantityCommand.java`
+
+*No usage examples found yet*
+
+### `GE_SLOW_BUY`
+
+**Handler**: `GESlowBuyCommand`
+**Location**: `utility/commands/GESlowBuyCommand.java`
+
+*No usage examples found yet*
+
+> Note: `BUY_GE` (a separate, older high-level "buy from GE" workflow command) is
+> documented under [Other](#other) rather than here, since it predates this
+> Grand Exchange command cluster and is not part of the low-level `GE_*` widget
+> sequence.

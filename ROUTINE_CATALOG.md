@@ -146,7 +146,7 @@ validate_routine_deep(routine_path="...")
 - `KILL_LOOP <NpcName> <count>` - Kill N enemies
 - `KILL_COW` - Specialized cow killer
 - `KILL_COW_GET_HIDES` - Kill cows + loot hides
-- `ATTACK_NPC` - Single attack (note: bare `ATTACK` is a deprecated redirect → use `KILL_LOOP`)
+- `ATTACK_NPC` - Single attack (note: there is no bare `ATTACK` command — use `ATTACK_NPC` or `KILL_LOOP`)
 - `SWITCH_COMBAT_STYLE` - Change attack/strength/defense
 
 ---
@@ -173,7 +173,7 @@ validate_routine_deep(routine_path="...")
 
 ## 📋 Command Categories Available
 
-### Complete Command List (90 total)
+### Complete Command List (131 total — see `COMMAND_REFERENCE.md` for the full list)
 
 Use `list_commands()` to see all, or filter by category:
 
@@ -189,7 +189,7 @@ list_commands(category="banking")
 ```python
 list_commands(category="combat")
 ```
-- ATTACK_NPC (bare `ATTACK` is a deprecated redirect → use `KILL_LOOP`)
+- ATTACK_NPC (there is no bare `ATTACK` command — use `ATTACK_NPC` or `KILL_LOOP`)
 - KILL, KILL_LOOP, KILL_COW, KILL_COW_GET_HIDES
 - CAST_SPELL_NPC, CAST_SPELL_ON_GROUND_ITEM
 - SWITCH_COMBAT_STYLE

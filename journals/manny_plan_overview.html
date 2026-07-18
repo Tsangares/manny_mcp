@@ -1,0 +1,299 @@
+<title>Manny — Plan & Goal Map</title>
+<style>
+  :root {
+    /* cool slate neutrals, biased toward the gold accent's warmth only faintly */
+    --bg: #0f1319;
+    --panel: #171c24;
+    --panel-2: #1d232d;
+    --line: #2a323e;
+    --ink: #e9edf2;
+    --ink-dim: #9aa6b4;
+    --ink-faint: #6b7684;
+    --gold: #e0a84e;      /* OSRS XP-drop gold — the single accent, used sparingly */
+    --gold-soft: #3a2f1a;
+    --good: #5cb36c;
+    --run: #e0a84e;
+    --wait: #6b7684;
+    --stop: #d76a5f;
+    --mono: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --maxw: 60rem;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #eef1f4;
+      --panel: #ffffff;
+      --panel-2: #f4f6f9;
+      --line: #d9dee5;
+      --ink: #161c24;
+      --ink-dim: #55606d;
+      --ink-faint: #8a95a2;
+      --gold: #a76f1e;
+      --gold-soft: #f2e6cf;
+      --good: #3e8f50;
+      --run: #b07d24;
+      --wait: #8a95a2;
+      --stop: #c0483c;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0f1319; --panel: #171c24; --panel-2: #1d232d; --line: #2a323e;
+    --ink: #e9edf2; --ink-dim: #9aa6b4; --ink-faint: #6b7684;
+    --gold: #e0a84e; --gold-soft: #3a2f1a; --good: #5cb36c; --run: #e0a84e; --wait: #6b7684; --stop: #d76a5f;
+  }
+  :root[data-theme="light"] {
+    --bg: #eef1f4; --panel: #ffffff; --panel-2: #f4f6f9; --line: #d9dee5;
+    --ink: #161c24; --ink-dim: #55606d; --ink-faint: #8a95a2;
+    --gold: #a76f1e; --gold-soft: #f2e6cf; --good: #3e8f50; --run: #b07d24; --wait: #8a95a2; --stop: #c0483c;
+  }
+
+  * { box-sizing: border-box; }
+  body { margin: 0; }
+  .wrap {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--sans);
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    padding: clamp(1.25rem, 4vw, 3.5rem) clamp(1rem, 4vw, 2rem) 4rem;
+  }
+  .col { max-width: var(--maxw); margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--gold);
+    margin: 0 0 0.7rem;
+  }
+  h1 {
+    font-size: clamp(1.9rem, 5vw, 3rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin: 0 0 0.6rem;
+    font-weight: 700;
+  }
+  h1 .thin { color: var(--ink-dim); font-weight: 400; }
+  .lede { color: var(--ink-dim); font-size: 1.08rem; max-width: 42rem; margin: 0; }
+
+  /* telemetry strip */
+  .telem {
+    margin: 2rem 0 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  .telem > div { background: var(--panel); padding: 0.85rem 1rem; }
+  .telem .k { font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+  .telem .v { font-size: 1.4rem; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 0.15rem; letter-spacing: -0.01em; }
+  .telem .v small { font-size: 0.8rem; color: var(--ink-dim); font-weight: 500; }
+  .telem .v.gold { color: var(--gold); }
+
+  section { margin-top: 3rem; }
+  h2 {
+    font-size: 1.35rem; letter-spacing: -0.01em; margin: 0 0 0.35rem; font-weight: 680;
+  }
+  .sub { color: var(--ink-dim); margin: 0 0 1.3rem; max-width: 44rem; }
+
+  /* goal tiers */
+  .tiers { display: flex; flex-direction: column; gap: 0.9rem; }
+  .tier {
+    display: grid; grid-template-columns: auto 1fr; gap: 1.1rem;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 1.15rem 1.3rem;
+  }
+  .tier .badge {
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.1em; text-transform: uppercase;
+    color: var(--ink-faint); writing-mode: vertical-rl; transform: rotate(180deg);
+    text-align: center; padding-top: 0.1rem; white-space: nowrap;
+  }
+  .tier.n1 { border-left: 3px solid var(--gold); }
+  .tier.n2 { border-left: 3px solid var(--ink-faint); }
+  .tier.n3 { border-left: 3px solid var(--good); }
+  .tier h3 { margin: 0 0 0.3rem; font-size: 1.05rem; letter-spacing: -0.01em; }
+  .tier h3 .arrow { color: var(--gold); }
+  .tier p { margin: 0; color: var(--ink-dim); font-size: 0.96rem; }
+  .tier p b { color: var(--ink); font-weight: 620; }
+
+  /* phase tracker */
+  .phases { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+  .phase { display: grid; grid-template-columns: 0.35rem auto 1fr auto; align-items: center; gap: 0 1rem;
+           background: var(--panel); padding: 0.9rem 1.2rem 0.9rem 0; border-top: 1px solid var(--line); }
+  .phase:first-child { border-top: none; }
+  .phase .stripe { align-self: stretch; border-radius: 0; }
+  .phase.done .stripe { background: var(--good); }
+  .phase.run  .stripe { background: var(--run); }
+  .phase.next .stripe { background: var(--gold); opacity: 0.5; }
+  .phase.wait .stripe { background: var(--wait); opacity: 0.4; }
+  .phase .id { font-family: var(--mono); font-size: 0.8rem; color: var(--ink-faint); min-width: 3.5rem; }
+  .phase .name { font-size: 0.98rem; }
+  .phase .name b { font-weight: 620; }
+  .phase .name span { color: var(--ink-dim); }
+  .pill {
+    font-family: var(--mono); font-size: 0.64rem; letter-spacing: 0.08em; text-transform: uppercase;
+    padding: 0.25rem 0.55rem; border-radius: 999px; white-space: nowrap; font-weight: 600;
+  }
+  .pill.done { color: var(--good); background: color-mix(in srgb, var(--good) 15%, transparent); }
+  .pill.run  { color: var(--run);  background: color-mix(in srgb, var(--run) 18%, transparent); }
+  .pill.next { color: var(--gold); background: color-mix(in srgb, var(--gold) 12%, transparent); }
+  .pill.wait { color: var(--ink-faint); background: color-mix(in srgb, var(--ink-faint) 14%, transparent); }
+  .dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-right: 0.1rem; }
+  .dot.live { background: var(--run); box-shadow: 0 0 0 0 color-mix(in srgb, var(--run) 70%, transparent); animation: pulse 1.8s infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--run) 60%, transparent); } 70% { box-shadow: 0 0 0 6px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } }
+  @media (prefers-reduced-motion: reduce) { .dot.live { animation: none; } }
+
+  /* now-running lanes */
+  .lanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.9rem; }
+  .lane { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 1.05rem 1.1rem; }
+  .lane .hd { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.45rem; }
+  .lane .hd .st { font-family: var(--mono); font-size: 0.6rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--ink-faint); margin-left: auto; }
+  .lane h4 { margin: 0; font-size: 0.98rem; letter-spacing: -0.01em; }
+  .lane p { margin: 0; color: var(--ink-dim); font-size: 0.88rem; }
+  .lane.busy { border-color: color-mix(in srgb, var(--run) 40%, var(--line)); }
+  .lane .tag { font-family: var(--mono); font-size: 0.62rem; color: var(--ink-faint); }
+
+  /* callout */
+  .note { background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--stop); border-radius: 12px; padding: 1.2rem 1.4rem; }
+  .note h2 { display: flex; align-items: center; gap: 0.6rem; }
+  .note ul { margin: 0.6rem 0 0; padding-left: 1.1rem; color: var(--ink-dim); }
+  .note li { margin: 0.35rem 0; }
+  .note li b { color: var(--ink); font-weight: 600; }
+
+  .payoff { background: linear-gradient(180deg, var(--panel), var(--panel-2)); border: 1px solid var(--line); border-radius: 14px; padding: 1.5rem 1.5rem; }
+  .payoff ol { margin: 0.8rem 0 0; padding-left: 1.3rem; }
+  .payoff li { margin: 0.5rem 0; color: var(--ink-dim); }
+  .payoff li b { color: var(--ink); font-weight: 620; }
+
+  code { font-family: var(--mono); font-size: 0.86em; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 0.05rem 0.35rem; color: var(--ink); }
+
+  footer { margin-top: 3rem; padding-top: 1.4rem; border-top: 1px solid var(--line); color: var(--ink-faint); font-family: var(--mono); font-size: 0.72rem; letter-spacing: 0.04em; display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
+</style>
+
+<div class="wrap">
+<div class="col">
+
+  <p class="eyebrow">Manny · Autonomous OSRS Automation</p>
+  <h1>The plan, <span class="thin">and what all the pieces are for</span></h1>
+  <p class="lede">You asked what the overall goal is. Here it is in one place: the vision, why we're refactoring a giant file first, exactly where we are, and what's running right now.</p>
+
+  <div class="telem">
+    <div><div class="k">PlayerHelpers.java</div><div class="v gold">8,719 <small>← 23,683 lines</small></div></div>
+    <div><div class="k">Reduced</div><div class="v">63%<small> so far</small></div></div>
+    <div><div class="k">Refactor phases</div><div class="v">6 <small>done · 1 live</small></div></div>
+    <div><div class="k">Work lanes now</div><div class="v">4 <small>parallel</small></div></div>
+    <div><div class="k">Tutorial Island</div><div class="v" style="color:var(--good)">Passed<small> live</small></div></div>
+  </div>
+
+  <!-- ============ THE GOAL, IN THREE LEVELS ============ -->
+  <section>
+    <h2>The goal, in three levels</h2>
+    <p class="sub">The confusion is usually here — three different goals get talked about at once. They're nested: each one exists to serve the one above it.</p>
+
+    <div class="tiers">
+      <div class="tier n1">
+        <div class="badge">North star</div>
+        <div>
+          <h3>An LLM that plays OSRS unattended <span class="arrow">◆</span></h3>
+          <p>A growing library of <b>routines</b> — YAML step-sequences built from atomic commands (<code>MINE_ORE</code>, <code>BANK_OPEN</code>, <code>GOTO</code>). An <b>LLM supervisor</b> watches routines run and, when no routine fits the situation, <b>writes one on the spot</b>. Point a fresh account at it → it grinds money-makers. There is no "finished" — the routines <i>are</i> the product.</p>
+        </div>
+      </div>
+      <div class="tier n2">
+        <div class="badge">This campaign</div>
+        <div>
+          <h3>Make that vision buildable</h3>
+          <p>Two things had to be true first. <b>(1)</b> The codebase had to stop being one 23,683-line file, so an LLM can author routines against clean, well-named commands instead of a swamp. <b>(2)</b> Prove the stack can run hands-off — Tutorial Island as the first unattended routine. <b>You chose: finish the refactor first,</b> then routines.</p>
+        </div>
+      </div>
+      <div class="tier n3">
+        <div class="badge">Right now</div>
+        <div>
+          <h3>Finish the last slices of the split</h3>
+          <p>Break the remaining handlers out of the giant file into focused support classes, in <b>parallel</b>, with the game client <b>off</b> to keep the machine cool. Two phases left, then a docs pass — then we pivot to routines.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ WHERE WE ARE ============ -->
+  <section>
+    <h2>Where we are — the refactor</h2>
+    <p class="sub">Each phase splits another domain out of <code>PlayerHelpers.java</code> and is gated on the live bot before it counts. "Live-gated" means it was proven against the running game, not just compiled.</p>
+
+    <div class="phases">
+      <div class="phase done"><div class="stripe"></div><div class="id">Phase A</div><div class="name"><b>Defect batch</b> <span>— off-thread crashes, wrong widget IDs, sidebar clicks</span></div><div class="pill done">Done · gated</div></div>
+      <div class="phase done"><div class="stripe"></div><div class="id">J2-4</div><div class="name"><b>Navigation</b> <span>— pathfinding + walking, incl. KILL-mid-walk</span></div><div class="pill done">Done · gated</div></div>
+      <div class="phase done"><div class="stripe"></div><div class="id">J2-5</div><div class="name"><b>UI / item / animation</b> helpers</div><div class="pill done">Done · gated</div></div>
+      <div class="phase done"><div class="stripe"></div><div class="id">J2-6</div><div class="name"><b>Inventory / bank / query</b> supports</div><div class="pill done">Done · committed</div></div>
+      <div class="phase run"><div class="stripe"></div><div class="id">J2-7</div><div class="name"><b>Mining / world-action / cooking</b> supports <span>— highest-risk group</span></div><div class="pill run"><span class="dot live"></span>Running</div></div>
+      <div class="phase next"><div class="stripe"></div><div class="id">J2-8</div><div class="name"><b>Spell / equip / GE / smithing</b> supports</div><div class="pill next">Next</div></div>
+      <div class="phase wait"><div class="stripe"></div><div class="id">Wave 7</div><div class="name"><b>Regenerate docs</b> from the real command list + final journal</div><div class="pill wait">Queued</div></div>
+    </div>
+  </section>
+
+  <!-- ============ RUNNING NOW ============ -->
+  <section>
+    <h2>Running right now — 4 lanes</h2>
+    <p class="sub">All client-off, all touching different files, so they run at once with zero heat cost and no collisions. This is the parallelism you asked for.</p>
+
+    <div class="lanes">
+      <div class="lane busy">
+        <div class="hd"><span class="dot live"></span><h4>J2-7 extraction</h4><span class="st">opus</span></div>
+        <p>Mining, world-action & cooking handlers → new focused files. Owns the giant file (single-writer).</p>
+      </div>
+      <div class="lane">
+        <div class="hd"><h4>Off-thread fixes</h4><span class="st">✓ done</span></div>
+        <p>DEFECT-15/16 — wrapped scene reads that were crashing off the client thread. Landed cleanly.</p>
+      </div>
+      <div class="lane busy">
+        <div class="hd"><span class="dot live"></span><h4>Doc regeneration</h4><span class="st">sonnet</span></div>
+        <p>Rebuild the command reference from the actual registry; purge dead commands.</p>
+      </div>
+      <div class="lane busy">
+        <div class="hd"><span class="dot live"></span><h4>Tutorial 07–10 coords</h4><span class="st">sonnet</span></div>
+        <p>Transcribe real coordinates from the live-test journal into replayable routine YAML.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ THE CONSTRAINT ============ -->
+  <section>
+    <div class="note">
+      <h2>The one hard constraint — heat</h2>
+      <p class="sub" style="margin-bottom:0">The crashes are <b>hardware/power</b>, not software. There's no code fix. So the whole workflow is shaped around it:</p>
+      <ul>
+        <li><b>Commit every unit.</b> A crash costs nothing — we resume from git, not from scratch.</li>
+        <li><b>Client off during code work.</b> The game client pins a CPU core at ~79% on software rendering and cooks the package to 77°C+. It's only turned on for a live test, then killed.</li>
+        <li><b>Don't stack agents while the client runs.</b> Agents + client together is the hot combination. Code lanes run while it's off (like now).</li>
+        <li><b>Parked option:</b> move the client to a LAN machine (<code>diort</code>) that won't overheat — ends the crash cycle without the proxy headache. Revisit after the refactor.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ PAYOFF ============ -->
+  <section>
+    <h2>What "done" unlocks</h2>
+    <div class="payoff">
+      <p style="margin:0;color:var(--ink-dim)">Tutorial Island <b style="color:var(--ink)">already passes end-to-end</b> when I drive it live — that's the acceptance test the whole refactor is measured against. Finishing the refactor flips us into the routines phase:</p>
+      <ol>
+        <li>Make Tutorial Island replay from <b>one command</b> (not hand-driven).</li>
+        <li>Run <b>grind-loop money-makers</b> (woodcutting, combat training) unattended in Lumbridge.</li>
+        <li>Start building the <b>LLM supervisor</b> that monitors routines and authors new ones on demand — the north star.</li>
+      </ol>
+    </div>
+  </section>
+
+  <footer>
+    <span>Manny + manny_mcp refactor campaign</span>
+    <span>Snapshot: 2026-07-18</span>
+    <span>Priority: refactor → routines</span>
+  </footer>
+
+</div>
+</div>
