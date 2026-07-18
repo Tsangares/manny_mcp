@@ -350,7 +350,7 @@ def _capture_gif(output_path: str = None, duration: int = 5, fps: int = 10, acco
         try:
             os.unlink(tmp_video)
             os.unlink(palette_file)
-        except:
+        except Exception:
             pass
 
         if result.returncode != 0:
@@ -378,7 +378,7 @@ def _capture_gif(output_path: str = None, duration: int = 5, fps: int = 10, acco
         try:
             if os.path.exists(tmp_video):
                 os.unlink(tmp_video)
-        except:
+        except Exception:
             pass
 
 
