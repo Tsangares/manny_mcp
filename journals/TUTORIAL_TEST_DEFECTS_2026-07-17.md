@@ -184,3 +184,76 @@ QUERY_TRANSITIONS. GOTO tolerance (DEFECT-7) + modal blocking (DEFECT-8) compoun
 plain-message modals) > DEFECT-7 (GOTO exact mode) > DEFECT-1 (TileObject client-thread).
 
 Next: exit ladder (~3111,9526) → banking section (09).
+
+## Driver #3 (new jar 2fcb602) — started ~01:24 PT, killed ~01:30, re-dispatched as Driver #4
+
+Ladder climbed, player at (3124,3125) — tutorial bank area (section 09). Confirmed on the NEW
+jar: INTERACT_OBJECT Door Open succeeded (DEFECT-1 fix holds in the interact path).
+
+**NEW FINDING — DEFECT-3 confirmed NOT covered by the DEFECT-1 fix.** SCAN_TILEOBJECTS still
+throws off-thread on jar 2fcb602 (2 repros, 01:26:17 + 01:26:28 PT):
+
+```
+java.lang.IllegalStateException: must be called on client thread
+  at du.getWorldLocation(du.java:36862)
+  at ...utility.commands.ScanTileObjectsCommand.executeCommand(ScanTileObjectsCommand.java:119)
+  at ...utility.commands.CommandBase.execute(CommandBase.java:138)
+  at ...PlayerHelpers$CommandProcessor.executeCommand(PlayerHelpers.java:7752)   [manny-background]
+```
+
+Note the GameEngine find itself logs on [Client] thread and succeeds ("Found 1 TileObjects
+matching 'Poll booth'"); the crash is the FOLLOW-UP `getWorldLocation()` on the returned
+TileObject at ScanTileObjectsCommand.java:119, executed on manny-background. Same class of bug
+as DEFECT-1 but in the scan command, not CameraSystem. Fix (post-freeze queue): wrap the
+result-processing read in ClientThreadHelper, or capture locations inside the client-thread
+scan closure before returning.
+
+Driver workaround: skip SCAN_TILEOBJECTS entirely; QUERY_TRANSITIONS for doors/stairs,
+LIST_OBJECTS/state file otherwise. (INTERACT_OBJECT's own lookup path is fine.)
+
+## Driver #4 (new jar 2fcb602) — BANK + ACCOUNT SECTIONS PASSED (~01:55 PT)
+
+Route: Bank booth used (bank opened, 25gp) → poll credit auto → east door (3125,3124) →
+Account Guide talks (2 rounds, ~12 CLICK_CONTINUEs) → Account Management tab via flashing
+icon click (canvas ~(597,477)) → east exit door (3130,3124). Next: path to chapel, Brother Brace.
+
+**Defect re-tests on new jar:**
+- DEFECT-7 WORSE than documented: GOTO tolerance no-ops at distance 2 AND 3 ("Already at
+  (x,y) - distance: 3 tiles" without moving). Must target ≥4 tiles away to force movement.
+- DEFECT-8 confirmed: "I can't reach that!" modals dismissed by KEY_PRESS space (2 instances).
+  NOTE: the persistent tutorial INSTRUCTION panel looks similar but does NOT block movement
+  and is NOT dismissible — don't confuse them (space no-ops harmlessly).
+- DEFECT-2 quantified: MOUSE_MOVE/CLICK use canvas coords (765x503); screenshots are the
+  stretched window (796x504). window_x = canvas_x * 796/765 (~+4%): a click aimed from
+  screenshot pixels lands ~25px east at x≈630 (minimap!). Convert or use cursor-dot feedback.
+- **NEW DEFECT-11**: INTERACT_OBJECT has no action-aware candidate filtering. With an OPEN
+  door at d=2 and the target CLOSED door at d=3, `INTERACT_OBJECT Door Open` locks onto the
+  open one (menu has no 'Open') and fails 3 attempts. Blocked bank re-entry ×3. Fix: filter
+  candidates by requested action in menu, or add coordinate-targeted variant.
+- **NEW DEFECT-12 (J2 REGRESSION)**: TILE command NPEs — `tileMarkerManager` null in
+  TileCommand.executeCommand:60. The J2-2/J2-3 TileMarkerManager ctor change broke command
+  wiring. Post-freeze fix required.
+- **NEW: CAMERA_STABILIZE crashes off-thread** — getVisibleTiles (CameraSystem:674) via
+  logViewportDiagnostics via stabilizeCamera:2197: `must be called on client thread`. This is
+  the flagged-but-unfixed DEFECT-1 audit site, now confirmed live. (Partial effect applied:
+  zoom happens, then diagnostics crash → command reports failed.)
+- Doors AUTO-CLOSE behind you (north bank door shut itself); native walk-clicks won't path
+  through closed doors → "stuck" GOTOs. Always QUERY_TRANSITIONS to re-check door state.
+- GOTO zooms out 5 scrolls every call (GotoCommand PATHFINDING_ZOOM_OUT_SCROLLS=5) — after a
+  few GOTOs the camera is fully zoomed out and all px/tile math breaks. CAMERA_STABILIZE
+  400 NORMAL partially restores (zoom applies despite the crash above).
+
+**WINNING PATTERN for tutorial driving** (worked 4/4 since adopted): screenshot → zoom crop
+around the yellow arrow → MOUSE_MOVE to candidate → re-screenshot 400x30 strip at (0,0) →
+read hover tooltip text → MOUSE_CLICK only when tooltip names the right verb+target. The
+white dot in screenshots = synthetic cursor position (good feedback). Native click auto-walk
+handles doors/pathing that GOTO/NAV-DIRECT cannot.
+
+## Driver #4 — CHAPEL/PRAYER SECTION PASSED (~02:00 PT)
+
+GOTO 3128 3110 crossed 13 tiles of outdoor path fine (reported "failed" at 1-off — DEFECT-10
+again; treat GOTO result as advisory, verify via state file). Brother Brace talks ×2 with
+TAB_OPEN prayer between (TAB_OPEN works for standard tabs; account_management is NOT in
+TabOpenCommand's list — clicked the flashing icon manually via canvas coords instead).
+Friends-list steps apparently auto-credited during dialogue continues. Next: chapel exit door
+→ path → Magic Instructor (final).
