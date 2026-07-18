@@ -600,3 +600,47 @@ blind (unattended) replay.
 Client is LIVE on 2fcb602, logged in, character in Lumbridge — ideal state for grind-loop routine
 tests (chicken_killer_training, woodcutting_lumbridge). NEXT: after engine agent lands routine.py
 changes, run grind tests on this Lumbridge character, THEN Java post-freeze fixes + J2-4 (rebuild).
+
+## OPS LESSON 2026-07-18 — kill stale clients before relaunch (duplicate-login JVM kill)
+Found THREE shaded.jar clients running at once (two 'new' + one newbakshesh) — the setsid/disown
+launch recipe accumulates orphans if the prior client isn't killed first. Two clients sharing the
+SAME account session token get one JVM killed by Jagex (duplicate login) — this is the likely cause
+of the unexplained 11:17 client death. BEFORE any relaunch: `pgrep -f 'java -jar.*shaded.jar'` and
+kill stale pids (verify account via `tr '\0' '\n' < /proc/<pid>/environ | grep MANNY_ACCOUNT_ID`),
+leave exactly ONE client. Per-account IPC is namespaced (/tmp/manny_<acct>_command.txt) so different
+accounts don't collide on files, but they DO collide on Xvfb :2 render + the shared token if same acct.
+Accounts: main / new (tutorial DONE, in Lumbridge) / newbakshesh (on Tutorial Island, token still valid
+as of 11:25 — this is the tutorial-ROUTINE test bed).
+
+================================================================================
+## ★ NORTH STAR + PLAN (decided 2026-07-18, user-confirmed) — READ THIS FIRST ★
+================================================================================
+GOAL (3 levels):
+- North star: LLM-driven OSRS automation — a library of unattended ROUTINES (YAML step-seqs over
+  atomic commands); LLM drivers run/monitor/build them. Fresh account -> money-makers. No final state.
+- This campaign: (1) finish the manny refactor (maintainable codebase), (2) prove the stack unattended
+  — Tutorial Island as the first hands-off routine (00_master), then grind-loop money-makers.
+- Priority (USER-CHOSEN 2026-07-18): **FINISH THE REFACTOR FIRST.** Then routines/grind tests.
+
+CRASH REALITY: cause is POWER (hardware) — NOT software/OOM. No software fix. Strategy = fast
+recovery + durable state, NOT root-causing. Classify work by crash cost:
+  - crash-cheap (Python/Java source, docs, refactor phases): commit+push per unit, resumes from git ~free.
+  - crash-expensive (live client drives/routine tests): journal per SECTION so we resume at last
+    checkpoint, not the start.
+PARKED INITIATIVE (not now): migrate the client to `diort` (LAN 10.0.0.x -> residential IP, NO
+datacenter ban risk, unlike a cloud server) IF it is more power-stable. Would end the crash cycle
+without the proxy headache. Revisit after refactor.
+
+REFACTOR-COMPLETION SEQUENCE (execute in order; PlayerHelpers.java is SINGLE-WRITER so these serialize):
+  A. Java defect batch (DEFECT-3/11/13/14) — specs in DEFECT3_FIX_SPEC.md + DEFECT_11_13_14_FIX_SPECS.md.
+     Apply source edits (can do now, does NOT need client), compileJava-check, commit. Then rebuild +
+     relaunch + LIVE-GATE all 4 (SCAN_TILEOBJECTS ok, TILE ok, TELEPORT_HOME->14286854, MOUSE_MOVE sidebar).
+  B. J2-4 nav extraction — pre-flight in J2-4_PREFLIGHT.md (~4,840 lines -> PathfindingHelpers +
+     NavigationHelpers). Own rebuild + GATE: GOTO round-trip + ipc_smoke 5/5 + KILL-during-GOTO (the
+     shouldCancelNavigation volatile seam is the risk). Keep handleGotoCommand in CP shell.
+  C. J2-5 (UI/item/anim + clearUseMode), J2-6/7/8 (CP shell/wrappers) per W6J2_SPLIT_PLAN.md; 13 §6 flags.
+  D. Wave 7: regen COMMAND_REFERENCE/ROUTINE_CATALOG/TOOLS_USAGE from registry; finalize campaign journal.
+THEN (routines phase): transcribe tutorial coords into sections 07-10 (needs A done for DEFECT-7/8/11),
+run 00_master end-to-end on newbakshesh; then grind-loop money-makers on 'new' in Lumbridge.
+Engine is READY (commit 1c63c42: repeat_until/dialogue/click_text/chain).
+================================================================================
