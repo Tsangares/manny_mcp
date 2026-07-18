@@ -683,3 +683,23 @@ gated on 'new' in Lumbridge via scripts/client.sh (reniced, thermal-guarded):
 - Note: GOTO arrival precision / east-Lumbridge "stuck" = pre-existing DEFECT-7 (not a regression);
   isMoving state field is unreliable (reports False while walking) — detect movement via location delta.
 Client STOPPED after gate to cool. NEXT = Phase C: J2-5 (UI/item/anim + clearUseMode) per W6J2_SPLIT_PLAN.md.
+
+## POST-FREEZE/DEFECT QUEUE — DEFECT-15 (found during J2-5, pre-existing, moved verbatim)
+UiHelpers.getHull / getMinimap call client-thread-only accessors (Perspective.getCanvasTilePoly,
+getClickbox, getConvexHull, getLocalLocation) OFF the client thread — sole caller PlayerHelpers.moveMouse
+runs on manny-background. Same class as DEFECT-3. Fix = wrap those bodies with readFromClientSafe +
+isClientThread() guard (mirror DEFECT-3 CameraSystem pattern). Not a J2-5 regression (moved verbatim).
+Details in journals/J2-5_PREFLIGHT.md §5. Batch with the next Java defect pass.
+
+## PHASE C (J2-5) COMPLETE — UI/item/anim extraction gated (2026-07-18 ~12:44)
+manny bf83463: UiHelpers.java (574) + ItemUseHelpers.java (404) + AnimationHelpers.java (479);
+PlayerHelpers 11,302 -> 10,118 lines. clearUseMode seam = client-singleton-owned (setWidgetSelected),
+NOT a stranded-instance risk — structurally safe. Rebuilt shadowJar (12:xx), gated on 'new' Lumbridge:
+- Smoke 5/5. TAB_OPEN Magic OK. TELEPORT_HOME via UiHelpers smartMoveToWidget -> Lumbridge OK.
+  GOTO/NavigationHelpers OK. Only log error = benign login-time WidgetInspectorTool NPE (xz.ch null,
+  ClientThread, 12:43:21 startup) — NOT a regression.
+- PARTIAL gate: item-on-item (LIGHT_FIRE/COOK) + skilling-anim paths NOT tested here ('new' has empty
+  inventory). Deferred to routines-phase tutorial-04 live-verify on newbakshesh (section 04 = firemaking/
+  cooking naturally exercises ItemUseHelpers.useItemOnItem/lightFire/cookOnFire + AnimationHelpers waits).
+- NEW: DEFECT-15 queued (UiHelpers.getHull/getMinimap off-thread, pre-existing/verbatim; batch next Java pass).
+Client STOPPED to cool. NEXT = Phase D: J2-6/7/8 (CP shell/wrappers) per W6J2_SPLIT_PLAN.md.
