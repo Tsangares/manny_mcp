@@ -433,7 +433,7 @@ result = validate_routine_deep(routine_path="...")
 
 # === STEP 7: RUN (works first time!) ===
 
-send_command("LOAD_SCENARIO cooks_assistant")
+./run_routine.py routines/quests/cooks_assistant.yaml --account main
 ```
 
 **Total Time**: ~12 minutes

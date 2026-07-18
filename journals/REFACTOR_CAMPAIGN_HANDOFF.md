@@ -576,3 +576,12 @@ ScanTileObjectsCommand via constructor (it has none today) — pattern copy from
 SwitchCombatStyleCommand; wire from PlayerHelpers.java ~7207 in-scope `helper` field.
 Apply AFTER freeze lifts (driver done), then build+smoke+live SCAN_TILEOBJECTS gate. Same bug
 class likely lurks in other result-building command paths — audit during J2-5 (UI/item/anim).
+
+## POST-FREEZE QUEUE — DEFECT-11 (regression, added 2026-07-18 during Driver #4)
+`TILE <object> <color>` command throws `NullPointerException: this.tileMarkerManager is null`
+(PlayerHelpers$CommandProcessor, seen 01:49:42 in /tmp/runelite.log). TileMarkerManager gained a
+ClientThreadHelper @Inject ctor param during J2-2 latch conversion — the field is now null at TILE
+command time, so DI/instantiation wiring broke. NOT progression-critical (TILE is debug tile-marking;
+driver unblocked, core commands fine) but a clear J2-2 regression. Post-freeze: trace where
+tileMarkerManager is constructed/assigned (nested class, MannyPlugin-pinned — manifest note only, do
+not edit MannyPlugin) and restore the wiring; add a smoke check for TILE. Likely a quick fix.

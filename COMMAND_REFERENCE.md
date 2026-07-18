@@ -698,20 +698,6 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
 
 *No usage examples found yet*
 
-### `LOAD_CMDLOG`
-
-**Handler**: `handleLoadCmdlog`
-**Location**: PlayerHelpers.java:9001
-
-*No usage examples found yet*
-
-### `LOAD_SCENARIO`
-
-**Handler**: `handleLoadScenario`
-**Location**: PlayerHelpers.java:8998
-
-*No usage examples found yet*
-
 ### `PAUSE`
 
 **Handler**: `handlePause`

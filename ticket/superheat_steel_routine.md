@@ -1,8 +1,14 @@
 # Ticket: Superheat Steel Bars Routine - Testing & Deployment
 
 **Created:** 2026-02-05
-**Status:** Ready for Testing
+**Status:** Historical / superseded
 **Priority:** High
+
+> ⚠️ **DEPRECATED (W6-J1):** The `LOAD_CMDLOG` and `LOAD_SCENARIO` commands referenced
+> below were **removed from the command registry** and no longer exist. This ticket is
+> retained as a historical record of the CMDLOG loop implementation. To run this routine
+> today use the YAML executor instead:
+> `./run_routine.py routines/skilling/superheat_steel_bars.yaml --loops 10 --account main`.
 
 ---
 

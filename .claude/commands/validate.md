@@ -33,5 +33,5 @@ Example output:
   • Phases: 2 (preparation, fishing)
 
 🚀 To run:
-   send_command("LOAD_SCENARIO fishing_draynor")
+   ./run_routine.py routines/skilling/fishing_draynor.yaml --account main
 ```

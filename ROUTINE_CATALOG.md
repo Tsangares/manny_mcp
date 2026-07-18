@@ -9,29 +9,89 @@
 
 ## 🎯 Current Routines
 
-### ✅ Already Created & Validated
+### ✅ Implemented (actual files under `routines/`)
 
-| Routine | Type | Purpose | Steps | Status |
-|---------|------|---------|-------|--------|
-| **cooks_assistant.yaml** | Quest | Complete Cook's Assistant quest | 25 | ✅ Validated |
-| **fishing_draynor.yaml** | Skilling | Fish shrimp at Draynor, bank in Lumbridge | 6 | ✅ Validated |
-| **cow_killer_training.yaml** | Combat | Train combat on cows (with optional hide collection) | 8 | ✅ Validated |
-| **common_actions.yaml** | Library | Reusable patterns (stairs, banking, etc.) | N/A | ✅ Reference |
+Run every routine with `./run_routine.py <path> [--loops N] [--account ID]`.
+Per-file maturity analysis lives in `journals/ROUTINE_CORPUS_STUDY_2026-07-18.md`.
+(`LOAD_SCENARIO`/`LOAD_CMDLOG` were removed in W6-J1 and no longer exist.)
+
+**Quests** (`routines/quests/`)
+
+| Routine | Purpose | Status |
+|---------|---------|--------|
+| **cooks_assistant.yaml** | Cook's Assistant | ✅ Validated |
+| **sheep_shearer.yaml** | Sheep Shearer (shear 20 wool, spin, deliver) | ✅ Complete |
+| **restless_ghost.yaml** | The Restless Ghost | ✅ Complete |
+| **imp_catcher.yaml** | Imp Catcher (4 beads → Wizard Mizgog) | ✅ Complete |
+| **romeo_and_juliet.yaml** | Romeo & Juliet | ✅ Complete |
+
+**Skilling** (`routines/skilling/`)
+
+| Routine | Purpose | Status |
+|---------|---------|--------|
+| **woodcutting_lumbridge.yaml** | Chop trees near Lumbridge (single pass) | ✅ Complete |
+| **fishing_draynor.yaml** | Fish shrimp at Draynor, bank Lumbridge | ✅ Validated |
+| **fishing_karamja_lobster.yaml** | Lobster cage Musa Point (50-loop) | ✅ Complete |
+| **fishing_karamja_harpoon.yaml** | Harpoon tuna/swordfish Musa Point | ✅ Complete |
+| **cooking_lumbridge.yaml** | Cook raw fish at Lumbridge range (loop) | ✅ Complete |
+| **flour_milling.yaml** | Mill grain→flour at Lumbridge windmill | ✅ Complete |
+| **mining_falador_iron.yaml** | POWER_MINE iron, Falador Dwarven Mine (loop) | ✅ Complete |
+| **mine_iron_ore.yaml** | Mine iron in Mining Guild, bank (mining 60) | ✅ Complete |
+| **superheat_mining_guild.yaml** | Mine iron + Superheat → iron bars (loop) | ✅ Complete |
+| **superheat_steel_bars.yaml** | Mine coal+iron + Superheat → steel bars (loop) | ✅ Complete |
+
+**Combat** (`routines/combat/`)
+
+| Routine | Purpose | Status |
+|---------|---------|--------|
+| **chicken_killer_training.yaml** | GOTO coop → `KILL_LOOP Chicken 200` | ✅ Complete |
+| **chicken_killer_loop.yaml** | `KILL_LOOP Chicken`, 50× auto-loop | ✅ Complete |
+| **cow_killer_training.yaml** | Bank→`EQUIP_BEST_MELEE`→cow pen→kill | ✅ Validated |
+| **hill_giants_travel.yaml** | Travel GE→Hill Giants (brass-key shortcut) | ✅ Complete |
+| **hill_giants_resupply.yaml** | Bank at GE, restock food/runes | ✅ Complete |
+| **hill_giants_loot.yaml** | Attack + loot + bury, 100-loop | ✅ Complete |
+| **hill_giants_restock.yaml** | Bank loot mid-trip, restock, return | ✅ Complete |
+| **cow_killer_no_bones.yaml** | Cow-kill config sidecar (no `steps:`) | ⚠️ Stub |
+| **hill_giants.yaml** | Hill Giant design doc (no `steps:`) | ⚠️ Stub (superseded) |
+
+**Utility** (`routines/utility/`)
+
+| Routine | Purpose | Status |
+|---------|---------|--------|
+| **death_escape.yaml** | Escape Death's Domain after first death | ✅ Complete |
+| **gravestone_retrieval.yaml** | Retrieve items from gravestone (`manual_steps:`) | ⚠️ Stub (runbook) |
+
+**Tutorial Island** (`routines/tutorial_island/`) — 13 files, stages 01→10 in order
+(`01_character_creation`, `01_experience_selection`, `02_gielinor_guide`, `03_survival_expert`,
+`04_woodcutting_firemaking`, `05_cooking`, `05_cooking_to_quest_guide`, `06_quest_guide`,
+`07_mining_smithing`, `08_combat`, `09_banking`, `10_prayer_magic`, plus `widget_reference.yaml`
+stub). ✅ Best-documented set in the repo. Note: `08_combat` and `10_prayer_magic` pre-adopt an
+`await_condition: dialogue` atom the executor does **not** yet support (see corpus study §5).
+
+**Library / test / generated**
+
+| Routine | Purpose | Status |
+|---------|---------|--------|
+| **common_actions.yaml** | Reusable snippets (stairs/banking) | ✅ Reference |
+| **test/basic_test_routine.yaml** | 5-step system smoke test | Scaffold |
+| **generated/test_scorpion_attack_*.yaml** | Auto-generated 1-event sample | Scaffold |
 
 ---
 
 ## 🚀 Easy to Create Next (5-10 min each)
 
-Using the new MCP workflow, here are routines you can now create in minutes:
+> **PLANNED backlog.** Rows below were advertised as "easy to create"; the **Status**
+> column reflects reality today. Anything marked ⏳ has **no backing file under `routines/`
+> yet** — it is a not-yet-implemented plan, not an existing routine.
 
 ### Questing (Category: quests/)
 
-| Routine | Commands Needed | Difficulty |
-|---------|-----------------|------------|
-| **sheep_shearer.yaml** | GOTO, INTERACT_OBJECT, PICK_UP_ITEM, BANK_DEPOSIT | Easy |
-| **romeo_juliet.yaml** | GOTO, INTERACT_NPC, CLICK_DIALOGUE | Easy |
-| **restless_ghost.yaml** | GOTO, INTERACT_NPC, INTERACT_OBJECT, PICK_UP_ITEM | Easy |
-| **rune_mysteries.yaml** | GOTO, INTERACT_NPC, CLICK_DIALOGUE, BANK_WITHDRAW | Medium |
+| Routine | Commands Needed | Status |
+|---------|-----------------|--------|
+| **sheep_shearer.yaml** | GOTO, INTERACT_OBJECT, PICK_UP_ITEM, BANK_DEPOSIT | ✅ Implemented |
+| **romeo_and_juliet.yaml** | GOTO, INTERACT_NPC, CLICK_DIALOGUE | ✅ Implemented |
+| **restless_ghost.yaml** | GOTO, INTERACT_NPC, INTERACT_OBJECT, PICK_UP_ITEM | ✅ Implemented |
+| **rune_mysteries.yaml** | GOTO, INTERACT_NPC, CLICK_DIALOGUE, BANK_WITHDRAW | ⏳ PLANNED — not yet implemented |
 
 **How to create**:
 ```python
@@ -52,14 +112,14 @@ validate_routine_deep(routine_path="...")
 
 ### Skilling (Category: skilling/)
 
-| Routine | Commands Needed | XP/Hour |
-|---------|-----------------|---------|
-| **woodcutting_lumbridge.yaml** | CHOP_TREE, GOTO, BANK_DEPOSIT_ALL | ~5k |
-| **mining_lumbridge.yaml** | MINE_ORE, GOTO, BANK_DEPOSIT_ALL | ~4k |
-| **cooking_lumbridge.yaml** | COOK_ALL, GOTO, BANK_WITHDRAW | ~10k |
-| **firemaking_draynor.yaml** | LIGHT_FIRE, GOTO, DROP_ALL | ~15k |
-| **power_mining_varrock.yaml** | POWER_MINE, GOTO (mine without banking) | ~8k |
-| **power_chopping.yaml** | POWER_CHOP, GOTO (chop without banking) | ~12k |
+| Routine | Commands Needed | Status |
+|---------|-----------------|--------|
+| **woodcutting_lumbridge.yaml** | CHOP_TREE, GOTO, BANK_DEPOSIT_ALL | ✅ Implemented |
+| **cooking_lumbridge.yaml** | COOK_ALL, GOTO, BANK_WITHDRAW | ✅ Implemented |
+| **mining_lumbridge.yaml** | MINE_ORE, GOTO, BANK_DEPOSIT_ALL | ⏳ PLANNED — not yet implemented |
+| **firemaking_draynor.yaml** | LIGHT_FIRE, GOTO, DROP_ALL | ⏳ PLANNED — not yet implemented |
+| **power_mining_varrock.yaml** | POWER_MINE, GOTO (no banking) | ⏳ PLANNED — `mining_falador_iron.yaml` covers POWER_MINE iron |
+| **power_chopping.yaml** | POWER_CHOP, GOTO (no banking) | ⏳ PLANNED — not yet implemented |
 
 **Discovered Commands** (via list_commands):
 - `MINE_ORE` - Mine specific ore
@@ -75,30 +135,35 @@ validate_routine_deep(routine_path="...")
 
 ### Combat Training (Category: combat/)
 
-| Routine | Commands Needed | Levels |
+| Routine | Commands Needed | Status |
 |---------|-----------------|--------|
-| **chicken_killer.yaml** | KILL_LOOP, GOTO, PICK_UP_ITEM | 1-10 |
-| **cow_killer_hides.yaml** | KILL_COW_GET_HIDES (already created!) | 1-20 |
-| **goblin_training.yaml** | KILL_LOOP, GOTO, BANK_DEPOSIT | 10-30 |
-| **guard_training.yaml** | KILL_LOOP, GOTO, food management | 20-40 |
+| **chicken_killer.yaml** | KILL_LOOP, GOTO, PICK_UP_ITEM | ✅ Implemented — see `chicken_killer_training.yaml` / `chicken_killer_loop.yaml` |
+| **cow_killer_hides.yaml** | KILL_COW_GET_HIDES (command exists) | ⏳ PLANNED — only the `cow_killer_no_bones.yaml` stub exists |
+| **goblin_training.yaml** | KILL_LOOP, GOTO, BANK_DEPOSIT | ⏳ PLANNED — not yet implemented |
+| **guard_training.yaml** | KILL_LOOP, GOTO, food management | ⏳ PLANNED — not yet implemented |
 
 **Discovered Commands**:
 - `KILL_LOOP <NpcName> <count>` - Kill N enemies
 - `KILL_COW` - Specialized cow killer
 - `KILL_COW_GET_HIDES` - Kill cows + loot hides
-- `ATTACK_NPC` - Single attack
+- `ATTACK_NPC` - Single attack (note: bare `ATTACK` is a deprecated redirect → use `KILL_LOOP`)
 - `SWITCH_COMBAT_STYLE` - Change attack/strength/defense
 
 ---
 
 ### Money Making (Category: money_making/)
 
-| Routine | Method | GP/Hour |
-|---------|--------|---------|
-| **flax_picker.yaml** | Pick flax, bank, repeat | ~50k |
-| **cowhide_collector.yaml** | Kill cows, collect hides | ~30k |
-| **wine_grabber.yaml** | TELEGRAB_WINE_LOOP (exists!) | ~150k |
-| **air_rune_crafter.yaml** | Mine essence, craft runes | ~40k |
+> ⏳ **PLANNED — none of these routines exist yet.** The underlying *commands*
+> (`TELEGRAB_WINE_LOOP`, `COLLECT_LUMBRIDGE_TIN_COPPER`, `KILL_COW_GET_HIDES`) are
+> registered and usable, but no money-maker YAML has been written. There is no
+> `routines/money_making/` directory.
+
+| Routine | Method | GP/Hour | Status |
+|---------|--------|---------|--------|
+| **flax_picker.yaml** | Pick flax, bank, repeat | ~50k | ⏳ PLANNED |
+| **cowhide_collector.yaml** | Kill cows, collect hides | ~30k | ⏳ PLANNED |
+| **wine_grabber.yaml** | TELEGRAB_WINE_LOOP (command exists) | ~150k | ⏳ PLANNED |
+| **air_rune_crafter.yaml** | Mine essence, craft runes | ~40k | ⏳ PLANNED |
 
 **Discovered Moneymaking Commands**:
 - `TELEGRAB_WINE_LOOP` - Auto wine of zamorak grabbing (!)
@@ -124,7 +189,7 @@ list_commands(category="banking")
 ```python
 list_commands(category="combat")
 ```
-- ATTACK, ATTACK_NPC
+- ATTACK_NPC (bare `ATTACK` is a deprecated redirect → use `KILL_LOOP`)
 - KILL, KILL_LOOP, KILL_COW, KILL_COW_GET_HIDES
 - CAST_SPELL_NPC, CAST_SPELL_ON_GROUND_ITEM
 - SWITCH_COMBAT_STYLE
@@ -330,8 +395,8 @@ examples = list_commands(command="COMMAND_NAME")
 # 4. Validate (30 sec)
 result = validate_routine_deep(routine_path="your_routine.yaml")
 
-# 5. Run!
-send_command("LOAD_SCENARIO your_routine")
+# 5. Run! (LOAD_SCENARIO/LOAD_CMDLOG were removed in W6-J1 — use the YAML executor)
+./run_routine.py routines/<category>/your_routine.yaml --account main
 ```
 
 **Total time**: ~8 minutes (vs 45 minutes before)
