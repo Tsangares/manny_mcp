@@ -654,3 +654,19 @@ Rebuilt shadowJar (11:49, 0 stale sources) with manny 124a2c1; relaunched 'new' 
 Defect fixes are DEPLOYED + verified. NEXT = Phase B: J2-4 nav extraction (pre-flight J2-4_PREFLIGHT.md).
 OPS LESSON: never detect the client with `pgrep -f 'java -jar.*shaded.jar'` — the pattern self-matches
 your own bash command line. Use `pgrep -x java` + check /proc/<pid>/environ for MANNY_ACCOUNT_ID.
+
+## ★ THERMAL POLICY (2026-07-18) — heat causes the crashes; MANAGE IT ★
+ROOT CAUSE of crashes = HEAT. The RuneLite client pins ~79% of a CPU core CONTINUOUSLY (GPU-less
+software rendering on Xvfb — renders every frame even when the character is idle). Sustained load
+-> package hits 77°C+ -> thermal/power crash. Measured 2026-07-18: killing the idle client dropped
+package 77->72°C and load 1.45->0.81 within seconds.
+POLICY:
+1. CLIENT OFF during source-refactor phases (J2-4/5/6/7/8, doc work, Python). It is NOT needed to
+   edit/compile Java — only for live gates, routine tests, tutorial drives. Kill it when idle:
+   `for p in $(pgrep -x java); do grep -q '^MANNY_ACCOUNT_ID=' /proc/$p/environ && kill $p; done`
+2. CLIENT ON only for the duration of a gate/test, then kill again.
+3. When it MUST run, renice it low priority right after launch: `renice 15 <pid>` (renice available;
+   cpulimit NOT installed). For LONG routine-test sessions, monitor temp and pause if package >88°C.
+4. Don't stack many concurrent subagents WHILE the client runs — agents + client together is the
+   hot combination. Source-phase agents (client off) are fine.
+This is the real fix until the `diort` LAN-host migration (parked) or better cooling.
