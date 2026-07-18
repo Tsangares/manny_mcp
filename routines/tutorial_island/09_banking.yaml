@@ -135,6 +135,7 @@ steps:
     action: GOTO
     args: "3124 3124 0"
     await_condition: "location:3124,3124"
+    timeout_ms: 60000
     delay_before_ms: 500
     notes: "Must walk to door position before clicking - multiple doors nearby! Short GOTO -- DEFECT-7 tolerance no-op risk, verified via location await rather than the GOTO command's own success flag."
 

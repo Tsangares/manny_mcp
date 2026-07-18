@@ -121,10 +121,18 @@ steps:
     notes: "Tutorial says 'Click on the flashing icon to the left of your inventory'"
 
   - id: 13
-    description: "Talk to Quest Guide again"
-    action: INTERACT_NPC
-    args: "Quest_Guide Talk-to"
+    description: "Select the 'Quest Guide' dialogue option (validated ladder gate)"
+    action: CLICK_WIDGET
+    args: "15138820"
     delay_before_ms: 2000
+    notes: |
+      Ported from 06_quest_guide.yaml, which is no longer chained -- see the
+      DOUBLE-RUN FIX note in 00_master.yaml. After the Quest Journal tab opens
+      (step 12), a dialogue with options appears: "Quest Guide" (widget
+      15138820) and "Click here to continue". 06's VALIDATED notes state you
+      MUST click the "Quest Guide" option here: the ladder does NOT become
+      usable until this specific dialogue is completed. This replaced an earlier
+      "talk to Quest Guide again" step whose ladder-gating was never confirmed.
 
   - id: 14
     description: "Continue dialogue"

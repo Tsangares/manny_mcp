@@ -67,6 +67,8 @@ steps:
     action: GOTO
     args: "3124 3124 0"
     delay_before_ms: 500
+    await_condition: "location:3124,3124"
+    timeout_ms: 60000
     notes: "Must walk to door position before clicking"
 
   - id: 2
@@ -136,6 +138,7 @@ steps:
     action: GOTO
     args: "3128 3110 0"
     await_condition: "location:3128,3110"
+    timeout_ms: 60000
     delay_before_ms: 500
     notes: "CONFIRMED, Driver #4: crossed 13 tiles of outdoor path fine (GOTO reported 'failed' at 1-off -- DEFECT-10, treat as advisory and verify via location await)"
 
@@ -144,6 +147,8 @@ steps:
     action: GOTO
     args: "3130 3107 0"
     delay_before_ms: 500
+    await_condition: "location:3130,3107"
+    timeout_ms: 60000
 
   # ===================== Phase 3: Brother Brace (Prayer) =====================
   - id: 12
@@ -198,6 +203,7 @@ steps:
     action: GOTO
     args: "3141 3088 0"
     await_condition: "location:3141,3088"
+    timeout_ms: 60000
     delay_before_ms: 500
     notes: "CONFIRMED, Driver #5: Magic Instructor found here after a mid-run crash/relaunch"
 

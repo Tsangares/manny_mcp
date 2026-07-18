@@ -54,11 +54,21 @@ chain:
     description: "Section 5: Cooking"
     progress_hint: 5
   - routine: 05_cooking_to_quest_guide.yaml
-    description: "Section 5b: Cooking -> Quest Guide bridge"
+    description: "Section 5b+6: Cooking exit -> Quest Guide -> ladder down to mining"
     progress_hint: 5
-  - routine: 06_quest_guide.yaml
-    description: "Section 6: Quest Guide"
-    progress_hint: 6
+  # DOUBLE-RUN FIX (2026-07-18, Track D): 06_quest_guide.yaml is DELIBERATELY NOT
+  # chained here. 05_cooking_to_quest_guide.yaml is the newer, merged bridge that
+  # ALREADY performs the ENTIRE Quest Guide segment end to end -- it navigates
+  # from the cooking exit to the Quest Guide building (via the validated
+  # west-first route around the invisible fences), talks to the Quest Guide,
+  # opens the Quest Journal tab, selects the "Quest Guide" dialogue option
+  # (widget 15138820), and climbs DOWN the ladder into the underground mining
+  # area (its own header even says "06_quest_guide.yaml (now merged into this
+  # file)"). Chaining 06 after it re-ran that whole segment on a player who is
+  # already underground: 06's naive direct-north re-navigation (which the bridge
+  # was written to avoid) plus a SECOND ladder interaction desynced the
+  # Tutorial-progress gate (widget group 263) and hung. 06 is kept on disk only
+  # as the standalone reference for the Quest Guide dialogue flow.
   # --- Sections 07-10 gated on Wave 6 plugin fixes (see SCOPE NOTE) ---
   - routine: 07_mining_smithing.yaml
     description: "Section 7: Mining + Smithing"

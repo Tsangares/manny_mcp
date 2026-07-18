@@ -187,6 +187,7 @@ steps:
     action: GOTO
     args: "3109 9515 0"
     await_condition: "location:3109,9515"
+    timeout_ms: 60000
     delay_before_ms: 500
     notes: "The (3105,9511) pocket and the rat pen are ONE enclosure; this is the only exit -- the double gate on the x=3111 N-S fence."
 
@@ -201,6 +202,7 @@ steps:
     action: GOTO
     args: "3106 9505 0"
     await_condition: "location:3106,9505"
+    timeout_ms: 60000
     delay_before_ms: 500
     notes: "GOTO result reporting is unreliable here (DEFECT-10 -- reports 'failed' but moves); await_condition (location, not the command's own success flag) is what actually gates this step."
 

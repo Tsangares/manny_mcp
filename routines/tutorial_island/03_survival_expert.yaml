@@ -77,6 +77,8 @@ steps:
     description: "Walk to fishing spot"
     action: GOTO
     args: "3101 3093 0"
+    await_condition: "location:3101,3093"
+    timeout_ms: 60000
     # VALIDATED: Must be close to fishing spot before interaction works
 
   - id: 8

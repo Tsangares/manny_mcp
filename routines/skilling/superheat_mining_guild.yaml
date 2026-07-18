@@ -74,6 +74,7 @@ steps:
     args: "3013 3355 0"
     description: "Walk to Falador East Bank"
     await_condition: "location:3013,3355"
+    timeout_ms: 120000
 
   - id: 2
     phase: "banking"
