@@ -19,7 +19,12 @@ one, open the doc named in its row.
 | 4 | **Routines phase** | 🔄 groundwork DONE; **live grind proof blocked on a cool host** | GRIND_ROUTINE_READINESS_*.md, ROUTINE_CORPUS_HARDENING_*.md |
 | 5 | **diort migration** (thermal-stable run host) | ✅✅ **PROVEN LIVE (2026-07-18)** — remote login+nav+sustained chicken grind; **~70°C plateau vs laptop 90°C/crash. Thermal crash SOLVED.** | 2026-07-18_diort_bringup_parallel.md |
 | 6 | **Machine-agnostic remote-client** | ✅ **PROTOTYPE + validated live** — `scripts/remote/mannyctl` drives diort end-to-end (fish SSH-quoting bug fixed, commit 16b410e) | REMOTE_CLIENT_ARCHITECTURE.md |
-| 7 | **Grind robustness** (NEW next phase) | 🔄 nav-follower stalls on obstacles on long routes (DEFECT-19 follower-side); do_run should detach; tutorial 05/06 + GOTO awaits | ROUTINE_AUDIT_2026-07-18.md, task #21 |
+| 7 | **Grind robustness** (NEW next phase) | 🔄 **DEFECT-21**: routes crossing the Lumbridge river mis-route through water not the bridge (north-side grinds OK); auto-play "Play_Game" issues competing cmds; do_run should detach | ROUTINE_AUDIT_2026-07-18.md, task #21 |
+
+> ⚠️ **COORDINATION:** a forked session OWNS the live diort client. On 2026-07-18 TWO sessions drove the
+> `new` account at once → duplicate KILL_LOOP threads + mutual command cancellation (uuid rids = mannyctl;
+> `navgate/tocoop/grind<ts>` rids = the fork). **The main overseer coordinates via memory + this handoff and
+> does NOT fire commands at an account a fork is grinding.** See [[manny-run-host]] memory.
 
 ### Why the pivot to #5/#6 (the crux)
 The whole software campaign (#1–#4) is essentially DONE. The ONLY blocker to the end-goal (an unattended
