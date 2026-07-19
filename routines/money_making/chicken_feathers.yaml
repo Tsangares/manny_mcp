@@ -10,14 +10,15 @@
 #   Per-batch rotation inside one flat loop is not expressible (every pass
 #   re-runs the same steps), so the attack stance is parameterised. Rotate
 #   training by editing config.style and doing three bounded runs:
-#     Chop  -> Attack XP      (accurate stance)
+#     Stab  -> Attack XP      (accurate stance)
 #     Slash -> Strength XP    (aggressive stance)   <-- default
 #     Block -> Defence XP     (defensive stance)
 #   These are the bronze-SWORD stance button names (combat interface group
-#   593). CONFIRM the live button labels against newbakshesh's actual equipped
-#   weapon at smoke time -- unarmed/dagger use different labels. A wrong label
-#   is non-fatal: SWITCH_COMBAT_STYLE just logs a failure and the grind
-#   continues (routine.py logs step errors but does not abort the flat loop).
+#   593; swords carry Stab/Lunge/Slash/Block -- "Chop" is axe/scimitar
+#   vocabulary). CONFIRM the live button labels against newbakshesh's actual
+#   equipped weapon at smoke time -- unarmed/dagger use different labels. A
+#   wrong label is non-fatal: SWITCH_COMBAT_STYLE just logs a failure and the
+#   grind continues (routine.py logs step errors but does not abort the loop).
 #
 # COOP COORDINATE: 3235,3295 is the proven-grind pen NE of Lumbridge (Fred the
 # Farmer's). Old template used 3180,3288; if the GOTO cannot settle at
