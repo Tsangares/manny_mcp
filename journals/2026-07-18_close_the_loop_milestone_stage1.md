@@ -97,9 +97,12 @@ Account `new` (GrimmsFairly) — the account that proved the diort thermal fix y
    (coords, staircase geometry, booth reachability, batch size 30→~27, clean starting inventory).
 5. **Track G: the 4-hour unattended proof** — a fresh LLM session, given only ROUTINE_SCHEMA.md + the
    validator + the manny-diort endpoint, authors a variant and runs unattended with ledger evidence.
-6. Mystery run `20260719T014238Z` (07 retry, pid 2295350, ~18:42 local): launched by whom? Not this
-   session. If the user launched it manually — say so; otherwise its parentage gets checked before
-   anything else drives the account.
+6. ~~Mystery run `20260719T014238Z`~~ **RESOLVED (post-compact):** it was launched by the ORIGINAL
+   phase-1 live agent, which never actually completed — it silently resumed and drove the account in
+   parallel with the phase-1b agent (dual-driver collision, the exact failure the coordination lesson
+   warns about). Stale agent killed 2026-07-19 ~02:00Z; phase-1b confirmed as sole owner. Lesson:
+   before launching a successor live agent, verify the predecessor task is DEAD (`/tasks`), not just
+   quiet — a "still running" background agent can wake up and fire commands hours later.
 7. Next milestone (pre-scoped by the nav report): Shortest-Path-style precomputed collision + transition
    graph — fixes doors/gates at the root, deletes the osrspathfinder.com dependency.
 
