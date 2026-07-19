@@ -58,7 +58,7 @@ objects:
     name: "Bank booth"
     action: "Use"
   poll_booth:
-    name: "poll"  # NOTE: menu shows "Poll booth", scan_tile_objects finds "poll"
+    name: "Poll_booth"  # LIVE-VALIDATED 2026-07-19: correct object name is "Poll_booth" (Use). Earlier "poll" transcription was wrong.
     id: 26815
     action: "Use"
 
@@ -105,9 +105,9 @@ steps:
   - id: 6
     description: "Use poll booth"
     action: INTERACT_OBJECT
-    args: "poll Use"
+    args: "Poll_booth Use"
     delay_before_ms: 1000
-    notes: "Object name is 'poll', not 'Poll booth' or 'Poll_booth'. Driver #4: poll credit is auto-applied."
+    notes: "Object name is 'Poll_booth' (Use) -- LIVE-VALIDATED 2026-07-19. The earlier 'poll' transcription was wrong. Poll credit is auto-applied."
 
   - id: 7
     description: "Advance any poll-booth message dialogue"
@@ -149,8 +149,8 @@ steps:
 # PITFALLS DISCOVERED:
 # 1. Bank booth is on plane 0, but you arrive on plane 1 after climbing up
 #    FIX: Must climb down ladder immediately after climbing up
-# 2. Poll booth object name is "poll" (lowercase, no "booth")
-#    The menu shows "Poll booth" but scan_tile_objects finds "poll"
+# 2. Poll booth object name is "Poll_booth" (Use) -- LIVE-VALIDATED 2026-07-19.
+#    An earlier transcription used "poll" (lowercase); that was wrong.
 # 3. Dialogue appears but has no "Click here to continue" button on some panes
 #    -- these are informational panels, just interact with the objects
 # 4. "poll_interface_open" is NOT a real engine predicate -- replaced with no_dialogue (step 7)
@@ -159,7 +159,7 @@ steps:
 
 # WORKING PATTERNS:
 # - Bank booth: INTERACT_OBJECT Bank_booth Use
-# - Poll booth: INTERACT_OBJECT poll Use
+# - Poll booth: INTERACT_OBJECT Poll_booth Use
 # - Close interfaces: KEY_PRESS Escape
 # - Advance dialogue: KEY_PRESS space + repeat_until: no_dialogue
 
