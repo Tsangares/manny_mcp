@@ -127,28 +127,28 @@ steps:
     delay_after_ms: 1000
 
   - id: 10
-    description: "Talk to Quest Guide"
+    description: "Talk to Quest Guide (intro)"
     action: INTERACT_NPC
     args: "Quest_Guide Talk-to"
+    await_condition: "dialogue"
     delay_before_ms: 2000
     delay_after_ms: 1200
 
   - id: 11
-    description: "Advance the Quest Guide's dialogue to the very end"
-    action: CLICK_CONTINUE
-    repeat_until: "no_dialogue"
-    repeat_until_timeout_ms: 3000
-    max_iterations: 15
-    delay_before_ms: 1000
+    description: "Exhaust the Quest Guide's INTRO monologue (blind fixed-count)"
+    action: KEY_PRESS
+    args: "space"
+    repeat: 12
+    delay_before_ms: 900
     notes: |
-      VALIDATED RECIPE (Track E phase-1b live): the ladder is gated on the
-      guide's post-talk monologue being FULLY exhausted -- not on any option
-      select. There is NO selectable "Quest Guide" option: widget 15138820 is
-      the speaker-name header (DEFECT-24: the dialogue state writer misreports
-      that monologue as options[], which is why an earlier CLICK_DIALOGUE
-      "Quest Guide" / CLICK_WIDGET 15138820 step looked plausible but is a
-      no-op trap). CLICK_CONTINUE with repeat_until no_dialogue clicks through
-      every page and stops cleanly (check-first) when the dialogue closes.
+      LIVE-CORRECTED 2026-07-19 (LANE-2). Do NOT use `repeat_until: no_dialogue`
+      here: the Quest-Guide monologue transiently reports open=false BETWEEN
+      pages (DEFECT-24 mid-monologue false-close), so the check-first no_dialogue
+      loop STOPS after a single press and the section never completes -- exactly
+      the stall observed live (guide replies "I don't think you're ready to go
+      down there yet" at the ladder). A blind fixed-count `repeat` of KEY_PRESS
+      space (NOT CLICK_CONTINUE -- DEFECT-8: space is the reliable advance) walks
+      through every page; extra presses after the dialogue closes are inert.
 
   - id: 12
     description: "Open the Quest Journal tab (tutorial: 'click the flashing icon')"
@@ -158,6 +158,32 @@ steps:
     delay_after_ms: 1000
     notes: "TAB_OPEN quests replaces the brittle CLICK_WIDGET 35913794 tab click."
 
+  - id: 12b
+    description: "RE-TALK to Quest Guide AFTER the journal is open (this opens the ladder gate)"
+    action: INTERACT_NPC
+    args: "Quest_Guide Talk-to"
+    await_condition: "dialogue"
+    delay_before_ms: 1500
+    delay_after_ms: 1200
+    notes: |
+      THE GATE-OPENER (live-proven 2026-07-19). The ladder stays inert after only
+      the intro talk + journal open. Re-talking once the Quest Journal is open
+      makes the guide give the completion monologue ("Now that you have the quest
+      list open, you can see all the quests within it...") -- exhausting THIS
+      monologue is what unlocks the Climb-down. Without this re-talk the ladder
+      returns "I don't think you're ready to go down there yet."
+
+  - id: 12c
+    description: "Exhaust the Quest Guide's POST-JOURNAL completion monologue (blind fixed-count)"
+    action: KEY_PRESS
+    args: "space"
+    repeat: 12
+    delay_before_ms: 900
+    notes: |
+      Same blind-repeat rationale as step 11 (DEFECT-24 false-close). This
+      monologue is the actual tutorial gate for the ladder; once it is fully
+      cleared the Climb-down descends.
+
   - id: 13
     description: "Climb down ladder to mining section (gate now open)"
     action: INTERACT_OBJECT
@@ -166,9 +192,10 @@ steps:
     delay_after_ms: 2000
     notes: |
       Descends to the underground mining area (~3088, 9520 -- still plane 0,
-      detect descent by the y-coordinate jump, NOT a plane change). Gate is
-      open only after step 11 exhausts the guide's dialogue and step 12 opens
-      the quest journal.
+      detect descent by the y-coordinate JUMP, NOT a plane change). Gate is open
+      only after the RE-TALK (12b) + its completion monologue (12c) are exhausted.
+      Live-verified 2026-07-19: after that recipe one Climb-down landed the player
+      at (3088, 9520).
 
 # PITFALLS DISCOVERED (2026-01-25, updated 2026-07-18):
 # 1. MUST settle IN FRONT of cooking exit door at (3073, 3090) before INTERACT_OBJECT works
@@ -182,11 +209,19 @@ steps:
 #    bounded minimap stepping), guaranteeing the player is seated on x=3072.
 # 3. Direct north paths from cooking are blocked by invisible fences -- hug the west edge (x=3072)
 # 4. Navigate north in short (<=10-tile) hops, each with a location await, each in exact mode
-# 5. Quest Guide dialogue has multiple "Click here to continue" screens
-# 6. Ladder gate (Track E phase-1b, live): the ladder unlocks only after the guide's
-#    monologue is FULLY exhausted (CLICK_CONTINUE repeat_until no_dialogue, step 11)
-#    then the quest journal tab is opened (TAB_OPEN quests, step 12). There is NO
-#    "Quest Guide" dialogue OPTION to select -- widget 15138820 is the speaker-name
+# 5. Quest Guide dialogue has multiple "Click here to continue" screens. EXHAUST them
+#    with a BLIND fixed-count `repeat: N` of KEY_PRESS space -- NOT `repeat_until:
+#    no_dialogue`. The monologue transiently reports open=false BETWEEN pages
+#    (DEFECT-24 mid-monologue false-close), so the check-first no_dialogue loop
+#    stops after ONE press and the section stalls (live 2026-07-19).
+# 6. Ladder gate (LIVE-CORRECTED 2026-07-19): the CORRECT sequence is
+#    talk (10) -> exhaust intro (11) -> open journal (12) -> RE-TALK the guide (12b)
+#    -> exhaust the post-journal completion monologue (12c) -> Climb-down (13).
+#    The RE-TALK after the journal is open is MANDATORY: it triggers the "Now that
+#    you have the quest list open..." completion monologue whose exhaustion is the
+#    actual ladder gate. Without it the ladder returns "I don't think you're ready
+#    to go down there yet" (the exact stall observed live before this fix). There is
+#    NO "Quest Guide" dialogue OPTION to select -- widget 15138820 is the speaker-name
 #    header, misreported as an option by the state writer (DEFECT-24). Do NOT add a
 #    CLICK_DIALOGUE "Quest Guide" / CLICK_WIDGET 15138820 step: it is a silent no-op.
 #
