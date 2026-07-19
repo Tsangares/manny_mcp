@@ -155,10 +155,23 @@ class TestMasterChainFile:
                               "routines", "tutorial_island", "00_master.yaml")
         entries, base = run_routine.resolve_chain(master)
         names = [os.path.basename(e["routine"]) for e in entries]
-        # 12 section files (two 01_* and two 05_*), in tutorial order.
+        # 11 section files (two 01_* and two 05_*), in tutorial order.
+        #
+        # NOT 12: as of the DOUBLE-RUN FIX (2026-07-18, Track D, commit
+        # e17123a), 06_quest_guide.yaml is deliberately NOT chained.
+        # 05_cooking_to_quest_guide.yaml is the merged bridge that now performs
+        # the entire Quest Guide segment itself (it ported 06's "Quest Guide"
+        # dialogue option CLICK_WIDGET 15138820 step -- see 00_master.yaml's
+        # DOUBLE-RUN FIX comment). Chaining 06 after it re-ran the whole
+        # segment on an already-underground player and desynced the
+        # Tutorial-progress gate. 06 stays on disk only as a standalone
+        # reference; it is intentionally excluded from 00_master.yaml's
+        # `chain:` list (an explicit list, not a directory glob, so the
+        # duplicate 01_*/05_* numeric prefixes are non-ambiguous here).
         assert names[0] == "01_character_creation.yaml"
         assert names[-1] == "10_prayer_magic.yaml"
-        assert len(entries) == 12
+        assert "06_quest_guide.yaml" not in names
+        assert len(entries) == 11
         # Every referenced section actually exists on disk.
         for e in entries:
             assert os.path.exists(e["routine"]), e["routine"]
