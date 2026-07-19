@@ -13,3 +13,8 @@ date,account,host,section,first_contact,failure_class,live_minutes,run_id
 2026-07-19,punitpun,llama,06_quest_guide_resume1,F,widget-miss,2,20260719T192818Z_punitpun
 2026-07-19,punitpun,llama,06_quest_guide_resume2,F,reach-fail-ladder,2,20260719T193040Z_punitpun
 2026-07-19,punitpun,llama,07_mining_smithing_resume1,F,nav-miss-crossplane,9,20260719T193338Z_punitpun
+2026-07-19,punitpun,llama,05b_ladder_resume,F,reach-fail-ladder-tutorial-desync,19,20260719T204118Z_punitpun
+2026-07-19,punitpun,llama,07_mining_smithing,NR,not-reached-ladder-blocked,0,20260719T204118Z_punitpun
+2026-07-19,punitpun,llama,08_combat,NR,not-reached-ladder-blocked,0,20260719T204118Z_punitpun
+2026-07-19,punitpun,llama,09_banking,NR,not-reached-ladder-blocked,0,20260719T204118Z_punitpun
+2026-07-19,punitpun,llama,10_prayer_magic,NR,not-reached-ladder-blocked,0,20260719T204118Z_punitpun
