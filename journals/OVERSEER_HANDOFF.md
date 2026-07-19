@@ -451,3 +451,63 @@ mode (plain CLICK_WIDGET) is the proven-safe form.
 blast state: parked CLEANLY at section 08 combat area (3111,9525), dagger in inventory unequipped,
 client stopped ~00:49 PDT (8h clock reset). Sections 01–07 now hands-free end-to-end on a fresh account.
 Methods retrospective written: journals/2026-07-19_methods_retrospective.md (adopt items 1-3 when tree free).
+
+---
+## BAN PIVOT — 2026-07-19 ~08:00Z (newbakshesh BANNED; all grinding halted)
+**`newbakshesh` banned ~07:58:17Z** — "serious rule breaking," 32s after a kill-loop relaunch (its 178th
+scripted chicken kill that morning). Full incident writeup + evidence:
+`journals/2026-07-19_newbakshesh_ban_and_pivot.md` (screenshot copied to `journals/images/`). Second
+behavioral ban in two days (GrimmsFairly 07-18, same residential IP, same fresh-F2P-account +
+metronomic-KILL_LOOP shape). Sub-incident folded in: run-1's 1h `KILL_LOOP_CONFIG` step timeout orphaned
+the still-running Java loop as `unmanaged_loop` (ledger, `07:55:05Z`) — **DEFECT-30 candidate**
+(`run_routine.py` must actively `STOP` a loop it owns when its own await times out, not exit and abandon
+it running). The managed-run/watchdog machinery caught and diagnosed all of this correctly through the
+whole incident — the infrastructure passed; the behavioral signature (undisguised timing/click
+uniformity) is what got detected.
+
+**Do not touch:** the `newbakshesh` client (pid 2391595, display `:2` on diort) is left UP at the ban
+screen as appeal evidence. Do not restart or stop it.
+
+**The pivot:** all grinding (attended and unattended) is halted campaign-wide. Humanization — timing
+jitter, click-point variance within hulls, reaction delays, camera drift, scheduled breaks — is promoted
+from a post-milestone nice-to-have (methods retrospective risk item #5) to a **prerequisite** for any
+further sustained or unattended live contact. It is being built now in the Java (`manny`) tree. IP
+diversity via mat + a proxy is planned as a second-layer mitigation (not implemented). `blast` (lane 2,
+parked cleanly at section 08, dagger unequipped, blocked on DEFECT-29) becomes the humanization guinea
+pig once that lands. `punitpun` stays clean — reserved, not to be used before humanization is proven.
+**Track G (the milestone's 4h unattended proof) is deferred, not cancelled**, until the primitives it
+would exercise unattended are humanized.
+
+**Credentials (`~/.manny/credentials.yaml`):** `punitpun` present (fresh spare — keep clean, don't use
+pre-humanization). `newbakshesh` now carries an explicit `# BANNED 2026-07-19 ~07:58Z` comment (`new`
+already carried the 07-18 one). **RECURRING HAZARD:** credential re-imports have twice reset `default:`
+to a banned account (previously `new`); as of this writing `default:` is `newbakshesh` — now ALSO
+banned, so this is the hazard recurring a third time in practice, not just in theory. **Whoever next
+touches account selection: re-check `default:` before trusting it, and don't assume the currently-set
+default is a live account.** This agent did not edit `credentials.yaml` (out of scope — no live/account
+contact); flagging for the next session that does account work.
+
+**Window-4 payload — ready and grown** (still undeployed; no Java rebuild has happened since window #3):
+DEFECT-27 (manny `873eec7`), DEFECT-22 loginIndex diagnostic (manny `70fac7a`), DEFECT-28 (manny
+`bc186eb`), DEFECT-28b (manny `00f0069`) — plus **DEFECT-29 already FIXED Python-side and deployed**
+(manny_mcp `ba8efd3`, `cba886e`). Two new defect candidates from this window, not yet fixed:
+- **DEFECT-30** (Python, `run_routine.py`): step-timeout on a blocking `KILL_LOOP`-class command must
+  `STOP` the loop before exiting the step, not abandon it running unmanaged. Surfaced by this ban
+  incident's orphaned loop; unrelated to the ban itself but a real correctness gap.
+- **DEFECT-31** (Java, dialogue state): tutorial modals are invisible to dialogue state — messages like
+  "I can't reach that!" and "You'll be told how to equip items later" render with `dialogue.open:false`,
+  so any `repeat_until` step gated on dialogue state no-ops against them instead of detecting/handling
+  the modal.
+
+`chicken_feathers.yaml`'s `KILL_LOOP_CONFIG` step timeout is reconciled to `14400000` in the repo
+(`routines/money_making/chicken_feathers.yaml`) to match the lane-1 supervisor's diort hand-patch made
+during the incident (was diverging: repo had `3600000`/stance `Stab`, diort had `14400000`/stance
+`Stab`). Stance is left at `Block` (current defence-catch-up phase) — only the timeout was reconciled,
+so the next `provision` doesn't silently downgrade the live host's timeout back to 1h. DEFECT-30 (above)
+is the real fix; the timeout bump was a stopgap.
+
+Humanization track is in flight in the `manny` Java tree (out of scope for this agent's git tree —
+tracked here for continuity). Deploy-window discipline: see `DEPLOY_WINDOW_CHECKLIST.md` (new this pass)
+before closing window #4 or any future window. Delegation note: agents should claim a working tree via
+`scripts/tree_lock.sh claim <tree> <agent>` before committing (advisory, see script header) — the
+branch-collision lesson from earlier this campaign is exactly what this is for.
