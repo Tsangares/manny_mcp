@@ -69,7 +69,13 @@ steps:
     action: KILL_LOOP_CONFIG
     args: "/home/wil/Desktop/manny_mcp/routines/money_making/configs/chicken_feathers.json"
     description: "Kill 100 chickens, loot Feathers; bones auto-buried, food forced none (50% HP safety stop)"
-    timeout_ms: 3600000   # blocking command (see ROUTINE_SCHEMA.md (e)); no await_condition
+    timeout_ms: 14400000   # blocking command (see ROUTINE_SCHEMA.md (e)); no await_condition. Raised
+    # from 3600000 -> 14400000 2026-07-19: the 1h timeout was orphaning the still-running Java KILL_LOOP
+    # as an unmanaged_loop (run_routine.py exits the step but never stops the loop it launched -- see
+    # DEFECT-30 candidate, journals/2026-07-19_newbakshesh_ban_and_pivot.md). This was hand-patched
+    # directly on diort by the lane-1 supervisor during the incident; reconciling it back into the repo
+    # here so the next provision doesn't silently downgrade the live host. DEFECT-30 itself (STOP the
+    # loop on timeout, don't just raise the ceiling) is still open.
 
 # Flat loop: after each 100-kill batch, jump back to step 1 and go again.
 # Stops when Defence hits 20 (Grammar 2 <skill>_level:N). Batches are also
