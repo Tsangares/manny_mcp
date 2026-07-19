@@ -225,6 +225,38 @@ tcp_connect_time_out 8000
                 "error": "No RuneLite JAR found. Build with 'build_plugin' first or configure runelite_jar path."
             }
 
+        # Finding #4: if an expected sha256 is configured (provision.sh stamps it
+        # for a host), the RESOLVED jar MUST match it. This turns the attempt-#1
+        # silent-fallback bug (config.runelite_jar pointed at a stale, untrusted
+        # ~/runelite.jar and it launched anyway) into a LOUD refusal.
+        expected_sha = getattr(self.config, "runelite_jar_sha256", None)
+        if expected_sha:
+            try:
+                import hashlib
+                h = hashlib.sha256()
+                with open(runelite_jar, "rb") as jf:
+                    for chunk in iter(lambda: jf.read(1 << 20), b""):
+                        h.update(chunk)
+                actual_sha = h.hexdigest()
+            except OSError as e:
+                return {
+                    "account_id": self.account_id, "pid": None, "status": "error",
+                    "error": f"Could not read jar {runelite_jar} to verify sha256: {e}",
+                }
+            if actual_sha.lower() != expected_sha.strip().lower():
+                return {
+                    "account_id": self.account_id, "pid": None, "status": "error",
+                    "error": (
+                        f"RuneLite jar sha256 MISMATCH -- refusing to launch an "
+                        f"unverified/stale jar (finding #4). jar={runelite_jar} "
+                        f"expected={expected_sha.strip().lower()[:16]}... "
+                        f"actual={actual_sha[:16]}... Re-run `mannyctl <host> provision` "
+                        f"to re-stage the trusted shaded jar and its sha."),
+                    "jar": str(runelite_jar),
+                    "expected_sha256": expected_sha.strip().lower(),
+                    "actual_sha256": actual_sha,
+                }
+
         base_cmd = [self.config.java_path, "-jar", str(runelite_jar)]
         base_cmd.extend(self.config.runelite_args)
 

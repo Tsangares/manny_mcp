@@ -69,6 +69,11 @@ class ServerConfig:
     jx_display_name: str = ""
     jx_session_id: str = ""
 
+    # Optional expected sha256 of the launched jar (finding #4). When set (by
+    # provision.sh at staging time), the launcher REFUSES to start a jar whose
+    # sha256 does not match -- no silent fallback to a stale ~/runelite.jar.
+    runelite_jar_sha256: Optional[str] = None
+
     # Multi-client support
     accounts: Dict[str, AccountConfig] = field(default_factory=dict)
     default_account: str = "default"

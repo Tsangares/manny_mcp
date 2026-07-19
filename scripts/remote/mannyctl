@@ -280,7 +280,7 @@ do_run() {
   local args; args="$(printf '%q ' "$@")"
 
   if [ -n "$attach" ]; then
-    run_on_host "cd $(printf %q "$H_STAGING") && ${proxy_env:+$proxy_env }$(printf %q "$H_VENVPY") run_routine.py $args"
+    run_on_host "cd $(printf %q "$H_STAGING") && ${proxy_env:+$proxy_env }PYTHONUNBUFFERED=1 $(printf %q "$H_VENVPY") run_routine.py $args"
     return
   fi
 
@@ -304,7 +304,7 @@ do_run() {
   # at $ledger. The watchdog runs from the repo root (cwd from the cd above) so it
   # can import mcptools.tools.monitoring.CRASH_PATTERNS; --temp-refuse mirrors this
   # host's hosts.yaml threshold. \$pid is expanded on the FAR side (same session).
-  run_on_host "cd $(printf %q "$H_STAGING") || exit 1; ${proxy_env:+$proxy_env }setsid $(printf %q "$H_VENVPY") run_routine.py $args </dev/null >$(printf %q "$log") 2>&1 & pid=\$!; disown; sleep 1; if kill -0 \$pid 2>/dev/null; then setsid $(printf %q "$H_VENVPY") scripts/remote/watchdog.py --run-id $(printf %q "$run_id") --account $(printf %q "$wd_acct") --routine $(printf %q "$routine") --run-pid \$pid --temp-refuse $(printf %q "${H_REFUSE:-88}") </dev/null >$(printf %q "$wd_log") 2>&1 & wpid=\$!; disown; echo \"MANNY_RUN_STARTED pid=\$pid\"; echo \"MANNY_WATCHDOG_STARTED wpid=\$wpid run_id=$(printf %q "$run_id")\"; else echo \"MANNY_RUN_FAILED (process exited immediately; see log)\" >&2; echo '--- tail of log ---' >&2; tail -n 20 $(printf %q "$log") >&2 || true; exit 1; fi"
+  run_on_host "cd $(printf %q "$H_STAGING") || exit 1; ${proxy_env:+$proxy_env }PYTHONUNBUFFERED=1 setsid $(printf %q "$H_VENVPY") run_routine.py $args </dev/null >$(printf %q "$log") 2>&1 & pid=\$!; disown; sleep 1; if kill -0 \$pid 2>/dev/null; then setsid $(printf %q "$H_VENVPY") scripts/remote/watchdog.py --run-id $(printf %q "$run_id") --account $(printf %q "$wd_acct") --routine $(printf %q "$routine") --run-pid \$pid --temp-refuse $(printf %q "${H_REFUSE:-88}") </dev/null >$(printf %q "$wd_log") 2>&1 & wpid=\$!; disown; echo \"MANNY_RUN_STARTED pid=\$pid\"; echo \"MANNY_WATCHDOG_STARTED wpid=\$wpid run_id=$(printf %q "$run_id")\"; else echo \"MANNY_RUN_FAILED (process exited immediately; see log)\" >&2; echo '--- tail of log ---' >&2; tail -n 20 $(printf %q "$log") >&2 || true; exit 1; fi"
   local rc=$?
   if [ $rc -eq 0 ]; then
     echo "routine detached on $HOST. log: $log"

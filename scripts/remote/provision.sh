@@ -91,11 +91,6 @@ else
     --exclude '.ruff_cache/' --exclude 'logs/' --exclude '*.log' \
     --exclude '.git/' --exclude '.env' \
     "$REPO_DIR/" "$H_SSH:$H_STAGING/" || die "repo rsync failed"
-  # NOTE: this ships config.yaml as-is; its java_path/display may be laptop
-  # values. client_remote.sh overrides java/display/libs via env from hosts.yaml,
-  # so the state/command file paths in config.yaml are what matter and those are
-  # host-local /tmp already. TODO(live): confirm no laptop-only absolute path in
-  # config.yaml breaks ServerConfig.load() on the host.
 
   # ---- Step 4: venv --------------------------------------------------------
   echo "[4/5] ensuring venv + deps on host ..."
@@ -108,6 +103,28 @@ else
   fi
   onhost "cd $(printf %q "$H_STAGING") && ./venv/bin/pip install -q -r requirements.txt" \
     || die "pip install failed"
+
+  # ---- Step 4b: render host-correct config.yaml (finding #4) ---------------
+  # `mannyctl run` -> run_routine.py -> ServerConfig.load() reads config.yaml,
+  # NOT hosts.yaml -- so the laptop java_path/runelite_jar shipped in Step 3
+  # would make the FIRST real `run` boot with a missing JDK or a STALE untrusted
+  # jar (exactly attempt #1's two dead launches: java_path pointed at a JDK the
+  # host lacks, and the fallback runelite_jar was ~/runelite.jar). Rewrite the
+  # host-specific fields from hosts.yaml, and stamp the trusted shaded jar's
+  # sha256 so the launcher REFUSES any other jar (no silent fallback). Runs the
+  # host venv python (has pyyaml). Idempotent (overwrites the same keys). Values
+  # are passed as argv to avoid quoting a python literal through ssh.
+  echo "[4b] rendering host config.yaml (java_path/runelite_jar/sha256 from hosts.yaml) ..."
+  jar_base="$(basename "$local_jar")"
+  host_jar="$H_LIBS/$jar_base"
+  jar_sha="$(sha256sum "$local_jar" | awk '{print $1}')"
+  [ -n "$jar_sha" ] || die "could not compute sha256 of $local_jar"
+  # runelite_root -> H_STAGING: its runelite-client/build/libs doesn't exist on a
+  # client host, so the gradle auto-detect finds nothing and the launcher uses the
+  # stamped runelite_jar. (Avoids a missing-dir _validate() warning too.)
+  onhost "cd $(printf %q "$H_STAGING") && $(printf %q "$H_STAGING/venv/bin/python") -c 'import yaml,sys; p=\"config.yaml\"; d=yaml.safe_load(open(p)) or {}; d[\"java_path\"]=sys.argv[1]; d[\"runelite_jar\"]=sys.argv[2]; d[\"runelite_jar_sha256\"]=sys.argv[3]; d[\"runelite_root\"]=sys.argv[4]; yaml.safe_dump(d, open(p,\"w\"), sort_keys=False); print(\"config.yaml rendered for host\")' $(printf %q "$H_JDK") $(printf %q "$host_jar") $(printf %q "$jar_sha") $(printf %q "$H_STAGING")" \
+    || die "config.yaml render failed"
+  echo "      java_path=$H_JDK runelite_jar=$host_jar sha256=${jar_sha:0:16}..."
 fi
 
 # ---- Step 5: RuneLite perf config (both local + remote) --------------------
