@@ -376,3 +376,20 @@ defects, never wrap those.
 
 **Delegation:** heavy work goes to subagents to protect overseer context; author self-contained prompts
 (subagents don't share context). Model tiers: opus=deep Java/design, sonnet=well-specified, haiku=mechanical.
+
+---
+## COMPACTION NOTE — 2026-07-19 ~07:00Z (read this if resuming mid-window-3)
+Two background agents were IN FLIGHT at compaction; both will report into the overseer session:
+1. **Window-3 agent** (owns ALL diort ops + both accounts): deploying DEFECT-26+lane-2 → 4-gate →
+   relaunch lane-1 grind → blast lane-2 tutorial regression on :3. Last seen healthy ~06:52Z in the
+   blast tutorial stage. **Stat directive it carries (user-issued):** actual levels att 8 / str 15 /
+   def 1 (old stance bug trained STRENGTH, not attack) → train DEFENCE first (Block stance, →~15),
+   then attack to parity, strength paused, keep all within ~3 levels, target ~20/20/20; verify stance
+   SURVIVES KILL_LOOP's startup auto-equip (documented reset risk) via XP attribution of first kills.
+2. **Shadow-soak analyst** (read-only): harvesting [NAV-SHADOW] lines from both accounts' logs →
+   journals/NAV_SHADOW_SOAK_2026-07-19.md (WP5 retire-legacy decision input).
+Also: mjpeg viewers — :2 → http://diort:8787 (running), :3 → http://diort:8788 (running, shows signal
+once blast's Xvfb :3 exists). Overseer's stand-in grind monitor was retired (window-3 supersedes it).
+After window-3 reports: E2 attended cowhide gate (lane 1, post-stats; closes DEFECT-21) → Track G per
+TRACK_G_PROTOCOL.md → nav graph-mode live gate per the soak report. One tree = one agent (branch-collision
+lesson); never launch a successor live agent without verifying the predecessor is DEAD via /tasks.
