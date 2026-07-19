@@ -52,6 +52,7 @@ import json
 import os
 import re
 import signal
+import subprocess
 import sys
 import time
 from collections import deque
@@ -62,6 +63,19 @@ STATE_STALE_S = 120          # state file older than this => needs_attention
 LOG_TAIL_LINES = 200         # scan this many trailing log lines for crash sigs
 THERMAL_CONSECUTIVE = 2      # consecutive over-temp checks before we kill
 MAX_EVENTS = 500             # cap the events list so the record can't grow unbounded
+
+# ---- DEFECT: client-freeze recovery (obfuscated-gamepack NPE) --------------------
+# The client thread can hang after "Unsuccessful ping" IOExceptions with an NPE deep in
+# the obfuscated gamepack (`Cannot read field "am" because "xz.ch" is null`) — NOT fixable
+# at the plugin source. The plugin's state export stops (normal refresh ~600ms), so the
+# state file mtime goes stale while the client PROCESS is still alive. Recovery, not
+# prevention: on a confirmed freeze we reap-then-spawn the client via client_remote.sh
+# (SIGTERM->SIGKILL the account's prior client, then relaunch) — the same kill-then-spawn
+# discipline as the auto-restart-double-client fix. FREEZE_STALE_S defaults to 90s
+# (configurable via --freeze-stale); requiring BOTH client-alive AND state-stale-past-90s
+# avoids false-tripping on the brief quiet of login/loading screens. Capped to fail loud.
+FREEZE_STALE_S = 90          # client alive + state older than this => frozen (default)
+FREEZE_MAX_RESTARTS = 2      # cap reap-then-spawn attempts before handing off to the driver
 
 # ---- DEFECT-32: oscillation-robust terminal-login (login-ban stall) --------------
 # A banned account can never log in; the client world-hops and RETRIES forever. The
@@ -336,6 +350,9 @@ def parse_args(argv):
     p.add_argument("--client-pid", type=int, default=None)
     p.add_argument("--interval", type=int, default=60)
     p.add_argument("--temp-refuse", type=int, default=88)
+    p.add_argument("--freeze-stale", type=float, default=FREEZE_STALE_S,
+                   help="client alive + state file older than this (s) => frozen; "
+                        "reap-then-spawn restart (default: %(default)s)")
     p.add_argument("--state-file", default=None)
     p.add_argument("--log-file", default=None)
     p.add_argument("--dry-run", action="store_true",
@@ -349,6 +366,34 @@ def sigterm(pid):
         return True
     except (ProcessLookupError, PermissionError, ValueError, TypeError):
         return False
+
+
+def freeze_restart(args, rec):
+    """Reap-then-spawn the account's client via the on-host launcher (the existing safe
+    restart path): ``client_remote.sh restart <account>`` SIGTERM->SIGKILLs THIS account's
+    prior client, thermal-checks, then relaunches. Returns the new client PID parsed from
+    the launcher's ``launched pid=NNN`` line (int) or None. Honors --dry-run. Never raises."""
+    script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "client_remote.sh")
+    if args.dry_run:
+        rec.event("freeze_restart",
+                  "[DRY-RUN] would reap-then-spawn: %s restart %s" % (script, args.account))
+        return None
+    if not os.path.exists(script):
+        rec.event("freeze_restart", "cannot restart: launcher not found at %s" % script)
+        return None
+    try:
+        proc = subprocess.run([script, "restart", args.account],
+                              capture_output=True, text=True, timeout=180)
+    except (OSError, subprocess.SubprocessError) as e:
+        rec.event("freeze_restart", "launcher invocation failed: %r" % e)
+        return None
+    out = (proc.stdout or "") + (proc.stderr or "")
+    m = re.search(r"launched pid=(\d+)", out)
+    new_pid = int(m.group(1)) if m else None
+    rec.event("freeze_restart",
+              "client_remote.sh restart %s rc=%d new_client_pid=%s"
+              % (args.account, proc.returncode, new_pid))
+    return new_pid
 
 
 def main(argv):
@@ -367,6 +412,9 @@ def main(argv):
     over_temp_streak = 0
     stale_armed = True   # only fire a fresh "stale" event on each stale onset
     last_unhealthy = False
+    # DEFECT client-freeze recovery: fire one restart per freeze onset, capped.
+    freeze_armed = True
+    freeze_restarts = 0
     # DEFECT-32 login-ban stall tracking (oscillation-robust; spans index changes).
     login_err_since = None
     login_err_prev_idx = None
@@ -548,6 +596,39 @@ def main(argv):
         if client_up is False:
             rec.event("client_dead", "client_pid %s no longer alive" % args.client_pid)
             unhealthy = True
+
+        # ---- 3d. FREEZE RECOVERY: client-thread hang (obfuscated-gamepack NPE) --
+        # A genuine freeze = the client PROCESS is alive but its state file stopped
+        # updating (normal refresh ~600ms). Require BOTH (client-alive AND state stale
+        # past --freeze-stale, default 90s) so we never false-trip on the brief quiet of
+        # a login/loading screen. On a confirmed freeze: log `freeze_detected` and trigger
+        # the on-host reap-then-spawn restart (client_remote.sh restart <acct>), the same
+        # kill-then-spawn discipline as the auto-restart-double-client fix. Fire once per
+        # freeze onset (freeze_armed) and cap restarts (fail loud) to avoid a thrash loop.
+        # Note: needs client_pid known (client_up is True/False, not None) to be safe.
+        if client_up is True and age is not None and age > args.freeze_stale:
+            if freeze_armed:
+                if freeze_restarts >= FREEZE_MAX_RESTARTS:
+                    rec.event("freeze_detected",
+                              "state stale %.1fs > %.0fs while client_pid %s alive; restart cap "
+                              "%d reached — NOT restarting, handing off to the LLM driver"
+                              % (age, args.freeze_stale, args.client_pid, FREEZE_MAX_RESTARTS))
+                    rec.update(status="needs_attention")
+                else:
+                    rec.event("freeze_detected",
+                              "state stale %.1fs > %.0fs while client_pid %s alive — client frozen "
+                              "(obfuscated-gamepack NPE class); reap-then-spawn restart %d/%d"
+                              % (age, args.freeze_stale, args.client_pid,
+                                 freeze_restarts + 1, FREEZE_MAX_RESTARTS))
+                    new_pid = freeze_restart(args, rec)
+                    freeze_restarts += 1
+                    if new_pid:
+                        args.client_pid = new_pid
+                        rec.update(client_pid=new_pid)
+                freeze_armed = False  # disarm until state recovers (avoid restart thrash)
+            unhealthy = True
+        elif age is not None and age <= args.freeze_stale:
+            freeze_armed = True  # fresh/recovered state -> re-arm for the next freeze onset
 
         # needs_attention is advisory: record it, let the LLM driver decide.
         if unhealthy:

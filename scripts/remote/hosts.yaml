@@ -99,7 +99,20 @@ hosts:
     # Same never-reuse-a-display rule as diort. punitpun keeps :5 for parity
     # with its diort mapping (tutorial island launch lane).
     account_displays:
-      punitpun: ":5"     # reserved clean spare — tutorial island launch lane
+      # HOST DEFAULT display :2 is the PHYSICAL GNOME desktop on llama (gnome-shell
+      # + Xwayland own it) — accounts MUST NOT fall back to :2 or they hijack the
+      # user's real desktop. Every automation account needs an explicit mapping here.
+      ifixifixit: ":5"   # tutorial-island lane (attempt #3 proven; matches its Xvfb :5)
+      punitpun: ":5"     # parked-forever spare (never runs live, so no :5 overlap)
+      fishibis2800: ":6" # fresh spare — attempt #4 lane
+      karldakilla: ":7"  # fresh spare
+      judeaislam: ":8"   # fresh spare
+      malikreyes: ":9"   # fresh spare
+      tovahkline: ":10"  # named 2026-07-19 via TYPE; fresh spare
+      blast: ":11"       # parked mid-tutorial (progress-400 deadlock); diort is its usual home
+      main: ":99"        # USER'S REAL ACCOUNT — never automated; mapping exists only to keep it off :2
+      new: ":98"         # BANNED — ban-detection gate only
+      newbakshesh: ":97" # BANNED — ban-detection gate only
     staging_dir: /home/wil/Desktop/manny_mcp
     runelite_libs: /home/wil/Desktop/runelite-client-libs
     venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
