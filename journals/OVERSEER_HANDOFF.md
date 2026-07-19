@@ -614,3 +614,46 @@ how DEFECT-31 was landed. A build with them present fails for reasons unrelated 
 `blast` on diort residential / fresh throwaway). Independently, this session will not gate live work on
 building humanization. Window #4's payload (DEFECT-27/22/28/28b + DEFECT-31) is deploy-ready and its
 gates need no grinding.
+
+---
+## STATUS — 2026-07-19 (later, offline housekeeping pass)
+
+**Landed commits since the STATUS NOTE above:**
+
+`manny_mcp`:
+- `475977f` — routine engine: per-step `on_failure` policy (continue/abort/retry:N)
+- `7a47812` — money_making routines: bank-leg resilience, symmetric return hops, coord + batch fixes
+- `71e004b` — validator: exempt nested inner-loop `KILL_LOOP` body from non-terminal warning
+  (money-maker audit fixes, above three)
+- `8a8d3e9`, `86ac7b4`, `a113495` — corpus triage fixes: validator false-positives (GOTO `exact` arg,
+  `manual_steps`-exemption bug) + ~21 routine fixes (dialogue-drain patterns, dead awaits, timeouts,
+  delays, retargeted mining coords) across quests/skilling/combat/tutorial_island
+- `89f33ff` — DEFECT-22b: driver/watchdog ban-at-login detection, Python half (288 tests)
+
+`manny`:
+- `93dae33` — DEFECT-22b: persistence-heuristic ban detection + login state export (Java half)
+- `be87b99` — nav WP6: runtime data-integrity + format-compat guard in ShortestPathEngine
+- `21468c0` — nav WP6: `--verify` auto-runs offline harness on `--apply`, reverts on failure
+
+**DEFECT-22b is offline-complete** (both Java and Python halves landed, 288 `manny_mcp` tests
+passing) — **only the zero-risk live login gate remains** (run against an already-banned alias,
+zero risk since a banned account cannot log in; see `journals/TRACK_G_PREFLIGHT_RUNBOOK_2026-07-19.md`
+B3).
+
+**Corpus validation report:** `journals/CORPUS_VALIDATION_TRIAGE_2026-07-19.md`.
+
+**Track G runbook:** `journals/TRACK_G_PREFLIGHT_RUNBOOK_2026-07-19.md` — hard blockers B1-B5.
+**B1 (USER proxy/IP + account decision) is the standing blocker** — nothing else in the sequence
+unblocks Track G until the user decides. B2-B5 (DEFECT-21 live bridge gate, B3 above, deploy
+window, E1/E2 attended gates) are otherwise on track per the runbook.
+
+**Parked humanization files: unchanged, still uncommitted, in both repos** (unaffected by this
+housekeeping pass): `manny` — `utility/CameraDrift.java`, `utility/commands/KillLoopCommand.java`,
+`utility/HumanizeVerify.java`; `manny_mcp` — `mcptools/humanize.py`, `tests/test_humanize.py`,
+the humanize-seed passthrough hunk in `mcptools/tools/routine.py`.
+
+**Build hazard procedure (unchanged, restated for successor sessions):** before ANY Java build in
+`manny`, stash the three parked humanization paths first —
+`git stash push -u -m "parked camera-drift edits" utility/CameraDrift.java
+utility/commands/KillLoopCommand.java utility/HumanizeVerify.java` — build/deploy, then
+`git stash pop` to restore them. Never commit or advance them.
