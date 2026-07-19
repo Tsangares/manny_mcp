@@ -59,6 +59,48 @@ class TestResolveChain:
         names = [os.path.basename(e["routine"]) for e in entries]
         assert names == ["01_a.yaml", "02_b.yaml"]
 
+    def test_directory_skips_06_quest_guide_when_no_master_chain(self, tmp_path):
+        # Belt-and-braces skip: even with no 00_master (or a masterless 00_
+        # file with no `chain:` key), 06_quest_guide.yaml must never surface
+        # via the glob -- it's superseded by 05_cooking_to_quest_guide.yaml
+        # (commit e17123a).
+        for name in ["05_cooking_to_quest_guide.yaml", "06_quest_guide.yaml", "07_next.yaml"]:
+            (tmp_path / name).write_text("name: n\nsteps: []\n")
+        entries, base = run_routine.resolve_chain(str(tmp_path))
+        names = [os.path.basename(e["routine"]) for e in entries]
+        assert "06_quest_guide.yaml" not in names
+        assert names == ["05_cooking_to_quest_guide.yaml", "07_next.yaml"]
+
+    def test_directory_with_master_chain_defers_to_master(self, tmp_path):
+        # A directory containing a 00_*.yaml with a `chain:` key is treated
+        # as authoritative: resolve_chain must use the master's explicit
+        # chain instead of the raw glob, even if the glob would have picked
+        # up other/superseded files (e.g. 06_quest_guide.yaml).
+        for name in ["01_a.yaml", "05_cooking_to_quest_guide.yaml", "06_quest_guide.yaml"]:
+            (tmp_path / name).write_text("name: n\nsteps: []\n")
+        master = tmp_path / "00_master.yaml"
+        _write(master, yaml.dump({
+            "name": "m", "type": "chain",
+            "chain": [
+                {"routine": "01_a.yaml"},
+                {"routine": "05_cooking_to_quest_guide.yaml"},
+            ],
+        }))
+        entries, base = run_routine.resolve_chain(str(tmp_path))
+        names = [os.path.basename(e["routine"]) for e in entries]
+        assert names == ["01_a.yaml", "05_cooking_to_quest_guide.yaml"]
+        assert "06_quest_guide.yaml" not in names
+
+    def test_directory_with_masterless_00_file_falls_back_to_glob(self, tmp_path):
+        # A 00_*.yaml with no `chain:` key (e.g. a plain reference doc that
+        # happens to be numbered 00_) is not authoritative -- fall back to
+        # the glob as before.
+        for name in ["01_a.yaml", "02_b.yaml", "00_notes.yaml"]:
+            (tmp_path / name).write_text("name: n\nsteps: []\n")
+        entries, base = run_routine.resolve_chain(str(tmp_path))
+        names = [os.path.basename(e["routine"]) for e in entries]
+        assert names == ["01_a.yaml", "02_b.yaml"]
+
 
 class TestIsChain:
     def test_directory_is_chain(self, tmp_path):
@@ -175,3 +217,20 @@ class TestMasterChainFile:
         # Every referenced section actually exists on disk.
         for e in entries:
             assert os.path.exists(e["routine"]), e["routine"]
+
+    def test_directory_glob_defers_to_master_chain(self):
+        # Glob-resolving the tutorial_island directory itself (not the master
+        # file) must detect the authoritative 00_master.yaml (which has a
+        # `chain:` key) and use ITS explicit chain instead of the raw glob.
+        # The raw directory glob would otherwise pick up 12 *.yaml files
+        # (both 01_* variants, both 05_* variants, AND the superseded
+        # 06_quest_guide.yaml) -- the master's curated chain resolves to 11
+        # and never includes 06.
+        tutorial_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                    "routines", "tutorial_island")
+        entries, base = run_routine.resolve_chain(tutorial_dir)
+        names = [os.path.basename(e["routine"]) for e in entries]
+        assert len(entries) == 11
+        assert "06_quest_guide.yaml" not in names
+        assert names[0] == "01_character_creation.yaml"
+        assert names[-1] == "10_prayer_magic.yaml"

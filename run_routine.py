@@ -22,9 +22,18 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-# Files that are references/reference-docs or the chain master itself -- never
-# run them as sections when globbing a directory.
-_CHAIN_SKIP_BASENAMES = {"widget_reference.yaml"}
+# Files that are references/reference-docs or superseded standalone sections --
+# never run them as sections when globbing a directory.
+_CHAIN_SKIP_BASENAMES = {
+    "widget_reference.yaml",
+    # DOUBLE-RUN FIX (commit e17123a): 05_cooking_to_quest_guide.yaml absorbed
+    # the entire Quest Guide segment (including the ladder-down navigation).
+    # Running 06 after it re-runs that segment on an already-underground
+    # player and desyncs the Tutorial-progress gate. Belt-and-braces skip for
+    # directories with no 00_master to defer to (see resolve_chain below,
+    # which prefers the master's explicit chain when one exists).
+    "06_quest_guide.yaml",
+}
 
 
 def resolve_chain(path: str):
@@ -37,16 +46,37 @@ def resolve_chain(path: str):
     Three input shapes are supported, consistent with the existing loader:
     - A directory                -> every ``*.yaml`` in sorted (numeric-prefix)
                                     order, skipping reference docs and any
-                                    ``00_*`` master file.
+                                    ``00_*`` master file -- UNLESS the
+                                    directory contains a ``00_*.yaml`` with a
+                                    ``chain:`` key, in which case that master
+                                    is authoritative and its explicit chain is
+                                    used instead of the glob (see below).
     - A chain YAML               -> a file with ``type: chain`` or a top-level
                                     ``chain:`` list of section routines in order.
     - A single routine YAML      -> a one-entry list (the pre-existing behavior).
     """
     import yaml
 
-    # Directory: sorted *.yaml, skipping the master + reference docs.
+    # Directory: prefer an authoritative 00_master's explicit chain, if
+    # present, over the glob -- a glob can't know about supersession (e.g.
+    # tutorial_island's 05_cooking_to_quest_guide.yaml absorbing 06), but the
+    # master's hand-curated `chain:` list already encodes that.
     if os.path.isdir(path):
         base_dir = os.path.abspath(path)
+        for master in sorted(glob.glob(os.path.join(base_dir, "00_*.yaml"))):
+            try:
+                with open(master) as fh:
+                    master_doc = yaml.safe_load(fh)
+            except (OSError, yaml.YAMLError):
+                master_doc = None
+            if isinstance(master_doc, dict) and "chain" in master_doc:
+                print(f"[resolve_chain] {base_dir} contains a master chain "
+                      f"({os.path.basename(master)}); using its explicit "
+                      f"chain instead of the directory glob.")
+                return resolve_chain(master)
+
+        # No authoritative master -- fall back to the sorted glob, skipping
+        # the master(s) + reference docs + known-superseded sections.
         entries = []
         for f in sorted(glob.glob(os.path.join(base_dir, "*.yaml"))):
             base = os.path.basename(f)
