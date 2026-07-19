@@ -75,3 +75,23 @@ remaining risk is genuinely live-only (coords, jar-specific widget IDs, dialogue
 listed above for the first overseen punitpun run — which is where these get their real test. Single
 most-likely live break points to watch: §08 steps 14→16 (kill→modal→GOTO), §09 steps 9→10 (the
 closed door), §10 steps 12/15 (Brother Brace).
+
+## Addendum — front sections 01–03 audited CLEAN (2026-07-19), 04–05 not completed
+
+Same lens applied to the front of the chain. **01, 01b, 02, 03: no BLOCKERs, all dry-run clean and
+already cleared to mainland unattended.** DEFECT-31 has ZERO occurrences there (none use
+`repeat_until`; all drains are blind `KEY_PRESS Space`, the safe direction). Marginal, un-applied
+polish (left as-is since these are live-proven): M-8 under-count blind-Space drains in 02/03 (bump
+counts if a live miss recurs — do NOT convert to `repeat_until:no_dialogue`, the pre-talk overlay is
+a modal and would re-trigger the DEFECT-31 no-op), `on_failure:"retry:2"` on the ungated settings/
+inventory/skills tab clicks, and a `has_item:Raw shrimps` await on the §03 fishing step.
+
+**One genuine LIVE-COORD checklist item (needs a live char-creation screen):** the two `01_*` files
+disagree on the experience-select widget — `01_character_creation.yaml` step 5 uses group-928 packed
+ID `60882951`; `01_experience_selection.yaml` uses group-122 `7995392 2 static`, which the former's
+own pitfall note calls wrong. Both have passed live, so one is stale/redundant. Reconcile to one
+canonical widget before the punitpun run.
+
+The 04 / 05×2 audit was **cut short** (stopped at user request) — those two historical-failure
+sections (04 cook-shrimp timing, 05 DEFECT-7 bridge) have NOT had this hardening lens applied; they
+remain as last live-validated. Pick up there if the tutorial corpus is revisited.
