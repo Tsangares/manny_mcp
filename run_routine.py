@@ -225,11 +225,20 @@ async def run_chain(chain_path: str, max_loops: int = 1, account_id: str = None,
     one left the player in the right place); pass ``continue_on_error`` to run
     every section regardless.
 
-    NOTE ON GATING: chain entries may carry a ``progress_hint`` (e.g. the
-    tutorial-progress widget stage). It is currently metadata only -- logged,
-    not enforced -- because active stage-gating (skip a section already
-    completed) is part of the still-pending condition-dialect design. This keeps
-    the chain purely sequential today while leaving the hint in the schema.
+    STAGE-GATING (TUTORIAL): a chain entry may carry a ``progress_gate`` -- the
+    game-truth varbit-281 value at which that section is COMPLETE (i.e. the value
+    the game shows once the section's tasks are done / the next section begins).
+    Before running a section we read the live tutorial progress from the plugin's
+    state file (``state["tutorial"]["progress"]``, exported every ~600ms) and, if
+    it is already ``>= progress_gate``, we SKIP the section as already-completed.
+    This makes a resume (mannyctl ... run 00_master --account <acct>) idempotent:
+    already-cleared sections are skipped instead of blindly re-run (the 06
+    double-run desync). Gate thresholds are monotonic and set to section-END
+    values, so a normal forward run from progress 0 never skips (each section's
+    start progress < its own gate). Safety: if the state file is unreadable, the
+    ``tutorial`` section is absent (old jar), or progress is null (logged out),
+    the gate check evaluates unknown -> we do NOT skip (never strands the run).
+    ``progress_hint`` remains metadata (section ordinal), logged only.
     """
     entries, _base = resolve_chain(chain_path)
 
@@ -237,14 +246,41 @@ async def run_chain(chain_path: str, max_loops: int = 1, account_id: str = None,
         return {"success": False, "error": f"No runnable routines found in chain: {chain_path}",
                 "sections": []}
 
+    # Live tutorial-progress reader for stage-gating. Reads the same state file the
+    # plugin writes (~600ms cadence); returns None on any failure so the caller
+    # degrades to "do not skip". Kept local (no client round-trip needed).
+    def _live_tutorial_progress():
+        try:
+            from mcptools.config import ServerConfig
+            from mcptools.tools import monitoring  # noqa: F401 (ensures parse/check available)
+            cfg = ServerConfig.load()
+            with open(cfg.get_state_file(account_id)) as fh:
+                st = json.load(fh)
+            tut = st.get("tutorial") or {}
+            return tut.get("progress")
+        except Exception:
+            return None
+
     sections = []
     overall_success = True
     for i, entry in enumerate(entries, start=1):
         routine_path = entry["routine"]
         hint = entry.get("progress_hint")
+        gate = entry.get("progress_gate")
         label = entry.get("description") or os.path.basename(routine_path)
         print(f"\n[chain {i}/{len(entries)}] {label}"
               + (f"  (progress_hint: {hint})" if hint else ""))
+
+        # Stage-gate: skip a section the game says is already complete.
+        if gate is not None:
+            progress = _live_tutorial_progress()
+            if progress is not None and progress >= gate:
+                print(f"  ~ skipping (tutorial_progress {progress} >= gate {gate}, "
+                      f"section already complete)")
+                sections.append({"routine": routine_path, "success": True,
+                                 "skipped": True, "tutorial_progress": progress,
+                                 "progress_gate": gate})
+                continue
 
         if not os.path.exists(routine_path):
             section = {"routine": routine_path, "success": False,

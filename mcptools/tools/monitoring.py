@@ -538,6 +538,7 @@ def _parse_condition(condition: str) -> tuple:
     - location:X,Y - Player near coordinates (within 3 tiles)
     - idle - Player not animating/moving
     - dialogue / no_dialogue - a dialogue is open / not open (NARROW, see below)
+    - tutorial_progress:>=N / <=N / <N / >N / N - Tutorial Island varbit-281 gate
     """
     if ":" not in condition:
         if condition == "idle":
@@ -577,6 +578,26 @@ def _parse_condition(condition: str) -> tuple:
     elif cond_type == "location":
         coords = value.split(",")
         return ("location", (int(coords[0]), int(coords[1])), None)
+    elif cond_type == "tutorial_progress":
+        # TUTORIAL: gate a step (or, via run_chain, a whole section) on the game's
+        # authoritative Tutorial Island progress -- varbit 281, exported by the
+        # plugin as state["tutorial"]["progress"] (0..1000, 1000 == complete). This
+        # is a STEP-vocabulary atom ONLY (mirroring location:/inventory_count:); it
+        # is NOT the pending general condition dialect -- do NOT generalize it. When
+        # the "tutorial" section is absent (old jar) or progress is null (logged
+        # out), _check_condition evaluates it False (unknown) and NEVER throws, so
+        # old-jar state files stay compatible. Comparison operators mirror
+        # inventory_count.
+        if value.startswith("<="):
+            return ("tutorial_progress", int(value[2:]), "<=")
+        elif value.startswith(">="):
+            return ("tutorial_progress", int(value[2:]), ">=")
+        elif value.startswith("<"):
+            return ("tutorial_progress", int(value[1:]), "<")
+        elif value.startswith(">"):
+            return ("tutorial_progress", int(value[1:]), ">")
+        else:
+            return ("tutorial_progress", int(value), "==")
     else:
         raise ValueError(f"Unknown condition type: {cond_type}")
 
@@ -646,6 +667,27 @@ def _check_condition(state: dict, condition: tuple) -> bool:
         # (want closed). Minimal, tutorial-needed only -- see _parse_condition.
         dialogue = state.get("dialogue") or {}
         return bool(dialogue.get("open", False)) == bool(value)
+
+    elif cond_type == "tutorial_progress":
+        # TUTORIAL: read the plugin's game-truth Tutorial Island progress from the
+        # TOP-LEVEL `tutorial` object {progress} (varbit 281). If the section is
+        # absent (old jar predating the export) or progress is null (logged out),
+        # treat as UNKNOWN -> not satisfied, never raise. This is what keeps a
+        # tutorial_progress gate a no-op against an old jar instead of a crash.
+        tutorial = state.get("tutorial") or {}
+        progress = tutorial.get("progress")
+        if progress is None:
+            return False
+        if operator == "<=":
+            return progress <= value
+        elif operator == ">=":
+            return progress >= value
+        elif operator == "<":
+            return progress < value
+        elif operator == ">":
+            return progress > value
+        else:
+            return progress == value
 
     return False
 

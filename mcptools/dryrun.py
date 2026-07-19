@@ -155,7 +155,7 @@ class StateModel:
     """
 
     def __init__(self, location=(3222, 3218, 0), inventory=None, skills=None,
-                 dialogue_open=False, is_moving=False):
+                 dialogue_open=False, is_moving=False, tutorial_progress=None):
         self.x, self.y, self.plane = location
         # inventory: list of {"name": str, "qty": int}
         self.items = [dict(i) for i in (inventory or [])]
@@ -163,6 +163,11 @@ class StateModel:
         self.dialogue_open = dialogue_open
         self.is_moving = is_moving
         self.bank_open = False
+        # TUTORIAL: game-truth Tutorial Island progress (varbit 281). None means
+        # "not on the island / not exported", matching the plugin emitting
+        # progress: null when logged out -- so a tutorial_progress: await against
+        # this fixture evaluates unknown (never satisfied) unless a test sets it.
+        self.tutorial_progress = tutorial_progress
 
     def add_item(self, name, qty=1, stackable=False):
         if stackable:
@@ -201,6 +206,8 @@ class StateModel:
                 "items": [f"{it['name']} x{it.get('qty', 1)}" for it in self.items],
             },
             "dialogue": {"open": self.dialogue_open},
+            # TUTORIAL: top-level section mirroring the plugin's export shape.
+            "tutorial": {"progress": self.tutorial_progress},
         }
 
 
