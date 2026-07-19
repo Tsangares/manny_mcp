@@ -1,0 +1,274 @@
+# Cowhide Banking - unattended Lumbridge cowhide money-maker (Track E2)
+#
+# ============================ DRAFT -- DO NOT RUN UNATTENDED ================
+# This routine is DRAFT and AWAITS LIVE VALIDATION. A phase-2 live agent must
+# gate it before any unattended run:
+#   * every waypoint/coordinate below is DERIVED from existing routines +
+#     schema guidance, NOT yet confirmed on the live world -- verify each GOTO
+#     settles (especially the bridge hops and the two castle staircases).
+#   * DEFECT-21 (NAV-DIRECT corner-cutting / long cross-bridge GOTOs) has a
+#     fix landed but NOT live-validated; that is exactly why all travel below
+#     is broken into short waypoint hops with per-hop location awaits and
+#     generous timeouts, with an explicit on-bridge waypoint to stop the
+#     pather clipping the bridge corners.
+#   * NAV-DIRECT cannot dogleg through doors/openings -- the castle staircases
+#     are done as explicit INTERACT_OBJECT climbs with plane: awaits between
+#     each floor, never a single GOTO to a plane-2 tile.
+# ===========================================================================
+#
+# WHAT IT DOES
+#   Kills cows east of the Lumbridge river with KILL_LOOP_CONFIG so dropped
+#   Cowhide is looted (a bare KILL_LOOP only loots runes -- ROUTINE_SCHEMA.md
+#   (h)). KILL_LOOP_CONFIG forces food="none" (KillLoopConfigCommand.java:101),
+#   so the 50%-HP safety stop applies -- harmless vs cows. Bones are always
+#   auto-buried (free Prayer XP) and cannot be kept by either command.
+#   Cowhide is NON-stackable, so the inventory fills as hides accumulate --
+#   that full inventory is the banking trigger (inner-loop exit_conditions:
+#   inventory_full). The routine then walks to the Lumbridge Castle 2nd-floor
+#   bank, deposits ONLY Cowhide (BANK_DEPOSIT_ITEM keeps equipment), and
+#   returns to the field. The outer loop repeats the field<->bank cycle,
+#   bounded ONLY by `./run_routine.py <this file> --loops N` (loop.max_iterations
+#   is a dead key -- ROUTINE_SCHEMA.md (d)/(f)).
+#
+# LOOT CONFIG: routines/money_making/configs/cowhides.json
+#   {"npc": "Cow", "kills": 30, "loot_items": ["Cowhide"]}
+#   30 kills/batch slightly overshoots the ~28 inventory slots so a batch is
+#   near-guaranteed to reach inventory_full; the last 1-2 hides of a batch may
+#   drop unlooted once the inventory is already full (minor, acceptable).
+#
+# COORDINATES (ALL PENDING LIVE VERIFICATION -- see DRAFT banner):
+#   cow field (east of river) ...... 3253,3266 plane 0
+#   bridge east end ................ 3247,3228 plane 0
+#   on-bridge waypoint ............. 3244,3227 plane 0  (anti corner-cut)
+#   bridge west end ................ 3239,3228 plane 0
+#   castle courtyard ............... 3221,3218 plane 0
+#   ground-floor staircase base .... 3205,3209 plane 0
+#   1st-floor staircase ............ 3205,3209 plane 1
+#   2nd-floor bank booth ........... 3208,3220 plane 2
+
+name: "Cowhide Banking - Lumbridge (DRAFT)"
+type: money_making
+skill: combat
+
+# Documentation-only (engine reads coords from step args, not this block).
+locations:
+  lumbridge_cow_field:
+    x: 3253
+    y: 3266
+    plane: 0
+  lumbridge_castle_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+
+steps:
+  # ========== ARRIVE AT / CONFIRM COW FIELD (outer-loop start) ==========
+  - id: 1
+    phase: "travel"
+    action: GOTO
+    args: "3253 3266 0"
+    description: "Walk to the cow field east of the Lumbridge river"
+    await_condition: "location:3253,3266"
+    timeout_ms: 120000
+
+  # ========== KILL BATCH (inner loop: repeat until inventory full) ==========
+  - id: 2
+    phase: "combat"
+    action: KILL_LOOP_CONFIG
+    args: "/home/wil/Desktop/manny_mcp/routines/money_making/configs/cowhides.json"
+    description: "Kill up to 30 cows, loot Cowhide; bones auto-buried, food forced none (50% HP safety stop)"
+    timeout_ms: 3600000   # blocking command (ROUTINE_SCHEMA.md (e)); NO await_condition
+
+  # ========== TRAVEL: FIELD -> LUMBRIDGE CASTLE BANK (short hops) ==========
+  - id: 3
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3247 3235 0"
+    description: "Approach the bridge from the cow field (north hop)"
+    await_condition: "location:3247,3235"
+    timeout_ms: 60000
+
+  - id: 4
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3247 3228 0"
+    description: "Bridge east end"
+    await_condition: "location:3247,3228"
+    timeout_ms: 60000
+
+  - id: 5
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3244 3227 0"
+    description: "On-bridge waypoint (anti corner-cut across the River Lum)"
+    await_condition: "location:3244,3227"
+    timeout_ms: 60000
+
+  - id: 6
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3239 3228 0"
+    description: "Bridge west end"
+    await_condition: "location:3239,3228"
+    timeout_ms: 60000
+
+  - id: 7
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3221 3218 0"
+    description: "Lumbridge Castle courtyard"
+    await_condition: "location:3221,3218"
+    timeout_ms: 60000
+
+  - id: 8
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3205 3209 0"
+    description: "Ground-floor staircase base inside the castle"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 9
+    phase: "travel_to_bank"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb to 1st floor"
+    await_condition: "plane:1"
+    timeout_ms: 30000
+
+  - id: 10
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3205 3209 1"
+    description: "Reposition at the 1st-floor staircase"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 11
+    phase: "travel_to_bank"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb to 2nd floor (bank floor)"
+    await_condition: "plane:2"
+    timeout_ms: 30000
+
+  - id: 12
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Walk to the Lumbridge Castle bank booth"
+    await_condition: "location:3208,3220"
+    timeout_ms: 60000
+
+  # ========== BANK: deposit cowhides, keep equipment ==========
+  - id: 13
+    phase: "banking"
+    action: BANK_OPEN
+    description: "Open the bank"
+    delay_after_ms: 1000
+
+  - id: 14
+    phase: "banking"
+    action: BANK_DEPOSIT_ITEM
+    args: "Cowhide"
+    description: "Deposit all Cowhide (BANK_DEPOSIT_ITEM leaves equipment untouched)"
+    delay_after_ms: 500
+
+  - id: 15
+    phase: "banking"
+    action: BANK_CLOSE
+    description: "Close the bank"
+    delay_after_ms: 500
+
+  # ========== RETURN: BANK -> COW FIELD (reverse hops) ==========
+  - id: 16
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3205 3209 2"
+    description: "Reposition at the 2nd-floor staircase"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 17
+    phase: "travel_to_field"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Climb down to 1st floor"
+    await_condition: "plane:1"
+    timeout_ms: 30000
+
+  - id: 18
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3205 3209 1"
+    description: "Reposition at the 1st-floor staircase"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 19
+    phase: "travel_to_field"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Climb down to the ground floor"
+    await_condition: "plane:0"
+    timeout_ms: 30000
+
+  - id: 20
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3221 3218 0"
+    description: "Back through the castle courtyard"
+    await_condition: "location:3221,3218"
+    timeout_ms: 60000
+
+  - id: 21
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3239 3228 0"
+    description: "Bridge west end"
+    await_condition: "location:3239,3228"
+    timeout_ms: 60000
+
+  - id: 22
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3244 3227 0"
+    description: "On-bridge waypoint (anti corner-cut)"
+    await_condition: "location:3244,3227"
+    timeout_ms: 60000
+
+  - id: 23
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3247 3228 0"
+    description: "Bridge east end"
+    await_condition: "location:3247,3228"
+    timeout_ms: 60000
+
+  - id: 24
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3253 3266 0"
+    description: "Back to the cow field"
+    await_condition: "location:3253,3266"
+    timeout_ms: 120000
+
+# Nested inner/outer loop (ROUTINE_SCHEMA.md (d)):
+#   inner  = the kill batch (step 2), re-run until the inventory fills, then
+#            jump to the banking-travel sequence (goto_step:3).
+#   outer  = the whole field <-> bank cycle (steps 1..24), repeating until the
+#            CLI --loops N backstop is exhausted (exit_conditions empty).
+# exit_conditions use Grammar 2 atoms only (ROUTINE_SCHEMA.md (c)).
+loop:
+  inner:
+    enabled: true
+    start_step: 2
+    end_step: 2
+    exit_conditions:
+      - "inventory_full"
+    on_exit: "goto_step:3"
+  outer:
+    enabled: true
+    start_step: 1
+    end_step: 24
+    exit_conditions: []

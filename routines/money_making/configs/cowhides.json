@@ -1,0 +1,5 @@
+{
+  "npc": "Cow",
+  "kills": 30,
+  "loot_items": ["Cowhide"]
+}
