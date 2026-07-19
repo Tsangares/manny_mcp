@@ -106,15 +106,15 @@ undeployed). manny_mcp side already has DEFECT-30 (`a6e6191`) + engine `on_failu
   Also reconcile any hand-patch divergence per `DEPLOY_WINDOW_CHECKLIST.md` (e): the repo
   already reconciled `chicken_feathers.yaml` timeout to `14400000` (`a97aa7f`); check nothing
   else diverged. Close the window through `DEPLOY_WINDOW_CHECKLIST.md` (a)-(f).
-- **Jar PRE-BUILT 2026-07-19 (rebuilt same day at HEAD `27dc5fa`):** the shaded jar is built
+- **Jar PRE-BUILT 2026-07-19 (rebuilt same day at HEAD `70fe060`):** the shaded jar is built
   clean using the stash procedure above:
   `/home/wil/Desktop/runelite/runelite-client/build/libs/client-1.12.34-SNAPSHOT-shaded.jar`,
-  40,094,173 bytes, sha256
-  `0fb1b8908aea92cdf5755e79a547ef9b8c217f6f9d297d9b8a6ee00afe3b9d1d`.
+  40,094,179 bytes, sha256
+  `1e15f10c90970ee7dae0840607b84c555556946e54104fca9e4318708e78fa61`.
   Spot-checked: manny plugin classes present; pathfinder resources
   (`collision-map.zip`, `transports/transports.tsv`, `data.fingerprint`) present;
   `CameraDrift` class **ABSENT** (parked code not shipped). If manny HEAD is still
-  `27dc5fa` at deploy time, skip the rebuild — verify this sha256 and provision this
+  `70fe060` at deploy time, skip the rebuild — verify this sha256 and provision this
   artifact. Any newer HEAD ⇒ rebuild per the procedure. Provisioning to diort was NOT done
   (user approval pending).
 - **Verify:** jar provenance/fingerprint (see §2), and the DEFECT-26 4-gate is already PASS
