@@ -28,8 +28,18 @@ java_path: /usr/lib/jvm/java-21-openjdk/bin/java
 # RuneLite CLI args (JX_* env vars handle auto-login, no extra args needed)
 runelite_args: []
 
-# X11 display for RuneLite on diort (Xvfb :2)
+# X11 display for RuneLite on diort (Xvfb :2). Default / fallback display.
 display: ":2"
+
+# Per-account display map (lane-2: two clients on diort at once, each on its own
+# Xvfb screen). Mirrors scripts/remote/hosts.yaml -> hosts.diort.account_displays
+# so ServerConfig.get_display(account_id) resolves the same screen the launcher
+# uses. Keep these two in sync. Unlisted accounts fall back to `display` above.
+accounts:
+  newbakshesh:
+    display: ":2"
+  blast:
+    display: ":3"
 
 # VirtualGL settings (not used — Xvfb software render)
 use_virtualgl: false

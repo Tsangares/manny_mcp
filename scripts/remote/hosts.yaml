@@ -18,7 +18,16 @@
 #                           user@host, or user@tailscale-ip). Ignored if local.
 #   jdk            str    — absolute path to the java 21 binary (must run the
 #                           major-65 shaded jar; JDK17 will NOT).
-#   display        str    — Xvfb display, e.g. ":2" (parity with client.sh).
+#   display        str    — default Xvfb display, e.g. ":2" (parity with
+#                           client.sh). Used when an account has no per-account
+#                           display below.
+#   account_displays map   — OPTIONAL per-account Xvfb display override
+#                           (account_id -> ":N"). Lets two clients run at once
+#                           on one host, each on its own framebuffer (lane-2).
+#                           mannyctl resolves account -> display and forwards it
+#                           as XVFB_DISPLAY; unmapped accounts fall back to
+#                           `display`. NEVER map two accounts to the same
+#                           display (clients would fight over one screen).
 #   staging_dir    str    — where the manny_mcp repo lives on the host.
 #   runelite_libs  str    — dir containing the *-shaded.jar on the host.
 #   venv_python    str    — python inside the host's venv (usually
@@ -57,6 +66,12 @@ hosts:
     ssh: diort                      # or wil@100.91.42.96 (Tailscale) / wil@10.0.0.13 (LAN)
     jdk: /usr/lib/jvm/java-21-openjdk/bin/java
     display: ":2"
+    # Lane-2: two clients coexist on diort, each on its own Xvfb screen.
+    # newbakshesh keeps the historical :2; blast gets :3. Add more accounts as
+    # new displays (:4, :5 ...) — never reuse a display for two live accounts.
+    account_displays:
+      newbakshesh: ":2"
+      blast: ":3"
     staging_dir: /home/wil/Desktop/manny_mcp
     runelite_libs: /home/wil/Desktop/runelite-client-libs
     venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python

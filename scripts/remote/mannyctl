@@ -12,10 +12,11 @@
 #   mannyctl list
 #   mannyctl <host> provision                 # idempotent host setup (scripts/remote/provision.sh)
 #   mannyctl <host> push-creds                 # USER-GATED: rsync ~/.manny/credentials.yaml to host
-#   mannyctl <host> start <account>            # thermal-guarded launch on host
-#   mannyctl <host> stop
+#   mannyctl <host> start <account>            # thermal-guarded launch (per-account XVFB display)
+#   mannyctl <host> stop <account>             # account-scoped stop (siblings keep running)
+#   mannyctl <host> stop --all                 # ESCAPE HATCH: sweep EVERY manny client on host
 #   mannyctl <host> restart <account>
-#   mannyctl <host> status
+#   mannyctl <host> status [account]           # host status; with an account, scope the client list
 #   mannyctl <host> temp                       # quick remote package temp
 #   mannyctl <host> run <routine.yaml> [args]  # run_routine.py ON the host (+watchdog ledger)
 #   mannyctl <host> runs [run_id]              # print watchdog run ledger(s) (JSON, newest first)
@@ -54,6 +55,31 @@ if v is None:
     v = ""
 print(v)
 PY
+}
+
+# host_account_display <host> <account> — per-account XVFB display from
+# hosts.yaml (hosts.<host>.account_displays.<account>). Empty if unset so the
+# caller can fall back to the host-level display. This is the lane-2 knob: each
+# account renders on its own Xvfb so two clients never share one framebuffer.
+host_account_display() {
+  "$PYBIN" - "$HOSTS_YAML" "$1" "$2" <<'PY'
+import sys, yaml
+path, host, acct = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(path) as f:
+    data = yaml.safe_load(f) or {}
+h = (data.get("hosts") or {}).get(host) or {}
+m = h.get("account_displays") or {}
+v = m.get(acct, "")
+print(v if v is not None else "")
+PY
+}
+
+# resolve_display <account> — the account's mapped display, else the host
+# default ($H_DISPLAY). Requires load_host to have run.
+resolve_display() {
+  local acct="${1:-}" d=""
+  [ -n "$acct" ] && d="$(host_account_display "$HOST" "$acct")"
+  if [ -n "$d" ] && [ "$d" != "None" ]; then echo "$d"; else echo "$H_DISPLAY"; fi
 }
 
 list_hosts() {
@@ -107,27 +133,46 @@ run_on_host() {
   fi
 }
 
-# client_env_prefix — env assignments that parameterize client_remote.sh for this host.
+# client_env_prefix [display] — env assignments that parameterize
+# client_remote.sh for this host. XVFB_DISPLAY defaults to the host display but
+# callers pass a per-account display (resolve_display) so lane-2 clients render
+# on separate Xvfb screens.
 client_env_prefix() {
+  local disp="${1:-$H_DISPLAY}"
   printf 'REPO_DIR=%q RUNELITE_LIBS=%q JAVA_BIN=%q XVFB_DISPLAY=%q TEMP_REFUSE_C=%q TEMP_WARN_C=%q' \
-    "$H_STAGING" "$H_LIBS" "$H_JDK" "$H_DISPLAY" "$H_REFUSE" "$H_WARN"
+    "$H_STAGING" "$H_LIBS" "$H_JDK" "$disp" "$H_REFUSE" "$H_WARN"
 }
 
 client_remote_cmd() {
-  # runs scripts/remote/client_remote.sh on the host with the right env
-  echo "cd $(printf %q "$H_STAGING") && $(client_env_prefix) ./scripts/remote/client_remote.sh $*"
+  # client_remote_cmd <display> <client_remote.sh args...>
+  local disp="$1"; shift
+  echo "cd $(printf %q "$H_STAGING") && $(client_env_prefix "$disp") ./scripts/remote/client_remote.sh $*"
 }
 
 # ---- subcommands ----------------------------------------------------------
 
-do_start()   { run_on_host "$(client_remote_cmd start "$1")"; }
-do_stop()    { run_on_host "$(client_remote_cmd stop)"; }
-do_restart() { run_on_host "$(client_remote_cmd restart "$1")"; }
-do_status()  { run_on_host "$(client_remote_cmd status)"; }
+do_start()   { local d; d="$(resolve_display "$1")"; run_on_host "$(client_remote_cmd "$d" start "$1")"; }
+do_restart() { local d; d="$(resolve_display "$1")"; run_on_host "$(client_remote_cmd "$d" restart "$1")"; }
+
+# do_stop <account> | --all — scoped by default; --all is the blanket sweep.
+do_stop() {
+  local arg="${1:-}"
+  case "$arg" in
+    --all|-a) run_on_host "$(client_remote_cmd "$H_DISPLAY" stop --all)" ;;
+    "")       die "stop needs an account (e.g. mannyctl $HOST stop blast) or --all to sweep every client" ;;
+    *)        local d; d="$(resolve_display "$arg")"; run_on_host "$(client_remote_cmd "$d" stop "$arg")" ;;
+  esac
+}
+
+# do_status [account] — optional account scopes the client listing.
+do_status() {
+  local acct="${1:-}" d; d="$(resolve_display "$acct")"
+  run_on_host "$(client_remote_cmd "$d" status "$acct")"
+}
 
 do_temp() {
   # Reuse client_remote.sh's status thermal block via a tiny inline read.
-  run_on_host "cd $(printf %q "$H_STAGING") && $(client_env_prefix) ./scripts/remote/client_remote.sh status | sed -n '/thermal/,\$p'"
+  run_on_host "cd $(printf %q "$H_STAGING") && $(client_env_prefix "$H_DISPLAY") ./scripts/remote/client_remote.sh status | sed -n '/thermal/,\$p'"
 }
 
 do_run() {
@@ -304,9 +349,9 @@ main() {
     provision)   do_provision ;;
     push-creds)  do_push_creds ;;
     start)       [ $# -ge 1 ] || die "start needs an account"; do_start "$1" ;;
-    stop)        do_stop ;;
+    stop)        do_stop "$@" ;;
     restart)     [ $# -ge 1 ] || die "restart needs an account"; do_restart "$1" ;;
-    status)      do_status ;;
+    status)      do_status "$@" ;;
     temp)        do_temp ;;
     run)         do_run "$@" ;;
     runs)        do_runs "$@" ;;

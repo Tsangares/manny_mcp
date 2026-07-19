@@ -23,7 +23,12 @@
 #   REPO_DIR        manny_mcp repo (for venv creds) (default: script's ../..)
 #   NAV_BACKEND     Stage-2 nav flag (-Dmanny.navBackend) (default: "shadow")
 #
-# Subcommands: status | stop | start <account> | restart <account>
+# Subcommands (account-scoped — lane-2 safe, multiple accounts coexist):
+#   status [account]        host status; with an account, scope the client list
+#   start <account>         launch; kills ONLY this account's prior client
+#   restart <account>       stop this account's client, then start it
+#   stop <account>          stop ONLY this account's client (siblings untouched)
+#   stop --all              ESCAPE HATCH: sweep EVERY manny client on the host
 
 set -u
 
@@ -52,6 +57,11 @@ LOGIN_WAIT_SECS=30
 usage() {
   cat <<'EOF'
 Usage: client_remote.sh <status|stop|start|restart> [account]
+  status  [account]   list clients (all, or just <account>)
+  start   <account>   launch; stops only THIS account's prior client
+  restart <account>   stop this account's client, then start it
+  stop    <account>   stop only THIS account's client (leaves siblings running)
+  stop    --all       ESCAPE HATCH: stop EVERY manny client on the host
   (paths taken from env: RUNELITE_LIBS, JAVA_BIN, XVFB_DISPLAY, TEMP_*)
 EOF
 }
@@ -95,27 +105,34 @@ pkg_temp_c() {
 
 loadavg_str() { cut -d' ' -f1-3 /proc/loadavg 2>/dev/null || echo "n/a"; }
 
-# manny_client_pids: "<pid> <account>" per running client. pgrep -x java (exact
-# comm, immune to argv self-match) + MANNY_ACCOUNT_ID from /proc/<pid>/environ.
+# manny_client_pids [account]: "<pid> <account>" per running client. pgrep -x
+# java (exact comm, immune to argv self-match) + MANNY_ACCOUNT_ID from
+# /proc/<pid>/environ. With an <account> arg, emit ONLY that account's clients
+# (lane-2: sibling accounts must never appear in a scoped stop/status). The
+# environ MANNY_ACCOUNT_ID is authoritative — it's exactly what cmd_start sets.
 manny_client_pids() {
+  local filter="${1:-}"
   local pid acct environ_file
   for pid in $(pgrep -x java 2>/dev/null); do
     environ_file="/proc/$pid/environ"
     [ -r "$environ_file" ] || continue
     acct="$(tr '\0' '\n' < "$environ_file" 2>/dev/null | sed -n 's/^MANNY_ACCOUNT_ID=//p')"
     [ -n "$acct" ] || continue
+    [ -n "$filter" ] && [ "$acct" != "$filter" ] && continue
     echo "$pid $acct"
   done
 }
 
 cmd_status() {
-  echo "=== manny clients ($XVFB_DISPLAY) ==="
+  local filter="${1:-}" scope
+  [ -n "$filter" ] && scope="account=$filter" || scope="all accounts"
+  echo "=== manny clients ($XVFB_DISPLAY, $scope) ==="
   local found=0 pid acct
   while IFS=' ' read -r pid acct; do
     [ -n "${pid:-}" ] || continue
     found=1
     printf '  pid=%-8s account=%-16s\n' "$pid" "$acct"
-  done < <(manny_client_pids)
+  done < <(manny_client_pids "$filter")
   [ "$found" -eq 0 ] && echo "  (none running)"
   echo
   echo "=== thermal / load ==="
@@ -128,20 +145,27 @@ cmd_status() {
   fi
 }
 
-stop_all_clients() {
-  local pairs pid acct; pairs="$(manny_client_pids)"
-  if [ -z "$pairs" ]; then echo "no manny clients running (nothing to stop)"; return 0; fi
-  echo "stopping manny clients:"
+# stop_clients [account] — SIGTERM, wait, then SIGKILL stragglers. With an
+# <account> it stops ONLY that account's clients and leaves every sibling
+# running (this is the lane-2 invariant: starting/stopping blast must never
+# touch newbakshesh). An EMPTY account means the old blanket sweep — reachable
+# only via the explicit `stop --all` escape hatch, never a default.
+stop_clients() {
+  local filter="${1:-}" scope
+  [ -n "$filter" ] && scope="account=$filter" || scope="ALL accounts"
+  local pairs pid acct; pairs="$(manny_client_pids "$filter")"
+  if [ -z "$pairs" ]; then echo "no manny clients running for $scope (nothing to stop)"; return 0; fi
+  echo "stopping manny clients ($scope):"
   echo "$pairs" | while IFS=' ' read -r pid acct; do
     [ -n "${pid:-}" ] || continue
     echo "  SIGTERM pid=$pid account=$acct"; kill -TERM "$pid" 2>/dev/null || true
   done
   local waited=0
   while [ "$waited" -lt "$STOP_WAIT_SECS" ]; do
-    [ -z "$(manny_client_pids)" ] && break
+    [ -z "$(manny_client_pids "$filter")" ] && break
     sleep 1; waited=$(( waited + 1 ))
   done
-  local stragglers; stragglers="$(manny_client_pids)"
+  local stragglers; stragglers="$(manny_client_pids "$filter")"
   if [ -n "$stragglers" ]; then
     echo "stragglers after ${STOP_WAIT_SECS}s, SIGKILL:"
     echo "$stragglers" | while IFS=' ' read -r pid acct; do
@@ -150,8 +174,24 @@ stop_all_clients() {
     done
     sleep 1
   fi
-  if [ -z "$(manny_client_pids)" ]; then echo "all manny clients stopped"; return 0
+  if [ -z "$(manny_client_pids "$filter")" ]; then echo "manny clients stopped ($scope)"; return 0
   else echo "WARNING: clients still present after SIGKILL — check manually"; return 1; fi
+}
+
+# stop_all_clients — explicit blanket sweep (the escape hatch). Kept as a named
+# alias so the intent reads clearly at call sites.
+stop_all_clients() { stop_clients ""; }
+
+# cmd_stop [account|--all] — account-scoped by default; --all sweeps everything.
+# Bare `stop` (no arg) is a deliberate error so a fat-fingered stop can never
+# nuke a sibling account's live grind.
+cmd_stop() {
+  local arg="${1:-}"
+  case "$arg" in
+    --all|-a) stop_clients "" ;;
+    "")       echo "ERROR: stop requires an account (or 'stop --all' to sweep every client)" >&2; return 1 ;;
+    *)        stop_clients "$arg" ;;
+  esac
 }
 
 ensure_xvfb() {
@@ -179,9 +219,11 @@ cmd_start() {
     else echo "thermal ok: package temp ${temp}C"; fi
   else echo "WARNING: could not read package temp — proceeding without thermal guard"; fi
 
-  # 2. Kill existing clients first (duplicate-login JVM kill).
-  echo "clearing any existing manny clients before launch..."
-  stop_all_clients
+  # 2. Kill THIS account's existing client first (duplicate-login / crash-restart
+  #    JVM kill). Scoped to $acct so a sibling account's client keeps running
+  #    (lane-2). The old blanket sweep is gone from the start path on purpose.
+  echo "clearing any existing '$acct' client before launch..."
+  stop_clients "$acct"
 
   # 3. Xvfb
   ensure_xvfb || return 1
@@ -246,13 +288,13 @@ print(a['jx_character_id'], a['jx_session_id'])
   tail -n 15 "$log" 2>/dev/null >&2 || true; return 1
 }
 
-cmd_restart() { local acct="${1:-}"; [ -n "$acct" ] || { echo "ERROR: restart requires an account" >&2; return 1; }; stop_all_clients; cmd_start "$acct"; }
+cmd_restart() { local acct="${1:-}"; [ -n "$acct" ] || { echo "ERROR: restart requires an account" >&2; return 1; }; stop_clients "$acct"; cmd_start "$acct"; }
 
 main() {
   local sub="${1:-}"; [ -n "$sub" ] && shift || true
   case "$sub" in
     status)  cmd_status "$@" ;;
-    stop)    stop_all_clients "$@" ;;
+    stop)    cmd_stop "$@" ;;
     start)   cmd_start "$@" ;;
     restart) cmd_restart "$@" ;;
     -h|--help|help) usage; exit 0 ;;
