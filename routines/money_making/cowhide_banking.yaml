@@ -16,6 +16,68 @@
 #     each floor, never a single GOTO to a plane-2 tile.
 # ===========================================================================
 #
+# ==================== DESK-VERIFICATION PASS (2026-07-18) ===================
+# Desk-side check only (no live account, no diort commands) against the OSRS
+# wiki + this repo's own validated corpus. Per-question results:
+#   1. WAYPOINTS: cow field + bank booth CONFIRMED against external sources
+#      (see below). Bridge hops (3247,3235 / 3247,3228 / 3244,3227 / 3239,3228)
+#      and courtyard (3221,3218) have NO independent coordinate source (OSRS
+#      wiki has no dedicated bridge-tile page/template) -- only internal
+#      geometric consistency (monotonic x from field->courtyard, castle-ground
+#      polygon contains the courtyard tile). STILL LIVE-GATED: confirm the
+#      bridge hops actually settle and the on-bridge tile is walkable.
+#   2. STAIRCASE GEOMETRY: CONFIRMED. oldschool.runescape.wiki/w/Staircase_
+#      (Lumbridge_Castle) raw wikitext gives per-floor {{Map}} pins for the
+#      SOUTH staircase (the one this routine uses, near the bank):
+#        bottom (plane0) pin (3204,3208), actions "Climb-up, Top-floor"
+#        middle (plane1) pin (3204,3208), actions "Climb, Climb-up, Climb-down"
+#        top    (plane2) pin (3205,3208), actions "Climb-down, Bottom-floor"
+#      i.e. it IS the same stacked-column tile (x/y within 1) on all 3 planes,
+#      confirming two Climb-up/Climb-down hops (0->1->2) with per-floor
+#      GOTO+plane-await is structurally correct. Ground/middle-floor waypoints
+#      below corrected from 3205,3209 -> 3205,3208 to match the wiki pin AND
+#      routines/common_actions.yaml's validated "3205 3208 0" ground-floor
+#      stair approach (repeated 3x in that file). Top-floor waypoint
+#      (3205,3209) kept as-is -- it matches the wiki's top pin (3205,3208,
+#      within 1 tile) exactly AND matches routines/skilling/cooking_lumbridge.
+#      yaml's southern_staircase_top, a routine whose own notes say
+#      "Successfully tested with Raw tuna cooking".
+#   3. BANK BOOTH: CONFIRMED. oldschool.runescape.wiki/w/Lumbridge_Castle_bank
+#      raw wikitext: {{Map|...|x=3209|y=3219|plane=2|r=5|...}} -- within 1
+#      tile of this routine's 3208,3220,2. ALSO cross-validated by 5 other
+#      corpus routines using this exact coordinate: cow_killer_training.yaml,
+#      cooking_lumbridge.yaml, cooks_assistant.yaml, fishing_draynor.yaml,
+#      chicken_killer_training.yaml. BANK_OPEN (no INTERACT_OBJECT needed) is
+#      the established corpus pattern for this booth -- unchanged.
+#   4. BATCH SIZE: kills recomputed 30 -> 35, see LOOT CONFIG section below
+#      for the math (also updated in cowhides.json).
+#   5. CLEAN INVENTORY: step 14 changed BANK_DEPOSIT_ITEM Cowhide ->
+#      BANK_DEPOSIT_ALL (manny_src/utility/BankingSupport.java:40 confirms
+#      the "Deposit inventory" widget button only touches the inventory
+#      panel, never equipped gear -- same equipment-safety guarantee as
+#      BANK_DEPOSIT_ITEM, but now also clears any non-Cowhide junk every
+#      cycle). This self-heals inventory cleanliness from cycle 2 onward but
+#      does NOT cover the very first kill batch before any bank visit has
+#      happened -- see the PRECONDITION comment above step 1.
+#
+# STILL LIVE-GATED (desk verification could not resolve these):
+#   * Bridge hop coordinates + on-bridge walkability (no external source).
+#   * DOOR RISK on the courtyard(3221,3218) -> south-staircase(3205,3208)
+#     leg: journals/navigation/indoor_navigation_lessons_2025-01-04.md
+#     documents a "side room door" at (3218,3217) in this same wing of the
+#     castle (flagged there as a trap for the KITCHEN route, not this one) --
+#     its coordinates sit almost exactly on the straight-line path from
+#     courtyard to stairs (interpolated y at x=3218 is ~3216-3218). Desk
+#     research found no confirmation either way of whether this specific
+#     door blocks the courtyard->stair walk, and the schema's mcp_tool
+#     whitelist has no generic "scan/open any door in path" primitive to add
+#     defensively without a confirmed door name/coordinate. A live run MUST
+#     `get_transitions()`/`scan_tile_objects("door")` near (3218,3217) before
+#     trusting steps 7->8 unattended; if a closed door is found, insert an
+#     explicit `INTERACT_OBJECT <Door_name> Open` step there per this doc's
+#     door-handling pattern before shipping this out of DRAFT.
+# ===========================================================================
+#
 # WHAT IT DOES
 #   Kills cows east of the Lumbridge river with KILL_LOOP_CONFIG so dropped
 #   Cowhide is looted (a bare KILL_LOOP only loots runes -- ROUTINE_SCHEMA.md
@@ -25,26 +87,79 @@
 #   Cowhide is NON-stackable, so the inventory fills as hides accumulate --
 #   that full inventory is the banking trigger (inner-loop exit_conditions:
 #   inventory_full). The routine then walks to the Lumbridge Castle 2nd-floor
-#   bank, deposits ONLY Cowhide (BANK_DEPOSIT_ITEM keeps equipment), and
-#   returns to the field. The outer loop repeats the field<->bank cycle,
-#   bounded ONLY by `./run_routine.py <this file> --loops N` (loop.max_iterations
-#   is a dead key -- ROUTINE_SCHEMA.md (d)/(f)).
+#   bank and runs BANK_DEPOSIT_ALL (deposits the whole inventory -- Cowhide
+#   plus any other junk that snuck in; confirmed equipment-safe, see
+#   DESK-VERIFICATION PASS #5 above), then returns to the field. The outer
+#   loop repeats the field<->bank cycle, bounded ONLY by
+#   `./run_routine.py <this file> --loops N` (loop.max_iterations is a dead
+#   key -- ROUTINE_SCHEMA.md (d)/(f)).
+#
+# PRECONDITION: start this routine with an EMPTY inventory (only equipped
+#   melee gear -- KILL_LOOP_CONFIG forces food="none" so no food is carried
+#   either). BANK_DEPOSIT_ALL at step 14 self-heals inventory cleanliness
+#   from the 2nd field<->bank cycle onward, but the VERY FIRST kill batch
+#   (step 2, before any bank visit) runs with whatever is in the inventory at
+#   routine start -- if that isn't empty, fewer than 28 slots are free for
+#   hides on cycle 1 only. Not unsafe (inventory_full still fires correctly
+#   regardless of what's occupying the 28 slots), just less efficient for one
+#   cycle. Desk research did not add an initial bank trip here because the
+#   character's login/start position is unknown, so a courtyard->bank leg from
+#   an unverified starting point would add its own unverified-coordinate risk
+#   for zero safety benefit -- see ROUTINE_SCHEMA.md and cow_killer_training.
+#   yaml/cooks_assistant.yaml for the alternative "bank first" corpus pattern
+#   if a live agent prefers that shape instead.
 #
 # LOOT CONFIG: routines/money_making/configs/cowhides.json
-#   {"npc": "Cow", "kills": 30, "loot_items": ["Cowhide"]}
-#   30 kills/batch slightly overshoots the ~28 inventory slots so a batch is
-#   near-guaranteed to reach inventory_full; the last 1-2 hides of a batch may
-#   drop unlooted once the inventory is already full (minor, acceptable).
+#   {"npc": "Cow", "kills": 35, "loot_items": ["Cowhide"]}
+#   BATCH-SIZE MATH (recomputed 2026-07-18, was kills=30):
+#     - 28 inventory slots total (Grammar 2 inventory_full = used>=28,
+#       ROUTINE_SCHEMA.md (c)); starting gear is equipped (weapon/shield),
+#       not in the inventory, and KILL_LOOP_CONFIG forces food="none", so all
+#       28 slots are free for hides given a clean start (see PRECONDITION).
+#     - Cowhide is a guaranteed 100% Cow drop, so a clean inventory fills
+#       exactly at the 28th successfully-looted kill.
+#     - CRITICAL: `kills`/`max_kills` in KillLoopCommand.java is a cap on LOOP
+#       ATTEMPTS, not confirmed kills -- `for (int i = 0; i < maxKills; i++)`
+#       increments on every iteration, and failed-target/LOS-blocked/failed-
+#       combat outcomes all `continue` (consume an attempt, i++) without
+#       incrementing the internal killCount (KillLoopCommand.java:165-455).
+#       So kills must have headroom above 28 to absorb attempts that don't
+#       land, or the batch could exhaust its budget before the inventory
+#       actually fills.
+#     - The java loop also does NOT stop early on a full inventory (it only
+#       auto-drops "Logs" if full, irrelevant here, and keeps attacking up to
+#       `kills` regardless -- KillLoopCommand.java:621-635) -- so ALL `kills`
+#       attempts run every batch; oversizing wastes time on unlootable kills,
+#       undersizing risks under-filling and forcing the inner loop to re-run
+#       the whole batch (self-healing per ROUTINE_SCHEMA.md (d), just slower).
+#     - Assuming a conservative ~20% attempt-failure rate for a low-contention
+#       F2P starter-zone cow pen (LOS blocks from fences/other cows, missed
+#       targeting): 28 / 0.80 = 35. Chosen kills=35 gives that headroom while
+#       keeping the worst-case unlooted-kill waste small (~7 kills if the
+#       failure rate is actually 0%, vs. 30's ~2-kill waste) -- a real
+#       tradeoff, not a free lunch; a live agent with actual attempt-failure
+#       telemetry should retune this.
 #
-# COORDINATES (ALL PENDING LIVE VERIFICATION -- see DRAFT banner):
-#   cow field (east of river) ...... 3253,3266 plane 0
-#   bridge east end ................ 3247,3228 plane 0
+# COORDINATES:
+#   cow field (east of river) ...... 3253,3266 plane 0   [CONFIRMED -- within
+#     1 tile of a real Cow spawn point (3254,3267) per oldschool.runescape.
+#     wiki/w/Cow raw {{Map}} pin data for the Lumbridge east farm cluster]
+#   bridge east end ................ 3247,3228 plane 0   [UNVERIFIED -- see
+#     "STILL LIVE-GATED" above, no external bridge-tile source found]
 #   on-bridge waypoint ............. 3244,3227 plane 0  (anti corner-cut)
-#   bridge west end ................ 3239,3228 plane 0
-#   castle courtyard ............... 3221,3218 plane 0
-#   ground-floor staircase base .... 3205,3209 plane 0
-#   1st-floor staircase ............ 3205,3209 plane 1
-#   2nd-floor bank booth ........... 3208,3220 plane 2
+#     [UNVERIFIED, same as above -- walkability NOT confirmed]
+#   bridge west end ................ 3239,3228 plane 0   [UNVERIFIED]
+#   castle courtyard ............... 3221,3218 plane 0   [PLAUSIBLE, not
+#     pin-verified -- falls inside the Lumbridge Castle grounds polygon per
+#     oldschool.runescape.wiki/w/Lumbridge_Castle raw wikitext, but no
+#     dedicated courtyard coordinate pin exists to pin it precisely; see the
+#     DOOR RISK note above for the courtyard->stair leg specifically]
+#   ground-floor staircase base .... 3205,3208 plane 0   [CONFIRMED -- see
+#     DESK-VERIFICATION PASS #2 above; corrected from 3205,3209]
+#   1st-floor staircase ............ 3205,3208 plane 1   [CONFIRMED, same
+#     source; corrected from 3205,3209]
+#   2nd-floor bank booth ........... 3208,3220 plane 2   [CONFIRMED -- see
+#     DESK-VERIFICATION PASS #3 above]
 
 name: "Cowhide Banking - Lumbridge (DRAFT)"
 type: money_making
@@ -76,7 +191,7 @@ steps:
     phase: "combat"
     action: KILL_LOOP_CONFIG
     args: "/home/wil/Desktop/manny_mcp/routines/money_making/configs/cowhides.json"
-    description: "Kill up to 30 cows, loot Cowhide; bones auto-buried, food forced none (50% HP safety stop)"
+    description: "Kill up to 35 cows, loot Cowhide; bones auto-buried, food forced none (50% HP safety stop). 35 = 28 inventory slots / ~80% assumed attempt-success rate, see LOOT CONFIG math in the file header."
     timeout_ms: 3600000   # blocking command (ROUTINE_SCHEMA.md (e)); NO await_condition
 
   # ========== TRAVEL: FIELD -> LUMBRIDGE CASTLE BANK (short hops) ==========
@@ -123,9 +238,9 @@ steps:
   - id: 8
     phase: "travel_to_bank"
     action: GOTO
-    args: "3205 3209 0"
+    args: "3205 3208 0"
     description: "Ground-floor staircase base inside the castle"
-    await_condition: "location:3205,3209"
+    await_condition: "location:3205,3208"
     timeout_ms: 60000
 
   - id: 9
@@ -139,9 +254,9 @@ steps:
   - id: 10
     phase: "travel_to_bank"
     action: GOTO
-    args: "3205 3209 1"
+    args: "3205 3208 1"
     description: "Reposition at the 1st-floor staircase"
-    await_condition: "location:3205,3209"
+    await_condition: "location:3205,3208"
     timeout_ms: 60000
 
   - id: 11
@@ -169,9 +284,12 @@ steps:
 
   - id: 14
     phase: "banking"
-    action: BANK_DEPOSIT_ITEM
-    args: "Cowhide"
-    description: "Deposit all Cowhide (BANK_DEPOSIT_ITEM leaves equipment untouched)"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit entire inventory (Cowhide + any junk); leaves
+      equipped gear untouched -- BankingSupport.java's DEPOSIT_INVENTORY_BUTTON
+      only targets the inventory panel widget, confirmed 2026-07-18. Changed
+      from BANK_DEPOSIT_ITEM Cowhide so a dirty inventory self-heals every
+      cycle -- see DESK-VERIFICATION PASS #5 in the file header."
     delay_after_ms: 500
 
   - id: 15
@@ -200,9 +318,9 @@ steps:
   - id: 18
     phase: "travel_to_field"
     action: GOTO
-    args: "3205 3209 1"
+    args: "3205 3208 1"
     description: "Reposition at the 1st-floor staircase"
-    await_condition: "location:3205,3209"
+    await_condition: "location:3205,3208"
     timeout_ms: 60000
 
   - id: 19
