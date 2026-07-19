@@ -84,6 +84,32 @@ hosts:
     viewer_port: 8787
     notes: "Shared desktop (couchdb/docker also run here). Treat client as a guest: stop when idle."
 
+  # ---- llama: brabra desktop (Arch, 6C/12T, ~40GB free RAM), LAN. ----------
+  llama:
+    local: false
+    ssh: llama                      # 10.0.0.99 (/etc/hosts), user wil, key-based.
+                                    # Login shell is FISH — mannyctl/provision wrap
+                                    # remote cmds in bash (keep it that way).
+    # Java: NO jdk21 on this host and NO passwordless sudo (provision's pacman
+    # fallback would fail). System java is OpenJDK 26 (/usr/bin/java), which runs
+    # the major-65 shaded jar. If a user-space Temurin 21 is ever needed instead,
+    # extract to ~/jdk21 and point this at /home/wil/jdk21/bin/java.
+    jdk: /usr/bin/java
+    display: ":2"
+    # Same never-reuse-a-display rule as diort. punitpun keeps :5 for parity
+    # with its diort mapping (tutorial island launch lane).
+    account_displays:
+      punitpun: ":5"     # reserved clean spare — tutorial island launch lane
+    staging_dir: /home/wil/Desktop/manny_mcp
+    runelite_libs: /home/wil/Desktop/runelite-client-libs
+    venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
+    temp_refuse_c: 85
+    temp_warn_c: 78
+    egress: "home residential IP 96.39.231.108 (same egress that burned new/newbakshesh — proxy posture still applies before sustained live contact)"
+    viewer_host: 10.0.0.99
+    viewer_port: 8787
+    notes: "Fresh 2026-07-19. Stale artifacts from an old attempt (~/runelite.jar, ~/.runelite/, ~/Desktop/manny/, ~/manny-mcp/) — do NOT trust or delete them; this entry provisions fresh alongside."
+
   # ---- mat: example future host, residential-proxy egress fallback. --------
   # Commented template for phase 2 — copy, fill in, uncomment.
   # mat:
