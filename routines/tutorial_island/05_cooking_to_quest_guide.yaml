@@ -1,9 +1,10 @@
 # Tutorial Island - Part 5: Cooking Exit to Quest Guide
-# STATUS: VALIDATED 2026-01-25
+# STATUS: REPAIRED 2026-07-18 (Track E phase-1b)
 #
 # This routine handles the navigation from the Cooking section to Quest Guide building.
-# CRITICAL: The path from cooking exit requires going WEST first, then NORTH along western edge.
-# Direct north paths are blocked by invisible fences.
+# CRITICAL: The path from cooking exit requires going WEST (onto the door tile) first,
+# then NORTH along the western edge in short hops. Direct north paths are blocked by
+# invisible fences and NAV-DIRECT cannot dogleg west-through-door-then-north.
 #
 # Previous section: 04_woodcutting_firemaking.yaml (ends with baking bread)
 # Next section: 06_quest_guide.yaml (now merged into this file)
@@ -15,18 +16,18 @@ phase: 5
 # Key Locations (VALIDATED)
 locations:
   cooking_exit_door: {x: 3072, y: 3090, plane: 0}    # Door to exit cooking building
-  cooking_door_approach: {x: 3073, y: 3090, plane: 0}  # MUST walk here FIRST before opening door
+  cooking_door_approach: {x: 3073, y: 3090, plane: 0}  # MUST settle here FIRST before opening door
   quest_guide_door: {x: 3086, y: 3126, plane: 0}
   quest_guide_npc: {x: 3084, y: 3121, plane: 0}
   ladder_down: {x: 3088, y: 3119, plane: 0}  # Surface side of the ladder; climbing down lands underground (see 07_mining_smithing.yaml, y~9500, still plane 0)
 
-# Navigation waypoints (VALIDATED - goes WEST first to avoid fences)
-# NOTE: not a schema key read by the executor (see steps 1/3/4/5/6 below, which
-# already walk this exact route) -- kept here as a comment, not a dead
-# top-level `waypoints:` key, so validate_routine_deep no longer flags it.
-#   {x: 3073, y: 3090, note: "In front of cooking exit door"}
-#   {x: 3072, y: 3100, note: "North along west edge"}
-#   {x: 3072, y: 3110, note: "Continue north"}
+# Navigation waypoints (VALIDATED - onto door tile then short north hops)
+# NOTE: not a schema key read by the executor (steps below walk this exact route)
+#   {x: 3073, y: 3090, note: "Settle in front of cooking exit door"}
+#   {x: 3072, y: 3090, note: "Step ONTO the door tile after opening"}
+#   {x: 3072, y: 3096, note: "North hop 1 (<=10 tiles)"}
+#   {x: 3072, y: 3106, note: "North hop 2"}
+#   {x: 3072, y: 3112, note: "North hop 3"}
 #   {x: 3080, y: 3120, note: "Toward Quest Guide building"}
 #   {x: 3086, y: 3125, note: "At Quest Guide door"}
 
@@ -34,125 +35,132 @@ widgets:
   quest_journal_tab: 35913794  # Opens quest journal
 
 steps:
-  # CRITICAL: Walk IN FRONT of door before trying to open it
+  # CRITICAL: settle IN FRONT of door before trying to open it
   - id: 1
-    description: "Walk to cooking exit door"
+    description: "Walk to cooking exit door and settle"
     action: GOTO
     args: "3073 3090 0"
     await_condition: "location:3073,3090"
     timeout_ms: 60000
+    delay_after_ms: 1500
     notes: |
-      CRITICAL: Must be directly in front of door before INTERACT_OBJECT works.
+      CRITICAL: Must settle directly in front of door before INTERACT_OBJECT works.
+      The delay_after_ms lets arrival settle so the door interact registers (proven
+      manual recipe -- an un-settled arrival makes the Open click miss).
       The door at (3072, 3090) leads OUT of the cooking building toward Quest Guide.
-      Do NOT use the door closest to the cooking range - that leads backwards!
 
   - id: 2
     description: "Open cooking exit door"
     action: INTERACT_OBJECT
-    args: "door Open"
+    args: "Door Open"
     delay_before_ms: 1000
+    delay_after_ms: 1000
 
   - id: 3
-    description: "Walk west then north - waypoint 1"
+    description: "Step ONTO the door tile (west) once it is open"
     action: GOTO
-    args: "3072 3100 0"
-    delay_before_ms: 1000
-    await_condition: "location:3072,3100"
+    args: "3072 3090 0"
+    delay_before_ms: 500
+    await_condition: "location:3072,3090"
     timeout_ms: 60000
-    notes: "Go WEST first to avoid invisible fences, then north"
+    notes: "Must go WEST onto the door tile first; NAV-DIRECT cannot dogleg through the door then north."
 
   - id: 4
-    description: "Continue north along west edge"
+    description: "North hop 1 along west edge (<=10 tiles)"
     action: GOTO
-    args: "3072 3110 0"
-    delay_before_ms: 1000
-    await_condition: "location:3072,3110"
+    args: "3072 3096 0"
+    delay_before_ms: 500
+    await_condition: "location:3072,3096"
     timeout_ms: 60000
 
   - id: 5
-    description: "Walk toward Quest Guide building"
+    description: "North hop 2 along west edge"
     action: GOTO
-    args: "3080 3120 0"
-    delay_before_ms: 1000
-    await_condition: "location:3080,3120"
+    args: "3072 3106 0"
+    delay_before_ms: 500
+    await_condition: "location:3072,3106"
     timeout_ms: 60000
 
   - id: 6
-    description: "Walk to Quest Guide door"
+    description: "North hop 3 along west edge"
     action: GOTO
-    args: "3086 3125 0"
-    delay_before_ms: 1000
-    await_condition: "location:3086,3125"
+    args: "3072 3112 0"
+    delay_before_ms: 500
+    await_condition: "location:3072,3112"
     timeout_ms: 60000
 
   - id: 7
-    description: "Open Quest Guide building door"
-    action: INTERACT_OBJECT
-    args: "door Open"
-    delay_before_ms: 1000
+    description: "Walk toward Quest Guide building"
+    action: GOTO
+    args: "3080 3120 0"
+    delay_before_ms: 500
+    await_condition: "location:3080,3120"
+    timeout_ms: 60000
 
   - id: 8
+    description: "Walk to Quest Guide door"
+    action: GOTO
+    args: "3086 3125 0"
+    delay_before_ms: 500
+    await_condition: "location:3086,3125"
+    timeout_ms: 60000
+
+  - id: 9
+    description: "Open Quest Guide building door"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    delay_before_ms: 1000
+    delay_after_ms: 1000
+
+  - id: 10
     description: "Talk to Quest Guide"
     action: INTERACT_NPC
     args: "Quest_Guide Talk-to"
     delay_before_ms: 2000
 
-  - id: 9
+  - id: 11
     description: "Continue dialogue"
     action: KEY_PRESS
     args: "Space"
     delay_before_ms: 2000
 
-  - id: 10
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 11
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
   - id: 12
+    description: "Continue dialogue"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 13
+    description: "Continue dialogue"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 14
     description: "Open Quest Journal tab"
     action: CLICK_WIDGET
     args: "35913794"
     delay_before_ms: 1000
     notes: "Tutorial says 'Click on the flashing icon to the left of your inventory'"
 
-  - id: 13
+  - id: 15
     description: "Select the 'Quest Guide' dialogue option (validated ladder gate)"
-    action: CLICK_WIDGET
-    args: "15138820"
+    action: CLICK_DIALOGUE
+    args: "Quest Guide"
     delay_before_ms: 2000
     notes: |
-      Ported from 06_quest_guide.yaml, which is no longer chained -- see the
-      DOUBLE-RUN FIX note in 00_master.yaml. After the Quest Journal tab opens
-      (step 12), a dialogue with options appears: "Quest Guide" (widget
-      15138820) and "Click here to continue". 06's VALIDATED notes state you
-      MUST click the "Quest Guide" option here: the ladder does NOT become
-      usable until this specific dialogue is completed. This replaced an earlier
-      "talk to Quest Guide again" step whose ladder-gating was never confirmed.
+      REPAIRED 2026-07-18: was CLICK_WIDGET 15138820, which fails live
+      ("not found or hidden"). After the Quest Journal tab opens (step 14) a
+      dialogue with options ['Quest Guide','Click here to continue'] appears.
+      Selecting the "Quest Guide" option (by text, matches the plugin-side
+      whitelist even when state-file options[] is empty) is what gates the
+      ladder: the ladder does NOT become usable until this dialogue completes.
 
-  - id: 14
-    description: "Continue dialogue"
+  - id: 16
+    description: "Continue dialogue to the very end"
     action: KEY_PRESS
     args: "Space"
     delay_before_ms: 2000
-
-  - id: 15
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 16
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
 
   - id: 17
     description: "Continue dialogue"
@@ -167,18 +175,33 @@ steps:
     delay_before_ms: 1000
 
   - id: 19
+    description: "Continue dialogue"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 20
+    description: "Continue dialogue (exhaust the Quest Guide's post-tab pages)"
+    action: KEY_PRESS
+    args: "Space"
+    delay_before_ms: 1000
+
+  - id: 21
     description: "Climb down ladder to mining section"
     action: INTERACT_OBJECT
     args: "Ladder Climb-down"
-    delay_before_ms: 1000
+    delay_before_ms: 1500
 
-# PITFALLS DISCOVERED (2026-01-25):
-# 1. MUST walk IN FRONT of cooking exit door at (3073, 3090) before INTERACT_OBJECT works
-# 2. The door closest to the cooking range leads BACKWARDS - use the one at (3072, 3090)
-# 3. Direct north paths from cooking are blocked by invisible fences
-# 4. Path must go WEST first (to ~3072 X), then north along western edge
-# 5. Navigation via GOTO often fails - use incremental waypoints
-# 6. Quest Guide dialogue has multiple "Click here to continue" screens
+# PITFALLS DISCOVERED (2026-01-25, updated 2026-07-18):
+# 1. MUST settle IN FRONT of cooking exit door at (3073, 3090) before INTERACT_OBJECT works
+#    (arrival must settle -- add delay_after_ms; an un-settled arrival misses the Open click)
+# 2. After opening the door, step ONTO the door tile (3072, 3090) BEFORE heading north.
+#    NAV-DIRECT cannot dogleg west-through-door-then-north; use explicit waypoints.
+# 3. Direct north paths from cooking are blocked by invisible fences -- hug the west edge (x=3072)
+# 4. Navigate north in short (<=10-tile) hops, each with a location await
+# 5. Quest Guide dialogue has multiple "Click here to continue" screens
+# 6. Ladder gate: must select "Quest Guide" dialogue option (step 15) AND exhaust the
+#    guide's post-tab dialogue before the ladder becomes usable (see Part 2 live findings).
 #
 # After this routine:
 # Player is underground in mining area at approximately (3088, 9520)
