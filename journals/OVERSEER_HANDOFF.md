@@ -14,9 +14,9 @@ one, open the doc named in its row.
 | # | Project | Status | Resume doc |
 |---|---|---|---|
 | 1 | **manny refactor** (decompose PlayerHelpers) | ✅ **COMPLETE** — 23,683 → **3,484 lines** (85%), all phases live-gated | REFACTOR_CAMPAIGN_HANDOFF.md |
-| 2 | **Off-thread defect cluster** (DEFECT-3 class) | ✅ **DONE** — DEFECT-15/16/17/18 fixed+gated; **remnants** queued for diort | REFACTOR_CAMPAIGN_LESSONS.md |
-| 3 | **Navigation** (DEFECT-19/19b) | ✅ code FIXED (char walks); **full-walk live gate owed on diort** | manny/journals/DEFECT19_NAVIGATION_DIAGNOSIS.md |
-| 4 | **Routines phase** | 🔄 groundwork DONE; **live grind proof blocked on a cool host** | GRIND_ROUTINE_READINESS_*.md, ROUTINE_CORPUS_HARDENING_*.md |
+| 2 | **Off-thread defect cluster** (DEFECT-3 class) | ✅ **DONE** — DEFECT-15/16/17/18 + **DEFECT-20** (collision/tile wraps, `a6da377`) fixed; DEFECT-20 owes a live cooking/mining gate on diort | REFACTOR_CAMPAIGN_LESSONS.md |
+| 3 | **Navigation** (DEFECT-19/19b) | ✅ DEFECT-19b **validated LIVE on diort** (fails cool+fast, no hot-A\* hang); **DEFECT-21** NEW: river-crossing routes mis-route through water (north-side grinds OK) | manny/journals/DEFECT19_NAVIGATION_DIAGNOSIS.md |
+| 4 | **Routines phase** | ✅ **grind PROVEN LIVE on diort** (20/20 chickens, +248 atk XP, 70-74°C); tutorial 05/06 double-run fixed (owes 1 live pass) | GRIND_ROUTINE_READINESS_*.md, ROUTINE_AUDIT_2026-07-18.md |
 | 5 | **diort migration** (thermal-stable run host) | ✅✅ **PROVEN LIVE (2026-07-18)** — remote login+nav+sustained chicken grind; **~70°C plateau vs laptop 90°C/crash. Thermal crash SOLVED.** | 2026-07-18_diort_bringup_parallel.md |
 | 6 | **Machine-agnostic remote-client** | ✅ **PROTOTYPE + validated live** — `scripts/remote/mannyctl` drives diort end-to-end (fish SSH-quoting bug fixed, commit 16b410e) | REMOTE_CLIENT_ARCHITECTURE.md |
 | 7 | **Grind robustness** (NEW next phase) | 🔄 **DEFECT-21**: routes crossing the Lumbridge river mis-route through water not the bridge (north-side grinds OK). ✅ do_run now detaches (`0eefb5f`, setsid). CORRECTION: the "competing auto-play scenario" was a MISDIAGNOSIS — `Play_Game` scenario file is absent so login auto-play is a NO-OP; the stray EQUIP_BEST_MELEE/BURY_ALL were normal grind byproducts (level-up auto-equip + KILL_LOOP bone-bury), and the "two combat threads" were the two-session collision. Real rule = one session per account. Optional: `SET_CONFIG autoPlayScenarioOnLogin=` to formally disable. | ROUTINE_AUDIT_2026-07-18.md, task #21 |
