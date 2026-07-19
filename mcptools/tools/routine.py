@@ -1356,32 +1356,71 @@ async def handle_execute_routine(arguments: dict) -> dict:
             # Track failures
             if not step_result.get("success", True):
                 action = step.get('action', step.get('mcp_tool', '?'))
-                results["errors"].append(f"Step {step_id} ({action}): {step_result.get('error', 'failed')}")
+                on_failure = _parse_on_failure(step.get('on_failure'))
 
-                # Inner loop failure: restart iteration instead of continuing
-                if (inner_start_idx is not None and inner_end_idx is not None
-                        and inner_start_idx <= current_step_idx <= inner_end_idx):
-                    inner_consecutive_failures += 1
-                    _routine_logger.warning(
-                        "[ROUTINE] Inner loop step %s failed (%d/%d). Restarting from step %s.",
-                        step_id, inner_consecutive_failures, max_inner_consecutive_failures,
-                        inner_loop.get('start_step', 1))
-
-                    if inner_consecutive_failures >= max_inner_consecutive_failures:
+                # on_failure: retry:N -- re-send this step up to N times before
+                # falling back to abort. Steps without an `on_failure` key parse
+                # as "continue" and skip this block entirely, so nothing that
+                # doesn't use the key changes behavior.
+                if on_failure["mode"] == "retry":
+                    for attempt in range(1, on_failure["retries"] + 1):
                         _routine_logger.warning(
-                            "[ROUTINE] %d consecutive inner loop failures. Exiting via on_exit.",
-                            inner_consecutive_failures)
-                        inner_consecutive_failures = 0
-                        on_exit = inner_loop.get('on_exit', '')
-                        if on_exit.startswith('goto_step:'):
-                            target_step = on_exit.split(':', 1)[1]
-                            jump_idx = _resolve_step_idx(target_step, step_id_to_idx, None)
-                            if jump_idx is not None:
-                                current_step_idx = jump_idx
-                                continue
-                    else:
-                        current_step_idx = inner_start_idx
-                        continue
+                            "[ROUTINE] Step %s (%s) failed; on_failure retry %d/%d.",
+                            step_id, action, attempt, on_failure["retries"])
+                        step_result = await _execute_single_step(
+                            step, current_step_idx, routine_config, account_id)
+                        results["completed_steps"].append(step_result)
+                        if step_result.get("success", True):
+                            break
+
+                # Still failed after any retries -> log it and apply the policy.
+                # (A recovered retry leaves success True and falls straight through
+                #  to the normal post-step handling, i.e. treated as a success.)
+                if not step_result.get("success", True):
+                    results["errors"].append(
+                        f"Step {step_id} ({action}): {step_result.get('error', 'failed')}")
+
+                    # abort (explicit, or retry:N exhausted): stop the run and
+                    # record why, instead of marching on as if the step succeeded.
+                    if on_failure["mode"] in ("abort", "retry"):
+                        results["success"] = False
+                        results["aborted"] = True
+                        results["aborted_at_step"] = step_id
+                        results["abort_reason"] = (
+                            f"Step {step_id} ({action}) failed"
+                            + (f" after {on_failure['retries']} retries"
+                               if on_failure["mode"] == "retry" else "")
+                            + f": {step_result.get('error', 'failed')}")
+                        _routine_logger.error("[ROUTINE] Aborting run: %s",
+                                              results["abort_reason"])
+                        return results
+
+                    # on_failure: continue (default) -- unchanged legacy behavior:
+                    # inner-loop steps restart the iteration, everything else is
+                    # logged and the runner proceeds to the next step.
+                    if (inner_start_idx is not None and inner_end_idx is not None
+                            and inner_start_idx <= current_step_idx <= inner_end_idx):
+                        inner_consecutive_failures += 1
+                        _routine_logger.warning(
+                            "[ROUTINE] Inner loop step %s failed (%d/%d). Restarting from step %s.",
+                            step_id, inner_consecutive_failures, max_inner_consecutive_failures,
+                            inner_loop.get('start_step', 1))
+
+                        if inner_consecutive_failures >= max_inner_consecutive_failures:
+                            _routine_logger.warning(
+                                "[ROUTINE] %d consecutive inner loop failures. Exiting via on_exit.",
+                                inner_consecutive_failures)
+                            inner_consecutive_failures = 0
+                            on_exit = inner_loop.get('on_exit', '')
+                            if on_exit.startswith('goto_step:'):
+                                target_step = on_exit.split(':', 1)[1]
+                                jump_idx = _resolve_step_idx(target_step, step_id_to_idx, None)
+                                if jump_idx is not None:
+                                    current_step_idx = jump_idx
+                                    continue
+                        else:
+                            current_step_idx = inner_start_idx
+                            continue
 
             # Periodic health check
             steps_since_health_check += 1
@@ -1505,6 +1544,41 @@ def _resolve_step_idx(step_id, step_id_to_idx: dict, default):
         return int(step_id) - 1
     except (ValueError, TypeError):
         return default
+
+
+def _parse_on_failure(spec):
+    """Parse a step's optional ``on_failure`` policy into {mode, retries}.
+
+    Backward-compatible: a missing/empty/``continue`` value maps to the exact
+    log-and-continue behavior the runner has always had, so routines that don't
+    set the key are unaffected. Accepted forms:
+
+        None / '' / 'continue'   -> {'mode': 'continue', 'retries': 0}
+        'abort'                  -> {'mode': 'abort',    'retries': 0}
+        'retry:N' / {'retry': N} -> {'mode': 'retry',    'retries': max(1, N)}
+
+    Anything unrecognized falls back to 'continue' (fail-safe: an author typo
+    can never silently turn into an abort/retry)."""
+    if not spec:
+        return {"mode": "continue", "retries": 0}
+    if isinstance(spec, dict):
+        if "retry" in spec:
+            try:
+                return {"mode": "retry", "retries": max(1, int(spec["retry"]))}
+            except (TypeError, ValueError):
+                return {"mode": "continue", "retries": 0}
+        return {"mode": "continue", "retries": 0}
+    text = str(spec).strip().lower()
+    if text in ("", "continue"):
+        return {"mode": "continue", "retries": 0}
+    if text == "abort":
+        return {"mode": "abort", "retries": 0}
+    if text.startswith("retry:"):
+        try:
+            return {"mode": "retry", "retries": max(1, int(text.split(":", 1)[1]))}
+        except (TypeError, ValueError):
+            return {"mode": "continue", "retries": 0}
+    return {"mode": "continue", "retries": 0}
 
 
 async def _check_conditions(conditions: list, routine_config: dict, account_id: str) -> bool:

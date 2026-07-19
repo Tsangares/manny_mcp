@@ -2536,7 +2536,7 @@ LIVE_STEP_KEYS = frozenset({
     "id", "phase", "action", "args", "mcp_tool", "description",
     "await_condition", "timeout_ms", "delay_before_ms", "delay_after_ms",
     "repeat", "repeat_until", "max_iterations", "repeat_until_timeout_ms",
-    "poll_interval_ms", "notes",
+    "poll_interval_ms", "notes", "on_failure",
 })
 
 # Recognized-but-DEAD keys: parse clean and silently do nothing at runtime.

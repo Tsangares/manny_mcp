@@ -120,6 +120,19 @@ class TestUnknownKeys:
         res = _validate(path)
         assert any("start_step" in w for w in res["warnings"])
 
+    def test_on_failure_is_a_known_step_key(self, tmp_path):
+        # `on_failure` is a live per-step key (routine._parse_on_failure) --
+        # it must NOT be flagged as an unknown/dead key.
+        path = _write_yaml(tmp_path, "onfail.yaml", {
+            "name": "x",
+            "steps": [{"id": 1, "action": "BANK_OPEN",
+                       "description": "d", "on_failure": "abort"},
+                      {"id": 2, "action": "BANK_DEPOSIT_ALL",
+                       "description": "d", "on_failure": "retry:2"}],
+        })
+        res = _validate(path)
+        assert not any("on_failure" in w for w in res["warnings"]), _warns(res)
+
 
 # ---------------------------------------------------------------------------
 # Check 2: blocking-command timeout + no-await.
