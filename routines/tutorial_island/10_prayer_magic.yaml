@@ -56,9 +56,19 @@ widgets:
   account_management_tab: 35913777  # Action: "Account Management"
   prayer_tab: 35913797              # Action: "Prayer"
   magic_tab: 35913798               # Action: "Magic" - opened during tutorial
-  wind_strike_spell: 14286856       # Spell widget in the magic spellbook
-  lumbridge_home_teleport: 14286854 # CONFIRMED CORRECT (Driver #5, DEFECT-13 fix). Canvas 554,305 40x40.
+  wind_strike_spell: 14286859       # CORRECTED live 2026-07-19 (newbakshesh, shadow-nav jar):
+                                    # Wind Strike is widget 14286859 (group 218 child 3, text
+                                    # "<col=00ff00>Wind Strike</col>", hasListener), NOT 14286856.
+                                    # SpellWidgetHelper.getSpellWidgetId("Wind Strike") returns the
+                                    # stale 14286856, so CAST_SPELL_NPC Wind_Strike FAILS ("Spell
+                                    # widget 14286856 not found") -- see step 25 for the manual cast.
+  lumbridge_home_teleport: 14286854 # CONFIRMED CORRECT (Driver #5 + re-confirmed live 2026-07-19:
+                                    # SCAN_WIDGETS -> group 218 child 3 "Lumbridge Home Teleport").
+                                    # Canvas 554,305 40x40. Only castable at the FINAL step (see step 32).
   # DO NOT USE 14286855 -- that is "Minigame Teleport", not Home Teleport (DEFECT-13).
+  # Dialogue-option parent (group 219): 14352385. Options are DYNAMIC children -- select via
+  # CLICK_CHILD_WIDGET <14352385> <child#>, NOT CLICK_DIALOGUE (which clicks by raw bounds and
+  # lands in the 3D viewport = "Walk here", closing the menu). Live-found 2026-07-19.
 
 steps:
   # ===================== Phase 1: Account Guide =====================
@@ -271,68 +281,110 @@ steps:
     args: "space"
     repeat_until: "no_dialogue"
 
-  - id: 25
-    description: "Cast Wind Strike on chicken"
-    action: CAST_SPELL_NPC
-    args: "Wind_Strike Chicken"
-    delay_before_ms: 1000
+  - id: 25a
+    description: "Approach the chicken pen (CAST_SPELL_NPC needs proximity/LOS)"
+    action: GOTO
+    args: "3138 3091 0"
+    await_condition: "location:3138,3091"
+    timeout_ms: 60000
+    delay_before_ms: 500
+    notes: "Chickens pen ~3138-3141,3092-3096. Confirmed live 2026-07-19."
+
+  - id: 25b
+    description: "Select Wind Strike spell (CORRECTED widget 14286859)"
+    action: CLICK_WIDGET
+    args: "14286859"
+    delay_before_ms: 800
     notes: |
-      CAST_SPELL_NPC opens the magic tab, clicks the spell, then clicks the
-      NPC in one call. Requires proximity -- walk closer first if the chicken
-      is off-screen (NPC bounds show negative Y when far away).
-      No await_condition: runes stack in one inventory slot ("Mind rune x4"),
-      so no_item:/has_item: cannot detect a partial quantity decrease from a
-      single cast -- there is no engine predicate for "spell cast succeeded".
-      Step 26's INTERACT_NPC await_condition:"dialogue" (with the engine's
-      built-in retry) is what actually gates progress past this step.
-      Fallback if this fails: click_widget(widget_id=14286856) to select Wind
-      Strike, then `action: CLICK_NPC args: "Chicken"` to complete the cast.
+      CAST_SPELL_NPC Wind_Strike is BROKEN on this jar: SpellWidgetHelper maps
+      "Wind Strike" -> 14286856 (stale), and the command aborts with "Spell
+      widget 14286856 not found". Select the spell directly via 14286859 (the
+      live-verified Wind Strike widget) instead. Magic tab must be open (step 22).
+
+  - id: 25c
+    description: "Cast the selected spell on a chicken"
+    action: CLICK_NPC
+    args: "Chicken"
+    delay_before_ms: 800
+    notes: |
+      With Wind Strike on the cursor, CLICK_NPC Chicken clicks the NPC bounds =
+      "Cast Wind Strike -> Chicken" (verified live: log shows Option:"Cast"
+      Target:"Wind Strike -> Chicken"). INTERACT_NPC Chicken "Cast" does NOT work
+      -- findNPCByNameAndAction scans the NPC's STATIC composition actions, and
+      the dynamic "Cast" entry (spell-on-cursor) isn't among them. One successful
+      cast fires the "Learning the Ropes" completion scroll. Re-run 25b+25c up to
+      ~3x if the first click misses (chicken paces).
 
   # ===================== Phase 6: Final dialogue, Ironman decline, mainland exit =====================
-  # Driver #5's exact confirmed sequence (defects log:267-281):
-  #   1. INTERACT_NPC Magic_Instructor Talk-to -- clean.
-  #   2. Dialogue chain: "Do you want to go to the mainland?" -> CLICK_DIALOGUE Yes
-  #      -> Ironman prompt -> CLICK_DIALOGUE No -> continues.
-  #   3. Final instruction: "Cast your Home Teleport spell to be taken to Lumbridge."
-  #   4. TELEPORT_HOME and CAST_SPELL Home_Teleport BOTH FAILED (DEFECT-13).
-  #   5. SCAN_WIDGETS Teleport -> Lumbridge Home Teleport is widget 14286854.
-  #   6. CLICK_WIDGET 14286854 -> ~10s cast animation -> arrival (3221,3218). Done.
+  # FULLY RE-VALIDATED LIVE 2026-07-19 (newbakshesh, shadow-nav jar). Two hard-won corrections
+  # vs Driver #5's notes:
+  #   (A) OPTION SELECTION: CLICK_DIALOGUE "Yes"/"No" DOES NOT WORK here. It clicks by raw widget
+  #       bounds, which map into the 3D viewport ("Walk here") -> the option menu closes, the player
+  #       walks, and the instructor loops back to "Do you want to go to the mainland?". Use
+  #       CLICK_CHILD_WIDGET on the group-219 option parent 14352385 instead (dynamic children).
+  #   (B) HOME TELEPORT TIMING: 14286854 is blocked ("You cannot teleport from Tutorial Island just
+  #       yet!") until the FULL dialogue chain finishes and the game shows "use your Home Teleport
+  #       spell. This will take you to the mainland" (Home Teleport icon flashes). Only then does it fire.
+  #   Also: the "Learning the Ropes" completion SCROLL (after the wind-strike cast) and several
+  #   panes are NOT reported in the state file's dialogue block -- drive them blind with KEY_PRESS
+  #   space / KEY_PRESS escape and verify by screenshot, not by `no_dialogue`.
+  # Confirmed exit sequence: talk -> "all finished" (continue) -> mainland menu (child 1 = Yes)
+  #   -> "Were you planning to become an Ironman?" (continue) -> ironman menu (child 3 = decline)
+  #   -> info continues -> "use your Home Teleport spell" -> CLICK_WIDGET 14286854 -> arrive (3221,3218).
 
   - id: 26
     description: "Talk to Magic Instructor (after Wind Strike cast)"
     action: INTERACT_NPC
     args: "Magic_Instructor Talk-to"
     await_condition: "dialogue"
+    notes: "If a 'Learning the Ropes' completion scroll is still up, KEY_PRESS escape first (it is a modal, not reported in state)."
 
   - id: 27
-    description: "Advance dialogue toward the mainland question"
+    description: "Advance the instructor intro ('Well, you're all finished here now...')"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
+    notes: "Stops when the mainland Yes/No menu appears (state reports it as player_chat/empty -- DEFECT-6)."
 
   - id: 28
-    description: "Answer 'Do you want to go to the mainland?' -- Yes"
-    action: CLICK_DIALOGUE
-    args: "Yes"
+    description: "Answer 'Do you want to go to the mainland?' -- Yes (dynamic child 1)"
+    action: CLICK_CHILD_WIDGET
+    args: "14352385 1"
     delay_before_ms: 1000
     notes: |
-      CONFIRMED, Driver #5. DEFECT-6 caveat: this option menu sometimes
-      reports as `type: player_chat, options: []` in the state file (invisible
-      to option-driven logic) -- CLICK_DIALOGUE with substring text still
-      works on the plugin side regardless of state-file visibility.
+      Group-219 option parent 14352385; child 1 = 'Yes.', child 2 = 'No.'
+      CLICK_DIALOGUE "Yes" FAILS (clicks through to the world -> menu re-loops).
+      Verify by re-scanning group 219: after this fires, options change to the
+      3-entry Ironman menu.
 
   - id: 29
-    description: "Decline Ironman mode -- No"
-    action: CLICK_DIALOGUE
-    args: "No"
-    delay_before_ms: 1000
-    notes: "CONFIRMED, Driver #5. Second question -- declines Ironman mode."
-
-  - id: 30
-    description: "Complete final dialogue (leads to 'Cast your Home Teleport spell...')"
+    description: "Advance to the Ironman menu ('Were you planning to become an Ironman?')"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
+
+  - id: 30
+    description: "Decline Ironman -- 'No, I'm not planning to do that.' (dynamic child 3)"
+    action: CLICK_CHILD_WIDGET
+    args: "14352385 3"
+    delay_before_ms: 1000
+    notes: |
+      Ironman menu children: 1='What's an Ironman?', 2='Yes, I do want to become
+      an Ironman.', 3="No, I'm not planning to do that.". Child 3 declines.
+      Player line then reads "No, I'm not planning to do that." Confirmed live.
+
+  - id: 30b
+    description: "Exhaust info continues until 'use your Home Teleport spell' instruction"
+    action: KEY_PRESS
+    args: "space"
+    repeat_until: "no_dialogue"
+    notes: |
+      Several pages ("When you get to the mainland...", "look for this icon...
+      Lumbridge Guide"). The state file reports dialogue closed BETWEEN pages,
+      so a no_dialogue loop may exit early -- if the overlay still says "speak to
+      the Magic Instructor", press space a few more times. Done when the overlay
+      reads "When you're ready, use your Home Teleport spell" and the Home
+      Teleport icon flashes.
 
   - id: 31
     description: "Re-open Magic tab before Home Teleport (tab may have closed)"
@@ -345,14 +397,17 @@ steps:
     action: CLICK_WIDGET
     args: "14286854"
     await_condition: "location:3221,3218"
-    timeout_ms: 15000
+    timeout_ms: 30000
     delay_before_ms: 500
     notes: |
       DO NOT use `CAST_SPELL Home_Teleport` or `TELEPORT_HOME` here -- both
       target the wrong widget (14286855, "Minigame Teleport") on this jar
       (DEFECT-13, defects log:285-292). 14286854 is the CONFIRMED correct
-      "Lumbridge Home Teleport" widget (found via live SCAN_WIDGETS Teleport,
-      Driver #5). Cast animation takes ~10s; timeout extended accordingly.
+      "Lumbridge Home Teleport" widget (re-confirmed live 2026-07-19).
+      Cast animation observed ~16-18s live (arrival at 3221,3218 after ~18s),
+      so timeout raised to 30s. ONLY fires after step 30b's "use your Home
+      Teleport spell" instruction -- earlier it returns "You cannot teleport
+      from Tutorial Island just yet!".
 
 # PITFALLS DISCOVERED:
 # 1. Door navigation: walk to a tile directly in front of the door, then INTERACT_OBJECT Door Open
@@ -360,10 +415,13 @@ steps:
 # 3. Prayer tab widget ID: 35913797 (also not in TAB_OPEN's supported list)
 # 4. Magic tab widget ID: 35913798
 # 5. Dialogue advancement: KEY_PRESS space + repeat_until: no_dialogue (self-terminating)
-# 6. CAST_SPELL_NPC requires proximity -- walk closer first if NPC bounds show negative Y
-# 7. Ironman/mainland dialogue sequence (CONFIRMED order, Driver #5):
-#    - CLICK_DIALOGUE "Yes" (first question: confirm leaving for the mainland)
-#    - CLICK_DIALOGUE "No" (second question: decline Ironman mode)
+# 6. Wind Strike CAST (CORRECTED 2026-07-19): CAST_SPELL_NPC is BROKEN (SpellWidgetHelper maps
+#    "Wind Strike" -> stale 14286856 -> "Spell widget not found"). Manual: CLICK_WIDGET 14286859
+#    (select) then CLICK_NPC Chicken (cast). INTERACT_NPC Chicken "Cast" fails (static-action scan).
+# 7. Dialogue OPTIONS (CORRECTED 2026-07-19): use CLICK_CHILD_WIDGET 14352385 <child#>, NOT
+#    CLICK_DIALOGUE (bounds-click lands in the 3D viewport = walk-away, menu re-loops):
+#    - mainland "Do you want to go to the mainland?": child 1 = Yes
+#    - ironman "Were you planning to become an Ironman?": child 3 = "No, I'm not planning to do that."
 # 8. KEY_PRESS space is the universal dialogue-advance fallback (defects log:337-338) --
 #    CLICK_CONTINUE fails on some plain-message/level-up-style panes (DEFECT-8), space does not.
 # 9. DEFECT-13 (CRITICAL): Home Teleport must be CLICK_WIDGET 14286854, never
