@@ -1,5 +1,12 @@
 # 2026-07-19 — IP-diversity / proxy wiring plan (dataimpulse + mat)
 
+> **IMPLEMENTED (2026-07-19, commit `403e235`).** Approach (1) below — local SOCKS relay → JVM socks
+> props — is now BUILT into `scripts/remote/` (opt-in, default OFF) and verified offline. See the
+> implementation report: [`2026-07-19_proxy_egress_implementation.md`](2026-07-19_proxy_egress_implementation.md).
+> This file remains the plan/rationale + verification-gate reference. Still open before a live run:
+> sticky-session syntax (caution #1) and game-socket-traversal proof (verification gate) — both
+> unresolved.
+
 **Status:** PLAN + verified prerequisites. No client wiring done (live contact is still gated on
 humanization). This is the runbook for the live-work phase. Credentials live in
 `~/.manny/credentials.yaml` → `proxies.dataimpulse` (600 perms) — never inline them in code/docs.
