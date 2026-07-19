@@ -12,6 +12,14 @@ name: "Tutorial Island - Quest Guide"
 type: tutorial
 phase: 6
 
+
+# STRICT-STEPS honesty gate (engine finding #1a): any failed step marks this
+# SECTION failed so the master chain STOPS instead of false-passing into the
+# next section on a desynced game. Attempt #1's cascade came from a section
+# that logged failed steps yet exited runner-status SUCCESS.
+config:
+  strict_steps: true
+
 steps:
   - id: 1
     description: "Walk to Quest Guide building area"
@@ -111,6 +119,17 @@ steps:
     args: "Space"
     delay_before_ms: 1000
 
+  # POSITION-PIN before the ladder (finding #2a): seat on the ladder's surface
+  # tile so the range-based Climb-down is issued adjacent, not from across the
+  # room ("I can't reach that!" silent-SUCCESS was the attempt-#1 06-resume bug).
+  - id: 15b
+    description: "Walk onto the ladder's surface tile before climbing (exact-arrival)"
+    action: GOTO
+    args: "3088 3119 0 exact"
+    delay_before_ms: 500
+    await_condition: "location:3088,3119"
+    timeout_ms: 60000
+
   - id: 16
     description: "Climb down ladder to mining section"
     action: INTERACT_OBJECT
@@ -118,6 +137,9 @@ steps:
     delay_before_ms: 1000
     notes: |
       Ladder leads to underground mining tutorial area.
+      NOTE: this 06 file is DEPRECATED (not in the master chain -- see
+      00_master.yaml; the merged 05_cooking_to_quest_guide.yaml owns the ladder
+      now). Kept only as the standalone Quest-Guide dialogue reference.
 
 # PITFALLS DISCOVERED:
 # 1. CLICK_WIDGET only takes widget ID - not action strings

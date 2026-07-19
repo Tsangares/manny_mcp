@@ -71,6 +71,14 @@ widgets:
   inventory_tab: 35913795       # Action "Inventory" -- MUST re-click between equips (see header)
   inventory_container: 9764864  # Group 149 << 16
 
+
+# STRICT-STEPS honesty gate (engine finding #1a): any failed step marks this
+# SECTION failed so the master chain STOPS instead of false-passing into the
+# next section on a desynced game. Attempt #1's cascade came from a section
+# that logged failed steps yet exited runner-status SUCCESS.
+config:
+  strict_steps: true
+
 steps:
   # Phase 0: Safety approach (mining section 07 ends on an untranscribed
   # gate/waypoint -- see 07's step 15 TODO). Re-anchor position here so this

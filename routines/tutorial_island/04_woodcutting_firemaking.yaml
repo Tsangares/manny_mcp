@@ -12,6 +12,14 @@ name: "Tutorial Island - Woodcutting & Firemaking"
 type: tutorial
 phase: 4
 
+
+# STRICT-STEPS honesty gate (engine finding #1a): any failed step marks this
+# SECTION failed so the master chain STOPS instead of false-passing into the
+# next section on a desynced game. Attempt #1's cascade came from a section
+# that logged failed steps yet exited runner-status SUCCESS.
+config:
+  strict_steps: true
+
 steps:
   - id: 1
     description: "Talk to Survival Expert for woodcutting intro"

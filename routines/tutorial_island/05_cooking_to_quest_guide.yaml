@@ -44,6 +44,14 @@ locations:
 widgets:
   quest_journal_tab: 35913794  # Opens quest journal
 
+
+# STRICT-STEPS honesty gate (engine finding #1a): any failed step marks this
+# SECTION failed so the master chain STOPS instead of false-passing into the
+# next section on a desynced game. Attempt #1's cascade came from a section
+# that logged failed steps yet exited runner-status SUCCESS.
+config:
+  strict_steps: true
+
 steps:
   # CRITICAL: settle IN FRONT of door before trying to open it
   - id: 1
@@ -184,6 +192,20 @@ steps:
       monologue is the actual tutorial gate for the ladder; once it is fully
       cleared the Climb-down descends.
 
+  # POSITION-PIN before the ladder (finding #2a): the ladder INTERACT is
+  # range-based. Steps 10-12c leave the player next to the Quest Guide (~3084,
+  # 3121), and clicking the Climb-down from too far gave "I can't reach that!"
+  # (attempt #1 resume runs, silent SUCCESS). Seat EXACTLY on the ladder's
+  # surface tile first so the Climb-down is issued adjacent. exact mode disables
+  # the DEFECT-7 3-tile short-circuit so we actually reach x=3088.
+  - id: 12d
+    description: "Walk onto the ladder's surface tile before climbing (exact-arrival)"
+    action: GOTO
+    args: "3088 3119 0 exact"
+    delay_before_ms: 500
+    await_condition: "location:3088,3119"
+    timeout_ms: 60000
+
   - id: 13
     description: "Climb down ladder to mining section (gate now open)"
     action: INTERACT_OBJECT
@@ -196,6 +218,11 @@ steps:
       only after the RE-TALK (12b) + its completion monologue (12c) are exhausted.
       Live-verified 2026-07-19: after that recipe one Climb-down landed the player
       at (3088, 9520).
+      HONESTY NOTE: descent itself is verified by the NEXT section
+      (07_mining_smithing step 1: `GOTO 3080 9504 0` await `location:3080,9504`).
+      If the gate did NOT open (dialogue desync) the player stays on the surface,
+      that await times out, and strict_steps fails section 07 -- so the chain
+      STOPS honestly instead of blind-mining nothing for 40+ minutes (attempt #1).
 
 # PITFALLS DISCOVERED (2026-01-25, updated 2026-07-18):
 # 1. MUST settle IN FRONT of cooking exit door at (3073, 3090) before INTERACT_OBJECT works
