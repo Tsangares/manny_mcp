@@ -30,3 +30,10 @@ date,account,host,section,first_contact,failure_class,live_minutes,run_id
 2026-07-19,ifixifixit,llama,08_combat,NR,not-reached-nav-trap,0,20260719T214839Z_ifixifixit
 2026-07-19,ifixifixit,llama,09_banking,NR,not-reached-nav-trap,0,20260719T214839Z_ifixifixit
 2026-07-19,ifixifixit,llama,10_prayer_magic,NR,not-reached-nav-trap,0,20260719T214839Z_ifixifixit
+2026-07-19,blast,diort,08_combat_DEFECT29_equip,P,equip-PASS;tutorial-deadlock-progress400-sword-shield-not-dispensed,18,20260719T223513Z_blast
+2026-07-19,ifixifixit,llama,01-05_gate_skip_resume3b,P,varp-gating-reconfirmed-on-resume-progress130-sections1to5-skipped,1,20260719T224748Z_ifixifixit
+2026-07-19,ifixifixit,llama,05b_06_quest_guide_ladder,F,resume-exterior-structural-gap;revert-VALIDATED-step1-undershoot-accepted+step2-dooropen-OK;minimap-follower-cannot-traverse-door/gate;player-fenced-in-cook-compound,20,20260719T224748Z_ifixifixit
+2026-07-19,ifixifixit,llama,07_mining_smithing,NR,not-reached-structural-gap-05b,0,20260719T224748Z_ifixifixit
+2026-07-19,ifixifixit,llama,08_combat,NR,not-reached-structural-gap-05b-DEFECT29-sword-shield-bow-STILL-unmeasured,0,20260719T224748Z_ifixifixit
+2026-07-19,ifixifixit,llama,09_banking,NR,not-reached-structural-gap-05b,0,20260719T224748Z_ifixifixit
+2026-07-19,ifixifixit,llama,10_prayer_magic,NR,not-reached-structural-gap-05b,0,20260719T224748Z_ifixifixit
