@@ -1,0 +1,367 @@
+#!/usr/bin/env python3
+"""watchdog.py — unattended run-ledger + guardian for a remote manny grind.
+
+Track F of the remote-run milestone. Runs ON the target host (e.g. diort),
+setsid-detached alongside run_routine.py by `mannyctl <host> run`. Its job is to
+notice, while nobody is watching, the three ways a long grind dies:
+
+  1. THERMAL RUNAWAY — the box overheats. On two consecutive checks at/above the
+     refuse threshold it SIGTERMs the run process (then the client) to protect the
+     hardware, and records status=thermal_kill.
+  2. FREEZE — the plugin state file stops updating (>120s stale) or a crash
+     signature appears in the client log. This is recorded as needs_attention;
+     the watchdog does NOT self-heal — the LLM driver reads the ledger and decides.
+  3. NORMAL/ABNORMAL EXIT — the run process is gone. Recorded as completed (or
+     dead, best-effort, if the last observation looked unhealthy) and the watchdog
+     self-terminates.
+
+It maintains one JSON run-record per run at /tmp/manny_runs/<run_id>.json, written
+atomically (tmp + os.replace) every interval so a reader never sees a torn file.
+
+STDLIB ONLY. It optionally imports mcptools.tools.monitoring.CRASH_PATTERNS when
+launched from the repo root (as mannyctl does); if that import fails it falls back
+to a vendored copy of the same signatures, so it never hard-depends on the repo.
+
+Usage:
+  watchdog.py --run-id <id> --account <acct> --routine <path> --run-pid <pid>
+              [--client-pid <pid>] [--interval 60] [--temp-refuse 88]
+              [--state-file PATH] [--log-file PATH] [--dry-run]
+
+Timestamps are ISO-8601 UTC. Self-terminates when the run PID is gone.
+"""
+
+import argparse
+import json
+import os
+import re
+import signal
+import sys
+import time
+from collections import deque
+from datetime import datetime, timezone
+
+RUNS_DIR = "/tmp/manny_runs"
+STATE_STALE_S = 120          # state file older than this => needs_attention
+LOG_TAIL_LINES = 200         # scan this many trailing log lines for crash sigs
+THERMAL_CONSECUTIVE = 2      # consecutive over-temp checks before we kill
+MAX_EVENTS = 500             # cap the events list so the record can't grow unbounded
+
+# ---- crash signatures: prefer the repo's canonical list, fall back to vendored --
+# This file lives at <repo>/scripts/remote/watchdog.py, so running it as a script
+# puts scripts/remote (not the repo root) on sys.path[0] — mcptools wouldn't import.
+# Add the repo root explicitly so the canonical CRASH_PATTERNS is used wherever we
+# launch from; the vendored copy below is the graceful fallback if that still fails.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if _REPO_ROOT not in sys.path:
+    sys.path.insert(0, _REPO_ROOT)
+try:
+    from mcptools.tools.monitoring import CRASH_PATTERNS  # (pattern, description)
+    _CRASH_SRC = "mcptools"
+except Exception:
+    _CRASH_SRC = "vendored"
+    CRASH_PATTERNS = [
+        ("Client error: map loading", "Map loading crash - client failed to load region data"),
+        ("Client error", "Generic client crash"),
+        ("OutOfMemoryError", "Out of memory - client ran out of heap space"),
+        ("StackOverflowError", "Stack overflow - infinite recursion detected"),
+        ("NullPointerException", "Null pointer exception in client"),
+        ("TIMEOUT after", "Client thread timeout - game may be frozen"),
+    ]
+
+# Compile each signature as a regex; fall back to a literal-substring matcher if a
+# pattern isn't valid regex. Each entry: (matcher(line)->bool, pattern, description).
+def _build_matchers(patterns):
+    out = []
+    for pat, desc in patterns:
+        try:
+            rx = re.compile(pat)
+            out.append((lambda line, rx=rx: rx.search(line) is not None, pat, desc))
+        except re.error:
+            out.append((lambda line, p=pat: p in line, pat, desc))
+    return out
+
+CRASH_MATCHERS = _build_matchers(CRASH_PATTERNS)
+
+
+def now_iso():
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# ---- thermal: port of client_remote.sh:57-88 pkg_temp_c fallback chain ----------
+def pkg_temp_c():
+    """Whole-degree package temp as int, or None if unreadable. Never raises."""
+    # Primary: x86_pkg_temp thermal zone (laptop / most Intel).
+    try:
+        for type_file in _glob("/sys/class/thermal", "thermal_zone*", "type"):
+            try:
+                with open(type_file) as f:
+                    if f.read().strip() != "x86_pkg_temp":
+                        continue
+                temp_file = os.path.join(os.path.dirname(type_file), "temp")
+                milli = _read_int(temp_file)
+                if milli is not None:
+                    return milli // 1000
+            except OSError:
+                continue
+    except OSError:
+        pass
+    # Fallback: coretemp hwmon "Package id 0" / "CPU Package" (diort's iMac).
+    try:
+        for label_file in _glob("/sys/class/hwmon", "hwmon*", "temp*_label"):
+            try:
+                with open(label_file) as f:
+                    label = f.read().strip()
+                if label.startswith("Package") or label == "CPU Package":
+                    input_file = label_file[: -len("_label")] + "_input"
+                    milli = _read_int(input_file)
+                    if milli is not None:
+                        return milli // 1000
+            except OSError:
+                continue
+    except OSError:
+        pass
+    return None
+
+
+def _glob(base, mid, leaf):
+    """Tiny two-level glob without importing glob's fnmatch overhead surprises."""
+    import glob as _g
+    return _g.glob(os.path.join(base, mid, leaf))
+
+
+def _read_int(path):
+    try:
+        with open(path) as f:
+            v = f.read().strip()
+        return int(v)
+    except (OSError, ValueError):
+        return None
+
+
+def state_age_s(state_file):
+    """Seconds since state_file was last modified, or None if it doesn't exist."""
+    try:
+        return max(0.0, time.time() - os.path.getmtime(state_file))
+    except OSError:
+        return None
+
+
+def pid_alive(pid):
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # exists, owned by someone else — still "alive"
+    except (ValueError, TypeError):
+        return False
+
+
+def tail_crash_matches(log_file, seen):
+    """Scan the last LOG_TAIL_LINES of log_file; return NEW (pattern, desc, line)
+    matches not already in `seen` (a set of line hashes). Never raises."""
+    matches = []
+    if not log_file or not os.path.exists(log_file):
+        return matches
+    try:
+        with open(log_file, "r", errors="replace") as f:
+            lines = deque(f, maxlen=LOG_TAIL_LINES)
+    except OSError:
+        return matches
+    for line in lines:
+        line = line.rstrip("\n")
+        for matcher, pat, desc in CRASH_MATCHERS:
+            if matcher(line):
+                key = hash((pat, line))
+                if key not in seen:
+                    seen.add(key)
+                    matches.append((pat, desc, line[:200]))
+                break  # one signature per line
+    return matches
+
+
+def default_state_file(account):
+    return "/tmp/manny_%s_state.json" % account
+
+
+def default_log_file(account):
+    # Mirror client_remote.sh: account "new" -> /tmp/runelite.log, else suffixed.
+    return "/tmp/runelite.log" if account == "new" else "/tmp/runelite_%s.log" % account
+
+
+class RunRecord:
+    """Owns the on-disk JSON ledger for one run. Every mutation flushed atomically."""
+
+    def __init__(self, path, run_id, routine, account, run_pid, client_pid):
+        self.path = path
+        self.data = {
+            "run_id": run_id,
+            "routine": routine,
+            "account": account,
+            "run_pid": run_pid,
+            "client_pid": client_pid,
+            "started_at": now_iso(),
+            "last_check": None,
+            "temp_c": None,
+            "state_age_s": None,
+            "status": "running",
+            "crash_source": _CRASH_SRC,
+            "events": [],
+        }
+
+    def event(self, kind, detail):
+        self.data["events"].append({"ts": now_iso(), "kind": kind, "detail": detail})
+        # keep the list bounded (retain most recent)
+        if len(self.data["events"]) > MAX_EVENTS:
+            self.data["events"] = self.data["events"][-MAX_EVENTS:]
+
+    def update(self, **kw):
+        self.data.update(kw)
+
+    def flush(self):
+        """Atomic write: temp file in the same dir + os.replace (same-fs rename)."""
+        d = os.path.dirname(self.path)
+        os.makedirs(d, exist_ok=True)
+        tmp = "%s.tmp.%d" % (self.path, os.getpid())
+        with open(tmp, "w") as f:
+            json.dump(self.data, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.path)
+
+
+def parse_args(argv):
+    p = argparse.ArgumentParser(description="unattended run-ledger + guardian")
+    p.add_argument("--run-id", required=True)
+    p.add_argument("--account", required=True)
+    p.add_argument("--routine", required=True)
+    p.add_argument("--run-pid", required=True, type=int)
+    p.add_argument("--client-pid", type=int, default=None)
+    p.add_argument("--interval", type=int, default=60)
+    p.add_argument("--temp-refuse", type=int, default=88)
+    p.add_argument("--state-file", default=None)
+    p.add_argument("--log-file", default=None)
+    p.add_argument("--dry-run", action="store_true",
+                   help="observe + record only; never actually SIGTERM anything")
+    return p.parse_args(argv)
+
+
+def sigterm(pid):
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+        return True
+    except (ProcessLookupError, PermissionError, ValueError, TypeError):
+        return False
+
+
+def main(argv):
+    args = parse_args(argv)
+    state_file = args.state_file or default_state_file(args.account)
+    log_file = args.log_file or default_log_file(args.account)
+    record_path = os.path.join(RUNS_DIR, "%s.json" % args.run_id)
+
+    rec = RunRecord(record_path, args.run_id, args.routine, args.account,
+                    args.run_pid, args.client_pid)
+    rec.event("start", "watchdog up (interval=%ss refuse=%sC dry_run=%s state=%s log=%s crash_sigs=%s)"
+              % (args.interval, args.temp_refuse, args.dry_run, state_file, log_file, _CRASH_SRC))
+    rec.flush()
+
+    seen_crash = set()
+    over_temp_streak = 0
+    stale_armed = True   # only fire a fresh "stale" event on each stale onset
+    last_unhealthy = False
+
+    while True:
+        temp = pkg_temp_c()
+        age = state_age_s(state_file)
+        run_up = pid_alive(args.run_pid)
+        client_up = pid_alive(args.client_pid) if args.client_pid else None
+
+        rec.update(last_check=now_iso(),
+                   temp_c=temp,
+                   state_age_s=(round(age, 1) if age is not None else None))
+
+        unhealthy = False
+
+        # ---- 1. run process gone -> terminal, self-terminate --------------------
+        if not run_up:
+            # crash-in-flight or stale-at-exit -> best-effort "dead", else "completed"
+            final_crashes = tail_crash_matches(log_file, seen_crash)
+            for pat, desc, line in final_crashes:
+                rec.event("crash", "%s :: %s" % (desc, line))
+            unclean = bool(final_crashes) or last_unhealthy or (
+                age is not None and age > STATE_STALE_S)
+            status = "dead" if unclean else "completed"
+            rec.update(status=status)
+            rec.event("exit", "run pid %s gone; status=%s" % (args.run_pid, status))
+            rec.flush()
+            return 0
+
+        # ---- 2. thermal guard (two consecutive over-temp checks) ----------------
+        if temp is not None and temp >= args.temp_refuse:
+            over_temp_streak += 1
+            rec.event("temp_high", "package temp %sC >= refuse %sC (streak %d/%d)"
+                      % (temp, args.temp_refuse, over_temp_streak, THERMAL_CONSECUTIVE))
+            if over_temp_streak >= THERMAL_CONSECUTIVE:
+                if args.dry_run:
+                    rec.event("thermal_kill",
+                              "[DRY-RUN] would SIGTERM run_pid=%s then client_pid=%s (temp %sC)"
+                              % (args.run_pid, args.client_pid, temp))
+                else:
+                    ok_run = sigterm(args.run_pid)
+                    rec.event("thermal_kill",
+                              "SIGTERM run_pid=%s (%s) temp=%sC"
+                              % (args.run_pid, "sent" if ok_run else "failed", temp))
+                    if args.client_pid:
+                        ok_cl = sigterm(args.client_pid)
+                        rec.event("thermal_kill",
+                                  "SIGTERM client_pid=%s (%s)"
+                                  % (args.client_pid, "sent" if ok_cl else "failed"))
+                rec.update(status="thermal_kill")
+                rec.flush()
+                return 0  # terminal — the run is being torn down
+        else:
+            over_temp_streak = 0
+
+        # ---- 3. freeze: stale state file ---------------------------------------
+        if age is None:
+            if stale_armed:
+                rec.event("state_missing", "state file %s does not exist" % state_file)
+                stale_armed = False
+            unhealthy = True
+        elif age > STATE_STALE_S:
+            if stale_armed:
+                rec.event("stale", "state file age %.1fs > %ds" % (age, STATE_STALE_S))
+                stale_armed = False
+            unhealthy = True
+        else:
+            stale_armed = True  # recovered — re-arm for the next onset
+
+        # ---- 3b. freeze: crash signatures in the client log --------------------
+        for pat, desc, line in tail_crash_matches(log_file, seen_crash):
+            rec.event("crash", "%s :: %s" % (desc, line))
+            unhealthy = True
+
+        # ---- 3c. client process vanished while run continues -------------------
+        if client_up is False:
+            rec.event("client_dead", "client_pid %s no longer alive" % args.client_pid)
+            unhealthy = True
+
+        # needs_attention is advisory: record it, let the LLM driver decide.
+        if unhealthy:
+            if rec.data["status"] == "running":
+                rec.update(status="needs_attention")
+        last_unhealthy = unhealthy
+
+        rec.flush()
+        time.sleep(max(1, args.interval))
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        sys.exit(130)

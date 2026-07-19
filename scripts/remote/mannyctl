@@ -17,7 +17,8 @@
 #   mannyctl <host> restart <account>
 #   mannyctl <host> status
 #   mannyctl <host> temp                       # quick remote package temp
-#   mannyctl <host> run <routine.yaml> [args]  # run_routine.py ON the host
+#   mannyctl <host> run <routine.yaml> [args]  # run_routine.py ON the host (+watchdog ledger)
+#   mannyctl <host> runs [run_id]              # print watchdog run ledger(s) (JSON, newest first)
 #   mannyctl <host> cmd <account> <COMMAND..>  # ad-hoc: send one plugin command, print response
 #   mannyctl <host> logs [account] [n]         # tail the client log on host
 #   mannyctl <host> viewer [port]              # start mjpeg viewer on host, print URL
@@ -168,21 +169,51 @@ do_run() {
     return
   fi
 
+  # A run_id ties the detached grind to its watchdog ledger. Timestamp-ish +
+  # account/routine so it's human-scannable and unique per launch.
+  local run_id; run_id="$(date -u +%Y%m%dT%H%M%SZ)"
+  if [ -n "$acct" ]; then run_id="${run_id}_${acct}"
+  else local rb; rb="$(basename "$routine")"; run_id="${run_id}_${rb%.yaml}"; fi
+  run_id="$(printf '%s' "$run_id" | tr -c 'A-Za-z0-9._-' '_')"
+  local ledger="/tmp/manny_runs/${run_id}.json"
+  local wd_acct="${acct:-new}"                 # watchdog needs an account for state/log paths
+  local wd_log="/tmp/manny_watchdog_${run_id}.log"
+
   echo "launching routine DETACHED on $HOST (survives SSH disconnect) ..."
   # setsid detaches into a new session; </dev/null + >log 2>&1 sever the tty so a
   # dropped SSH connection can't SIGHUP it. We capture the PID, give it a moment,
   # then confirm it's still alive so the launch confirmation stays meaningful.
   # NOTE: this reuses do_viewer's proven detach construction (setsid + disown).
-  run_on_host "cd $(printf %q "$H_STAGING") && setsid $(printf %q "$H_VENVPY") run_routine.py $args </dev/null >$(printf %q "$log") 2>&1 & pid=\$!; disown; sleep 1; if kill -0 \$pid 2>/dev/null; then echo \"MANNY_RUN_STARTED pid=\$pid\"; else echo \"MANNY_RUN_FAILED (process exited immediately; see log)\" >&2; echo '--- tail of log ---' >&2; tail -n 20 $(printf %q "$log") >&2 || true; exit 1; fi"
+  # On successful launch we ALSO setsid-detach watchdog.py against the run pid so
+  # an unattended grind gets a thermal/freeze/crash guardian + a JSON run ledger
+  # at $ledger. The watchdog runs from the repo root (cwd from the cd above) so it
+  # can import mcptools.tools.monitoring.CRASH_PATTERNS; --temp-refuse mirrors this
+  # host's hosts.yaml threshold. \$pid is expanded on the FAR side (same session).
+  run_on_host "cd $(printf %q "$H_STAGING") && setsid $(printf %q "$H_VENVPY") run_routine.py $args </dev/null >$(printf %q "$log") 2>&1 & pid=\$!; disown; sleep 1; if kill -0 \$pid 2>/dev/null; then setsid $(printf %q "$H_VENVPY") scripts/remote/watchdog.py --run-id $(printf %q "$run_id") --account $(printf %q "$wd_acct") --routine $(printf %q "$routine") --run-pid \$pid --temp-refuse $(printf %q "${H_REFUSE:-88}") </dev/null >$(printf %q "$wd_log") 2>&1 & wpid=\$!; disown; echo \"MANNY_RUN_STARTED pid=\$pid\"; echo \"MANNY_WATCHDOG_STARTED wpid=\$wpid run_id=$(printf %q "$run_id")\"; else echo \"MANNY_RUN_FAILED (process exited immediately; see log)\" >&2; echo '--- tail of log ---' >&2; tail -n 20 $(printf %q "$log") >&2 || true; exit 1; fi"
   local rc=$?
   if [ $rc -eq 0 ]; then
     echo "routine detached on $HOST. log: $log"
+    echo "MANNY_RUN_ID $run_id"
+    echo "MANNY_RUN_LEDGER $ledger"
     echo "follow it with:"
     echo "  mannyctl $HOST exec tail -f $log"
     echo "  mannyctl $HOST logs        # client log"
     echo "  mannyctl $HOST status      # thermal + client status"
+    echo "  mannyctl $HOST runs $run_id   # the watchdog run ledger (JSON)"
   fi
   return $rc
+}
+
+do_runs() {
+  # Print watchdog run ledgers from /tmp/manny_runs on the host. No arg => list
+  # all records, newest first; one arg => that run_id's record. cat'd over ssh so
+  # the caller (or an LLM driver) can parse the raw JSON.
+  local rid="${1:-}"
+  if [ -n "$rid" ]; then
+    run_on_host "f=/tmp/manny_runs/$(printf %q "$rid").json; if [ -f \"\$f\" ]; then cat \"\$f\"; else echo \"no run record: \$f\" >&2; exit 1; fi"
+  else
+    run_on_host 'd=/tmp/manny_runs; if ! ls "$d"/*.json >/dev/null 2>&1; then echo "(no run records in $d)"; exit 0; fi; for f in $(ls -1t "$d"/*.json 2>/dev/null); do echo "=== $f ==="; cat "$f"; echo; done'
+  fi
 }
 
 do_cmd() {
@@ -278,6 +309,7 @@ main() {
     status)      do_status ;;
     temp)        do_temp ;;
     run)         do_run "$@" ;;
+    runs)        do_runs "$@" ;;
     cmd)         do_cmd "$@" ;;
     logs)        do_logs "$@" ;;
     viewer)      do_viewer "$@" ;;
