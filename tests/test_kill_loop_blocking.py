@@ -96,6 +96,66 @@ class TestAwaitActiveLoopFinish:
 
 
 # --------------------------------------------------------------------------
+# DEFECT-30: _stop_active_loop -- STOP + confirm release, never orphan
+# --------------------------------------------------------------------------
+@pytest.mark.asyncio
+class TestStopActiveLoop:
+    async def _no_sleep(self, monkeypatch):
+        monkeypatch.setattr(routine.asyncio, "sleep", AsyncMock(return_value=None))
+
+    async def test_stop_releases_loop(self, monkeypatch):
+        await self._no_sleep(monkeypatch)
+        sent = AsyncMock(return_value={"success": True})
+        monkeypatch.setattr(routine, "execute_simple_command", sent)
+        # After STOP the loop is still present one poll, then clears.
+        monkeypatch.setattr(routine, "check_active_loop",
+                            AsyncMock(side_effect=[{"command": "KILL_LOOP", "kills": 9}, None]))
+        res = await routine._stop_active_loop("acct", timeout_ms=60000, poll_interval_ms=1)
+        assert res == {"stopped": True, "released": True}
+        # It actually issued a STOP for the right account.
+        args, kwargs = sent.call_args
+        assert args[0] == "STOP"
+        assert kwargs.get("account_id") == "acct"
+
+    async def test_stop_reports_unreleased_on_timeout(self, monkeypatch):
+        await self._no_sleep(monkeypatch)
+        monkeypatch.setattr(routine, "execute_simple_command", AsyncMock(return_value={}))
+        # Loop never clears -> released False so the driver escalates.
+        monkeypatch.setattr(routine, "check_active_loop",
+                            AsyncMock(return_value={"command": "KILL_LOOP", "kills": 9}))
+        res = await routine._stop_active_loop("acct", timeout_ms=0, poll_interval_ms=1)
+        assert res["stopped"] is True
+        assert res["released"] is False
+
+    async def test_stop_survives_transport_error(self, monkeypatch):
+        await self._no_sleep(monkeypatch)
+        # A transport failure on the STOP send must not raise; we still poll.
+        monkeypatch.setattr(routine, "execute_simple_command",
+                            AsyncMock(side_effect=RuntimeError("boom")))
+        monkeypatch.setattr(routine, "check_active_loop", AsyncMock(return_value=None))
+        res = await routine._stop_active_loop("acct", timeout_ms=1000, poll_interval_ms=1)
+        assert res["released"] is True
+
+    async def test_timeout_branch_stops_the_owned_loop(self, monkeypatch, tmp_path):
+        """The KILL_LOOP step's timeout path must call _stop_active_loop (DEFECT-30)."""
+        await self._no_sleep(monkeypatch)
+        # Force the wait to report a timeout with the loop still active.
+        monkeypatch.setattr(routine, "_await_active_loop_finish",
+                            AsyncMock(return_value={"waited": True, "timeout": True,
+                                                    "last_active_loop": {"kills": 9}}))
+        stop = AsyncMock(return_value={"stopped": True, "released": True})
+        monkeypatch.setattr(routine, "_stop_active_loop", stop)
+        monkeypatch.setattr(routine, "execute_simple_command",
+                            AsyncMock(return_value={"success": True, "response": {}, "elapsed_ms": 1}))
+        step = {"id": 1, "action": "KILL_LOOP", "args": "Chicken none 5", "timeout_ms": 10}
+        res = await routine._execute_single_step(step, 0, {}, "acct")
+        assert res["success"] is False
+        assert "did not finish" in res["error"]
+        stop.assert_awaited_once()
+        assert res["loop_stop"] == {"stopped": True, "released": True}
+
+
+# --------------------------------------------------------------------------
 # handle_execute_routine pre-launch guard
 # --------------------------------------------------------------------------
 @pytest.mark.asyncio

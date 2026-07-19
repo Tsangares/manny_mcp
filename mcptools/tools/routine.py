@@ -1186,6 +1186,41 @@ async def _await_active_loop_finish(account_id: str, timeout_ms: int,
             return {"waited": True, "stalled": True, "last_active_loop": active}
 
 
+async def _stop_active_loop(account_id: str, timeout_ms: int = 30000,
+                            poll_interval_ms: int = 2000) -> dict:
+    """DEFECT-30: STOP an owned kill loop and wait for the plugin to release it.
+
+    When a blocking KILL_LOOP step's own ``timeout_ms`` elapses (or the loop
+    stalls) while the Java-side loop is STILL grinding, the old code marked the
+    step failed and returned — leaving the loop running UNMANAGED (the watchdog
+    then flags ``unmanaged_loop`` and exits, and the grind keeps firing scripted
+    kills with nobody supervising it — exactly the orphaned-loop condition that
+    ran unattended into the 2026-07-19 ban window). The runner OWNS a loop it
+    launched; when it stops waiting on that loop it must also stop the loop.
+
+    Sends ``STOP`` (KillLoopCommand honours it within one iteration via its
+    interrupt check) and polls ``active_loop`` until it clears or ``timeout_ms``
+    elapses. Returns a dict describing the outcome; never raises."""
+    deadline = time.time() + max(0, timeout_ms) / 1000.0
+    interval = max(0.25, poll_interval_ms / 1000.0)
+    try:
+        await execute_simple_command("STOP", timeout_ms=5000, account_id=account_id)
+    except Exception as e:  # transport hiccup must not mask the stop attempt
+        _routine_logger.warning("[KILL-LOOP-STOP] STOP command send failed: %s", e)
+
+    while True:
+        active = await check_active_loop(account_id)
+        if active is None:
+            _routine_logger.info("[KILL-LOOP-STOP] active_loop released after STOP.")
+            return {"stopped": True, "released": True}
+        if time.time() >= deadline:
+            _routine_logger.error(
+                "[KILL-LOOP-STOP] loop STILL active %dms after STOP (%s) — "
+                "reporting unreleased so the driver escalates.", timeout_ms, active)
+            return {"stopped": True, "released": False, "last_active_loop": active}
+        await asyncio.sleep(interval)
+
+
 # NOTE: intentionally NOT a registered MCP tool. Routines are executed via
 # ./run_routine.py (the canonical path), which calls this handler directly.
 async def handle_execute_routine(arguments: dict) -> dict:
@@ -1754,6 +1789,18 @@ async def _execute_step_once(step: dict, step_idx: int, routine_config: dict, ac
                     "kill loop did not finish within timeout_ms"
                     if loop_wait.get("timeout") else
                     "kill loop stalled (no kill progress)")
+                # DEFECT-30: we OWN this loop and we are done waiting on it — STOP
+                # it and confirm release rather than exiting and abandoning it to
+                # grind unmanaged. Without this the step returns, run_routine
+                # exits, the watchdog logs ``unmanaged_loop``, and the loop keeps
+                # firing scripted kills with no supervisor (the orphaned-loop
+                # condition behind the 2026-07-19 ban window).
+                stop_result = await _stop_active_loop(account_id)
+                step_result["loop_stop"] = stop_result
+                if not stop_result.get("released"):
+                    step_result["error"] += (
+                        "; STOP issued but loop did not release "
+                        "(unmanaged_loop risk — driver must intervene)")
             # else: no active_loop signal ever appeared -> keep the early
             # response's success verdict (backward-compatible fallback).
 
