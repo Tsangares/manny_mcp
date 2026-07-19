@@ -1,0 +1,15 @@
+date,account,host,section,first_contact,failure_class,live_minutes,run_id
+2026-07-19,punitpun,llama,01_character_creation,P,,3,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,01_experience_selection,P,,2,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,02_gielinor_guide,P,,5,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,03_survival_expert,P,,6,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,04_woodcutting_firemaking,P,,4,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,05_cooking,P,,3,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,06_quest_guide,F,dialogue-desync-false-pass,2,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,07_mining_smithing,F,nav-miss-crossplane,28,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,08_combat,F,cascade+auto-restart-double-client,14,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,09_banking,NR,not-reached,0,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,10_prayer_magic,NR,not-reached,0,20260719T181857Z_punitpun
+2026-07-19,punitpun,llama,06_quest_guide_resume1,F,widget-miss,2,20260719T192818Z_punitpun
+2026-07-19,punitpun,llama,06_quest_guide_resume2,F,reach-fail-ladder,2,20260719T193040Z_punitpun
+2026-07-19,punitpun,llama,07_mining_smithing_resume1,F,nav-miss-crossplane,9,20260719T193338Z_punitpun
