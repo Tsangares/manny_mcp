@@ -918,6 +918,17 @@ strategic step. Short-range routines (already at the resource, no long travel) m
 ███████████████████████████████████████████████████████████████████████████████
 
 ## ★ CAMPAIGN COMPLETE + diort MIGRATION = GO (awaiting USER go on cred/login) 2026-07-18 ~15:05 ★
+> **⚠️ SUPERSEDED 2026-07-19 — this doc is the REFACTOR archive; current durable state is
+> `OVERSEER_HANDOFF.md` (read its 2026-07-19 tail).** The "short grind" plan below was executed and
+> **behaviorally banned two fresh accounts** (`new` 07-18, `newbakshesh` 07-19), both on the **home
+> IP `96.39.231.108`** — and `diort` shares that same home NAT, so the migration gave **no IP
+> diversity**. Consequences now in force: ALL grinding (attended + unattended) is HALTED;
+> **humanization is a prerequisite** for any sustained live contact (out of scope for the overseer
+> session); **DEFECT-32** (ban detection world-hops instead of failing fast) is OPEN; the standing
+> blocker is the USER's proxy/IP + account decision. IP-diversity plan (dataimpulse residential proxy
+> verified + mat VPS): `journals/2026-07-19_proxy_ip_wiring_plan.md`. Do NOT act on the "GO / short
+> grind" language below as if it were current.
+
 SOFTWARE CAMPAIGN DONE: refactor (PlayerHelpers 23,683->3,484, 85%, all gated) + DEFECT-15/16/17/18
 + DEFECT-19 (v2 gated GREEN, char walks) + DEFECT-19b (progress-aware timeout, committed 1403107,
 compile-green, full-walk gate deferred to diort). Routines hardened corpus-wide (60 GOTO awaits).
