@@ -422,3 +422,14 @@ stances: Stab(att)/Lunge(shared)/Slash(str)/Block(def).
 - **Shadow soak** (f467d47): engine healthy (median 373µs, zero mainland NONEs) but WP5 gate stays closed —
   0 transport samples, thin mainland n=9. Need 100+ lines incl. a door/stair crossing (E2 provides).
 - diort creds now include blast. Repo commits this window: 28a3a28, bb20439, f467d47.
+
+## LANE-2 WINDOW — 2026-07-19 ~08:00Z (05→06 bridge FIXED; blast parked at 07 smelt)
+`05_cooking_to_quest_guide.yaml` fixed+live-proven: all bridge GOTOs now `exact` (363d1c4 — DEFECT-7
+short-circuit was seating 2 tiles east); Quest Guide ladder gate encoded (402950b — blind `repeat: 12`
+space (DEFECT-24 mid-monologue false-close breaks `repeat_until: no_dialogue`) + re-talk after journal
+open, which is what actually unlocks the ladder). blast then cleared mining (07 first half) and parked
+CLEANLY at the **07 smelt step**: USE_ITEM_ON_OBJECT ore→Furnace never seats at the furnace (~3078,9505);
+player drifted to Gate (3094,9502), 5 iterations no Bronze bar. Fix path: exact-GOTO seat before smelt.
+NEW DEFECT-candidates: **DEFECT-27** — NAV-EXACT exhausted 8 hops NOT on target, yet GOTO reported
+"Successfully reached target (exact tile)" (misleading success flag; Java-side, batch into next window).
+blast state: underground mine (3094,9502), has pickaxe+tin+copper, client STOPPED (8h clock reset).
