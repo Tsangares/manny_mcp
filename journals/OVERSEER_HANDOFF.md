@@ -433,3 +433,21 @@ player drifted to Gate (3094,9502), 5 iterations no Bronze bar. Fix path: exact-
 NEW DEFECT-candidates: **DEFECT-27** — NAV-EXACT exhausted 8 hops NOT on target, yet GOTO reported
 "Successfully reached target (exact tile)" (misleading success flag; Java-side, batch into next window).
 blast state: underground mine (3094,9502), has pickaxe+tin+copper, client STOPPED (8h clock reset).
+
+## LANE-2b WINDOW — 2026-07-19 ~08:50Z (07 cleared; TWO new primitive defects)
+Section 07 fully fixed + live-cleared hands-free (dbba4c3, 3b59347). Root cause was NOT seating: substring
+item matcher hit **Tinderbox** for "tin" (`Target: "Tinderbox -> Furnace"`). Fixes: full item names in
+YAML ("Tin ore", "Bronze bar"), smith-select via widget_id 20447241 (group 312/child 9, stable), gate
+step split into GOTO 3093,9502 + INTERACT_OBJECT.
+**DEFECT-28 (Java, window #4):** `GameEngine.findItemIdByNameUnsafe` substring `.contains()` matches the
+FIRST inventory item containing the string — "tin"→Tinderbox, "bronze"→Bronze axe. Fix: exact-match
+first, then prefix, then substring; log ambiguity.
+**DEFECT-29 (Python, canonical-path):** `handle_click_widget` (text/action modes) and `handle_equip_item`
+(mcptools/tools/commands.py:558-564) CLICK_AT on interface-RELATIVE scan bounds as if screen-absolute →
+clicks the game world (player walks!), tool still reports success. This BLOCKED section 08: dagger never
+equipped → Combat Instructor withheld weapons → chain failed. Fix the canonical path (prefer a Java-side
+menu-based inventory action — InventoryActionSupport exists from J2-7 — over screen clicks); widget_id
+mode (plain CLICK_WIDGET) is the proven-safe form.
+blast state: parked CLEANLY at section 08 combat area (3111,9525), dagger in inventory unequipped,
+client stopped ~00:49 PDT (8h clock reset). Sections 01–07 now hands-free end-to-end on a fresh account.
+Methods retrospective written: journals/2026-07-19_methods_retrospective.md (adopt items 1-3 when tree free).
