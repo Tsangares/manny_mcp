@@ -23,6 +23,14 @@
 # DEFECT-1 (INTERACT_OBJECT camera-orient client-thread crash) is CONFIRMED
 # FIXED on jar 2fcb602 (defects log line 327-329) -- INTERACT_OBJECT is used
 # directly below instead of the driver's hover-sweep workaround.
+#
+# AUTHORING RULE (Track E phase-1b, live 2026-07-18): interact-by-name
+# (INTERACT_OBJECT / INTERACT_NPC / USE_ITEM_ON_OBJECT) resolves to the NEAREST
+# match, so it MUST be position-pinned with a preceding GOTO (+ location await)
+# whenever the target name is ambiguous or shared. Here BOTH ore outcrops are
+# named "Rocks"; without a GOTO to the copper outcrop the miner re-hit the tin
+# rock forever (run 20260719T014238Z cascaded 5 failures from this single miss).
+# Same bug class as the 05b door: name-only interact needs a position pin.
 
 name: "Tutorial Island - Mining & Smithing"
 type: tutorial
@@ -82,7 +90,18 @@ steps:
   # "try mining some tin ore from the rocks". Do not re-add prospect steps
   # without re-validating against a live run.
 
+  # POSITION-PIN before mining tin: both tin and copper outcrops are named
+  # "Rocks", so INTERACT_OBJECT picks the NEAREST -- must stand at the tin
+  # outcrop first or it mines the wrong (or already-mined) rock. (See header note.)
   - id: 4
+    description: "Walk to the TIN outcrop"
+    action: GOTO
+    args: "3076 9504 0"
+    delay_before_ms: 500
+    await_condition: "location:3076,9504"
+    timeout_ms: 60000
+
+  - id: 5
     description: "Mine tin ore (retries until ore is obtained)"
     action: INTERACT_OBJECT
     args: "Rocks Mine"
@@ -92,14 +111,25 @@ steps:
     max_iterations: 6
     notes: "Bluish rocks. State-checked await mirrors the 04 cook-shrimp fix -- mining has a multi-tick animation before the ore lands in inventory."
 
-  - id: 5
+  - id: 6
     description: "Advance dialogue after first mine (if any)"
     action: KEY_PRESS
     args: "Space"
     repeat_until: "no_dialogue"
     delay_before_ms: 500
 
-  - id: 6
+  # POSITION-PIN before mining copper: the copper outcrop is a SEPARATE "Rocks"
+  # at (3085,9502). Without this GOTO the miner re-hits the nearest (tin) rock
+  # and never gets copper -- the exact live failure on run 20260719T014238Z.
+  - id: 7
+    description: "Walk to the COPPER outcrop"
+    action: GOTO
+    args: "3085 9502 0"
+    delay_before_ms: 500
+    await_condition: "location:3085,9502"
+    timeout_ms: 60000
+
+  - id: 8
     description: "Mine copper ore (retries until ore is obtained)"
     action: INTERACT_OBJECT
     args: "Rocks Mine"
@@ -107,16 +137,25 @@ steps:
     repeat_until: "has_item:Copper ore"
     repeat_until_timeout_ms: 6000
     max_iterations: 6
-    notes: "Brown/orange rocks contain copper. Walk to (3085, 9502) if not already adjacent -- tin and copper rocks are separate outcrops."
+    notes: "Brown/orange rocks contain copper. tin and copper rocks are separate outcrops -- step 7 pins us at the copper one first."
 
-  - id: 7
+  - id: 9
     description: "Advance dialogue after second mine (if any)"
     action: KEY_PRESS
     args: "Space"
     repeat_until: "no_dialogue"
     delay_before_ms: 500
 
-  - id: 8
+  # POSITION-PIN before smelting: USE_ITEM_ON_OBJECT is range-based.
+  - id: 10
+    description: "Walk to the Furnace"
+    action: GOTO
+    args: "3079 9496 0"
+    delay_before_ms: 500
+    await_condition: "location:3079,9496"
+    timeout_ms: 60000
+
+  - id: 11
     description: "Smelt bronze bar at furnace (retries until bar is obtained)"
     action: USE_ITEM_ON_OBJECT
     args: "tin Furnace"
@@ -126,35 +165,54 @@ steps:
     max_iterations: 5
     notes: "Partial item name 'tin' matches 'Tin ore'; smelting consumes both the tin and copper ore automatically. State-checked await mirrors the 04 cook-shrimp fix."
 
-  - id: 9
+  - id: 12
     description: "Advance dialogue after smelting"
     action: KEY_PRESS
     args: "Space"
     repeat_until: "no_dialogue"
     delay_before_ms: 1000
 
-  - id: 10
+  # POSITION-PIN before talking: INTERACT_NPC is range-based; step 10 left us
+  # at the furnace, so walk back to the instructor before talking.
+  - id: 13
+    description: "Walk back to the Mining Instructor"
+    action: GOTO
+    args: "3080 9503 0"
+    delay_before_ms: 500
+    await_condition: "location:3080,9503"
+    timeout_ms: 60000
+
+  - id: 14
     description: "Talk to Mining Instructor about smithing (receive hammer)"
     action: INTERACT_NPC
     args: "Mining_Instructor Talk-to"
     await_condition: "dialogue"
     delay_before_ms: 1000
 
-  - id: 11
+  - id: 15
     description: "Advance smithing-intro dialogue"
     action: KEY_PRESS
     args: "Space"
     repeat_until: "no_dialogue"
     delay_before_ms: 1000
 
-  - id: 12
+  # POSITION-PIN before smithing: USE_ITEM_ON_OBJECT is range-based.
+  - id: 16
+    description: "Walk to the Anvil"
+    action: GOTO
+    args: "3083 9499 0"
+    delay_before_ms: 500
+    await_condition: "location:3083,9499"
+    timeout_ms: 60000
+
+  - id: 17
     description: "Open smithing interface at anvil"
     action: USE_ITEM_ON_OBJECT
     args: "bronze Anvil"
     delay_before_ms: 1000
     notes: "Partial name 'bronze' matches 'Bronze bar'. Opens the smithing item-selection interface."
 
-  - id: 13
+  - id: 18
     description: "Select Dagger in the smithing interface"
     mcp_tool: click_widget
     args:
@@ -174,14 +232,14 @@ steps:
     # text-search proves flaky; journal only has a screen pixel offset, not a
     # widget ID or world coordinate.
 
-  - id: 14
+  - id: 19
     description: "Advance dialogue after smithing"
     action: KEY_PRESS
     args: "Space"
     repeat_until: "no_dialogue"
     delay_before_ms: 1000
 
-  - id: 15
+  - id: 20
     description: "Continue to combat section - open gate"
     action: INTERACT_OBJECT
     args: "Gate Open"
