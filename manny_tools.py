@@ -7,6 +7,7 @@ specifically designed for the manny RuneLite plugin codebase.
 PHASE 3 OPTIMIZATION: Uses unified search engine for O(1) code lookups.
 """
 
+import difflib
 import os
 import re
 from datetime import datetime
@@ -2491,8 +2492,212 @@ Great for learning how to use a command or finding proven patterns.""",
 
 # MCP-tool steps use a `mcp_tool:` key instead of `action:` (dispatched by
 # mcptools/tools/routine.py:_execute_mcp_tool_step). Keep this list in sync with
-# that executor's dispatch table.
-_KNOWN_MCP_TOOLS = {"equip_item", "click_widget", "find_and_click_widget"}
+# that executor's dispatch table -- which has FOUR arms (equip_item, click_widget,
+# find_and_click_widget, click_text: routine.py:1627-1651). `click_text` was
+# previously missing here, so valid tutorial-dialogue steps were false-flagged.
+_KNOWN_MCP_TOOLS = {"equip_item", "click_widget", "find_and_click_widget", "click_text"}
+
+
+# =============================================================================
+# MACHINE-CHECKABLE ROUTINE SCHEMA (Track C)
+# =============================================================================
+# These constants ARE the schema `validate_routine_deep` enforces. Each was
+# ground-truthed 2026-07-18 against the executor + plugin, NOT copied from the
+# prose docs, so the validator mechanically catches the bug classes that were
+# previously only ever found live:
+#   - await grammar (step-level):  mcptools/tools/monitoring.py:_parse_condition
+#   - stop grammar  (loop-level):  mcptools/tools/routine.py:check_stop_condition
+#   - loop schemas (flat/nested):  mcptools/tools/routine.py run_routine (~1099-1310)
+#   - step/top keys the engine reads: routine._execute_step_once /
+#                                     _execute_single_step / _execute_repeat_until /
+#                                     run_routine / run_routine.resolve_chain
+#   - blocking commands + KILL_LOOP arg order: manny_src/utility/commands/*Command.java
+
+# `mcp_tool:` step dispatch whitelist (routine._execute_mcp_tool_step). Alias of
+# _KNOWN_MCP_TOOLS; kept as its own name because it is a distinct schema concept.
+MCP_TOOL_WHITELIST = set(_KNOWN_MCP_TOOLS)
+
+# Top-level keys the engine (or chain loader) actually reads. `chain` is the
+# chain-master form (run_routine.resolve_chain: `type: chain` + a `chain:` list).
+LIVE_TOP_KEYS = frozenset({
+    "name", "type", "description", "skill", "config", "locations",
+    "requirements", "npcs", "widgets", "steps", "loop", "chain",
+})
+
+# Step keys the engine reads. `description`/`notes` are documentation-only but
+# live. NOTE (source vs. ground-truth list): the executor ALSO reads
+# `repeat_until_timeout_ms` and `poll_interval_ms` (routine._execute_repeat_until),
+# which the task's step-key list omitted -- included here so real routines that
+# tune repeat_until don't trip a false "unknown key" warning. `location` is
+# DELIBERATELY excluded (per Track B): the executor never reads a step's
+# `location:` (GOTO uses `args` coords), so it is a dead key -- see
+# _DEAD_STEP_KEY_NOTES.
+LIVE_STEP_KEYS = frozenset({
+    "id", "phase", "action", "args", "mcp_tool", "description",
+    "await_condition", "timeout_ms", "delay_before_ms", "delay_after_ms",
+    "repeat", "repeat_until", "max_iterations", "repeat_until_timeout_ms",
+    "poll_interval_ms", "notes",
+})
+
+# Recognized-but-DEAD keys: parse clean and silently do nothing at runtime.
+# Flagged as warnings with a tailored explanation (not a generic "unknown key").
+_DEAD_STEP_KEY_NOTES = {
+    "location": "documentation-only; the executor never reads a step's `location:` "
+                "(GOTO uses the `args` coords). Harmless but does nothing.",
+    "skip_if": "not implemented; unread by the executor, so the step ALWAYS runs.",
+    "delay_after": "unread typo of `delay_after_ms`; no post-step delay is applied.",
+}
+_DEAD_LOOP_KEY_NOTES = {
+    "max_iterations": "not a loop key; a flat loop is bounded only by the CLI "
+                      "`--loops N`. This value is ignored.",
+    "delay_between_loops_ms": "unread; no delay is inserted between loop iterations.",
+    "start_step": "flat loops read `repeat_from_step`, not `start_step` "
+                  "(`start_step` is a nested inner/outer key). Ignored here.",
+    "delay_after": "unread; no delay is applied.",
+}
+
+# Loop schemas are two mutually exclusive code paths in run_routine.
+# Flat branch reads exactly these keys:
+LIVE_LOOP_KEYS_FLAT = frozenset({"enabled", "repeat_from_step", "stop_conditions"})
+# Nested branch is keyed by `inner`/`outer` blocks:
+LIVE_LOOP_KEYS_NESTED = frozenset({"inner", "outer"})
+# Keys valid *inside* an inner/outer block (each read by run_routine):
+LIVE_LOOP_SUBKEYS_NESTED = frozenset({
+    "enabled", "start_step", "end_step", "exit_conditions", "on_exit",
+})
+
+# Step-level `await_condition` vocabulary -- EXHAUSTIVE per monitoring._parse_condition.
+# Prefixed atoms take a `:value`; bare atoms stand alone.
+AWAIT_CONDITION_ATOMS = frozenset({
+    "plane", "has_item", "no_item", "inventory_count", "location",  # prefixed
+    "idle", "dialogue", "no_dialogue",                              # bare words
+})
+
+# Loop-level stop/exit-condition vocabulary -- EXHAUSTIVE per check_stop_condition.
+# `<skill>_level:N` is matched structurally (any `*_level:` atom), tracked here as
+# the sentinel "_level". The two vocabularies are DISJOINT except has_item/no_item.
+STOP_CONDITION_ATOMS = frozenset({
+    "inventory_full",                       # bare word
+    "has_item", "no_item", "no_item_in_bank", "_level",  # prefixed / suffixed
+})
+
+# Atoms shared by both vocabularies -- cross-use of these is NOT an error.
+_SHARED_CONDITION_ATOMS = frozenset({"has_item", "no_item"})
+
+# Commands that run minutes-long SYNCHRONOUSLY in the plugin: the executor blocks
+# on the command channel until the loop finishes, so they need a large explicit
+# `timeout_ms` and MUST NOT carry an `await_condition` (send_and_await races the
+# blocking command and its timeout-retry re-sends the multi-minute command; the
+# infamous `idle` case fires instantly, before the command even starts).
+# Value = conservative minimum acceptable timeout_ms (floor). Floors are the
+# Java-source worst-case durations (Track B), EXCEPT where a legitimately-tuned
+# corpus routine would be false-flagged -- MINE_ORE runs a small target count and
+# the corpus tunes it to 45s, so its floor stays 45s rather than the 300s a full
+# inventory would need. A MISSING timeout_ms is ALWAYS an error regardless of
+# floor (the 30s executor default is never right for a synchronous multi-minute
+# loop -- the original chicken_killer bug, and POWER_MINE-with-no-timeout).
+BLOCKING_COMMANDS = {
+    # Combat kill loops -- default 100 kills, synchronous to completion/interrupt.
+    "KILL_LOOP": 3600000,
+    "KILL_LOOP_CONFIG": 3600000,
+    "KILL_COW": 3600000,          # delegates to KILL_LOOP
+    "KILL_COW_GET_HIDES": 3600000,
+    "IMP_HUNT": 300000,
+    # Skilling loops -- fill inventory / run a target count, synchronous.
+    "MINE_ORE": 45000,            # small target count; corpus legit floor = 45s
+    "POWER_MINE": 300000,         # while(!interrupt) -- runs until stopped
+    "CHOP_TREE": 300000,
+    "POWER_CHOP": 300000,
+    "COOK_ALL": 60000,            # self-caps at ~initialCount*2000ms (<= ~56s)
+    "SMELT_BAR": 120000,          # ~8s/cycle * cycles
+    "SMELT_BRONZE": 60000,        # single furnace batch (<= 27 bars)
+    "SMELT_BRONZE_BARS": 120000,
+    "FISH": 300000,
+    "FISH_DROP": 300000,
+    "FISH_DRAYNOR_LOOP": 300000,
+    "TELEGRAB_WINE_LOOP": 300000,
+    "COLLECT_LUMBRIDGE_TIN_COPPER": 120000,
+}
+
+# Commands whose plugin loop is literally `while(true)` -- unbounded, stopped only
+# by an external KILL/interrupt. Any use in a routine is worth a heads-up warning:
+# the routine cannot end on its own, it relies entirely on the run harness/timeout.
+UNBOUNDED_COMMANDS = frozenset({"FISH_DRAYNOR_LOOP"})
+
+
+def _is_intlike(token: str) -> bool:
+    """True if `token` is a bare integer literal (e.g. a mistaken kill-count)."""
+    try:
+        int(str(token))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _nearest_key(unknown: str, valid_keys) -> str:
+    """Return a ' (did you mean X?)' hint for the closest valid key, or ''."""
+    match = difflib.get_close_matches(str(unknown), sorted(valid_keys), n=1, cutoff=0.5)
+    return f" (did you mean '{match[0]}'?)" if match else ""
+
+
+def _condition_atom(condition: str) -> str:
+    """Reduce a condition string to its vocabulary atom for cross-use checks.
+
+    Mirrors the parsers: a bare word maps to itself; a prefixed `key:value`
+    maps to `key`; any `<skill>_level:N` maps to the sentinel `_level`.
+    """
+    cond = str(condition).strip()
+    if ":" not in cond:
+        return cond
+    if "_level:" in cond:
+        return "_level"
+    return cond.split(":", 1)[0].strip()
+
+
+_AWAIT_VOCAB_HELP = ("plane:N, has_item:X, no_item:X, inventory_count:<op>N, "
+                     "location:X,Y, idle, dialogue, no_dialogue")
+_STOP_VOCAB_HELP = ("inventory_full, has_item:X, no_item:X, no_item_in_bank:X, "
+                    "<skill>_level:N")
+
+
+def _await_condition_error(cond: str) -> Optional[str]:
+    """Return an error string if `cond` is not a valid step await_condition, else None.
+
+    An unrecognized await_condition raises ValueError at runtime
+    (monitoring._parse_condition), so it always fails loudly -- but we still flag
+    it, and specifically call out when it looks like the loop-stop vocabulary.
+    """
+    atom = _condition_atom(cond)
+    if atom in AWAIT_CONDITION_ATOMS:
+        return None
+    if atom in STOP_CONDITION_ATOMS:
+        return (f"await_condition '{cond}' uses the loop stop/exit vocabulary "
+                f"(atom '{atom}') -- did you mean the other vocabulary? Step "
+                f"await_conditions are parsed by a DIFFERENT grammar. "
+                f"Valid await atoms: {_AWAIT_VOCAB_HELP}")
+    return (f"await_condition '{cond}' is not a recognized atom -- "
+            f"monitoring._parse_condition raises ValueError on this at runtime. "
+            f"Valid await atoms: {_AWAIT_VOCAB_HELP}")
+
+
+def _stop_condition_error(cond: str) -> Optional[str]:
+    """Return an error string if `cond` is not a valid loop stop/exit condition, else None.
+
+    check_stop_condition SILENTLY returns False for anything it doesn't
+    recognize (routine.py:1731) -- the dangerous case, because the loop may then
+    never stop -- so ANY unrecognized stop/exit condition is an ERROR.
+    """
+    atom = _condition_atom(cond)
+    if atom in STOP_CONDITION_ATOMS:
+        return None
+    if atom in AWAIT_CONDITION_ATOMS:
+        return (f"stop/exit condition '{cond}' uses the step await vocabulary "
+                f"(atom '{atom}') -- did you mean the other vocabulary? "
+                f"check_stop_condition does NOT recognize it and SILENTLY returns "
+                f"False, so the loop may never stop. Valid stop atoms: {_STOP_VOCAB_HELP}")
+    return (f"stop/exit condition '{cond}' is not recognized -- check_stop_condition "
+            f"SILENTLY returns False for it, so the loop may never stop. "
+            f"Valid stop atoms: {_STOP_VOCAB_HELP}")
 
 
 def _has_nested_steps(obj, _depth: int = 0) -> bool:
@@ -2607,12 +2812,18 @@ def validate_routine_deep(
 
     # Structural validation
     non_executable = _routine_is_non_executable(routine, routine_path)
+    # Chain-master files (run_routine.resolve_chain: `type: chain` or a top-level
+    # `chain:` list of section routines) are a distinct, legitimately step-less
+    # top-level shape -- validated as a chain, not a broken routine.
+    is_chain = isinstance(routine, dict) and (
+        routine.get("type") == "chain" or "chain" in routine
+    )
     if 'steps' not in routine:
-        # Reference/library/catalog/config-sidecar/manual-runbook files legitimately
-        # have no `steps` -- don't flag them as broken routines (see
+        # Reference/library/catalog/config-sidecar/manual-runbook/chain files
+        # legitimately have no `steps` -- don't flag them as broken routines (see
         # journals/ROUTINE_VALIDATION_SWEEP_2026-07-17.md). Genuine routines that
         # merely forgot their steps are NOT exempted and still error.
-        if not non_executable:
+        if not non_executable and not is_chain:
             errors.append("Missing required field: 'steps'")
     else:
         steps = routine['steps']
@@ -2739,6 +2950,180 @@ def validate_routine_deep(
                         break  # Bank was closed
                 if not found_open:
                     warnings.append(f"Step {i + 1}: {action} without prior BANK_OPEN")
+
+    # =========================================================================
+    # DEEP SCHEMA CHECKS (Track C) -- the machine-checkable routine schema.
+    # These encode the executor's real grammar (see the module constants above)
+    # to mechanically catch the bug classes that were previously only found live.
+    # Skipped for non-executable stubs/references and for chain-master files
+    # (different shape) to keep false positives near zero.
+    # =========================================================================
+    routine_steps = routine.get('steps')
+    if not non_executable and not is_chain and isinstance(routine_steps, list):
+
+        # --- Check 1a: unknown/dead TOP-LEVEL keys -------------------------
+        for key in routine:
+            if key not in LIVE_TOP_KEYS:
+                warnings.append(
+                    f"Unknown top-level key '{key}'{_nearest_key(key, LIVE_TOP_KEYS)} "
+                    f"-- not read by the executor.")
+
+        # --- Per-step checks (2, 4-part await, 5, 7, 1b) -------------------
+        for i, step in enumerate(routine_steps, 1):
+            if not isinstance(step, dict):
+                continue
+            action = step.get('action')
+            await_condition = step.get('await_condition')
+
+            # Check 1b: unknown/dead STEP keys.
+            for key in step:
+                if key in LIVE_STEP_KEYS:
+                    continue
+                note = _DEAD_STEP_KEY_NOTES.get(key)
+                if note:
+                    warnings.append(f"Step {i}: dead key '{key}' -- {note}")
+                else:
+                    warnings.append(
+                        f"Step {i}: unknown key '{key}'"
+                        f"{_nearest_key(key, LIVE_STEP_KEYS)} -- not read by the executor.")
+
+            # Check 4 (await side): step await_condition must use the await vocab.
+            if isinstance(await_condition, str) and await_condition.strip():
+                verr = _await_condition_error(await_condition)
+                if verr:
+                    errors.append(f"Step {i}: {verr}")
+            # repeat_until is parsed by the SAME await grammar (monitoring._parse_condition).
+            repeat_until = step.get('repeat_until')
+            if isinstance(repeat_until, str) and repeat_until.strip():
+                verr = _await_condition_error(repeat_until)
+                if verr:
+                    errors.append(f"Step {i}: repeat_until: {verr}")
+
+            # Check 2: blocking-command timeout + no-await.
+            if action in BLOCKING_COMMANDS:
+                floor = BLOCKING_COMMANDS[action]
+                timeout_ms = step.get('timeout_ms')
+                if timeout_ms is None:
+                    errors.append(
+                        f"Step {i}: blocking command '{action}' has no timeout_ms -- "
+                        f"it runs synchronously for minutes but falls back to the 30s "
+                        f"executor default, so the runner gives up while the client keeps "
+                        f"going unsupervised. Set timeout_ms >= {floor}.")
+                elif isinstance(timeout_ms, (int, float)) and timeout_ms < floor:
+                    errors.append(
+                        f"Step {i}: blocking command '{action}' timeout_ms={int(timeout_ms)} "
+                        f"is below the {floor} floor -- too short for a synchronous "
+                        f"multi-minute loop; the runner will give up mid-run.")
+                if await_condition:
+                    hint = ""
+                    if _condition_atom(str(await_condition)) == "idle":
+                        hint = (" The `idle` condition is the worst case: it fires "
+                                "instantly (before the command even starts), and the "
+                                "timeout-retry then RE-SENDS the multi-minute command.")
+                    errors.append(
+                        f"Step {i}: blocking command '{action}' must not have an "
+                        f"await_condition ('{await_condition}') -- it blocks synchronously "
+                        f"and only responds when done, so send_and_await races it and its "
+                        f"retry re-sends the command.{hint}")
+
+            # Check (Track B): unbounded while(true) commands.
+            if action in UNBOUNDED_COMMANDS:
+                warnings.append(
+                    f"Step {i}: '{action}' loops unbounded (while(true) in the plugin) "
+                    f"-- it never ends on its own and relies entirely on timeout_ms / an "
+                    f"external KILL to stop.")
+
+            # Check 7: KILL_LOOP numeric 2nd arg (2nd arg is the FOOD name).
+            # NOTE: only KILL_LOOP -- its args are `<npc> <food|none> [max_kills]`
+            # (KillLoopCommand.java:95-97). KILL_COW is deliberately excluded: its
+            # args are `<food> [max_kills]`, so a numeric 2nd arg is CORRECT there.
+            if action == "KILL_LOOP":
+                parts = str(step.get('args', '')).split()
+                if len(parts) >= 2 and _is_intlike(parts[1]):
+                    errors.append(
+                        f"Step {i}: KILL_LOOP 2nd arg '{parts[1]}' is numeric, but the 2nd "
+                        f"positional arg is the FOOD name (KillLoopCommand.java:95-97). A "
+                        f"number here is silently treated as a (nonexistent) food item -- "
+                        f"did you mean `none`? Kill-count is the 3rd arg.")
+            # Check 7b: KILL_LOOP_CONFIG relative json path must exist.
+            if action == "KILL_LOOP_CONFIG":
+                cfg_arg = str(step.get('args', '')).strip()
+                if cfg_arg and not os.path.isabs(cfg_arg):
+                    routine_dir = os.path.dirname(os.path.abspath(routine_path))
+                    if not (os.path.exists(os.path.join(routine_dir, cfg_arg))
+                            or os.path.exists(cfg_arg)):
+                        errors.append(
+                            f"Step {i}: KILL_LOOP_CONFIG references relative config path "
+                            f"'{cfg_arg}' which does not exist (looked in {routine_dir} and "
+                            f"cwd). It is read with Paths.get() plugin-side.")
+
+            # Check 5: mcp_tool whitelist + args-must-be-dict.
+            mcp_tool = step.get('mcp_tool')
+            if mcp_tool is not None:
+                if mcp_tool not in MCP_TOOL_WHITELIST:
+                    errors.append(
+                        f"Step {i}: mcp_tool '{mcp_tool}' is not dispatchable "
+                        f"(whitelist: {', '.join(sorted(MCP_TOOL_WHITELIST))}).")
+                if 'args' in step and not isinstance(step['args'], dict):
+                    errors.append(
+                        f"Step {i}: mcp_tool '{mcp_tool}' args must be a dict/mapping, got "
+                        f"{type(step['args']).__name__} -- a string arg is silently dropped "
+                        f"(_execute_mcp_tool_step coerces non-dict args to {{}}).")
+
+        # --- Loop-level checks (3, 4-stop side, 6, loop keys) --------------
+        loop = routine.get('loop')
+        if isinstance(loop, dict):
+            has_flat = any(k in loop for k in LIVE_LOOP_KEYS_FLAT)
+            has_nested = any(k in loop for k in LIVE_LOOP_KEYS_NESTED)
+
+            # Check 3: flat vs nested are mutually exclusive code paths.
+            if has_flat and has_nested:
+                errors.append(
+                    "loop mixes flat keys (enabled/repeat_from_step/stop_conditions) "
+                    "with nested inner/outer -- these are mutually exclusive executor "
+                    "code paths; pick one loop schema.")
+
+            # Check loop keys (unknown/dead). Valid top-level `loop:` keys are the
+            # union of the flat and nested schemas; flat/nested MIXING is reported
+            # separately by Check 3 above. Anything else parses clean but is dead
+            # (e.g. loop.max_iterations, loop.delay_between_loops_ms, and -- on a
+            # flat loop -- start_step, which belongs only inside inner/outer).
+            valid_loop_keys = LIVE_LOOP_KEYS_FLAT | LIVE_LOOP_KEYS_NESTED
+            for key in loop:
+                if key in valid_loop_keys:
+                    continue
+                note = _DEAD_LOOP_KEY_NOTES.get(key)
+                if note:
+                    warnings.append(f"loop: dead key '{key}' -- {note}")
+                else:
+                    warnings.append(
+                        f"loop: unknown key '{key}'{_nearest_key(key, valid_loop_keys)} "
+                        f"-- not read by the executor.")
+
+            # Check 4 (stop side): flat stop_conditions use the STOP vocabulary.
+            stop_conditions = loop.get('stop_conditions')
+            if isinstance(stop_conditions, list):
+                for cond in stop_conditions:
+                    if isinstance(cond, str) and cond.strip():
+                        verr = _stop_condition_error(cond)
+                        if verr:
+                            errors.append(f"loop.stop_conditions: {verr}")
+
+            # Nested exit_conditions also use the STOP vocabulary.
+            for block_name in ("inner", "outer"):
+                block = loop.get(block_name)
+                if isinstance(block, dict):
+                    for cond in block.get('exit_conditions', []) or []:
+                        if isinstance(cond, str) and cond.strip():
+                            verr = _stop_condition_error(cond)
+                            if verr:
+                                errors.append(f"loop.{block_name}.exit_conditions: {verr}")
+
+            # Check 6: unbounded flat loop (enabled + no stop_conditions).
+            if loop.get('enabled') and not (loop.get('stop_conditions') or []):
+                warnings.append(
+                    "loop.enabled is set with no stop_conditions -- the loop is bounded "
+                    "only by the CLI `--loops N`; it never stops on a game-state condition.")
 
     # Generate stats
     stats = {
