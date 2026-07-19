@@ -24,6 +24,11 @@
 # Farmer's). Old template used 3180,3288; if the GOTO cannot settle at
 # 3235,3295 on the live world, fall back to 3180,3288 and update step 1 + the
 # await. VERIFY LIVE at smoke time.
+#
+# BATCH SIZE (audit finding 6): configs/chicken_feathers.json is kills=1000 (a
+# long feather-farming batch, minimizing per-batch TAB_OPEN/SWITCH_COMBAT_STYLE
+# setup churn), NOT 100. Step 3's description + timeout were reconciled to that
+# actual 1000-kill batch -- see the timeout-derivation comment on step 3.
 
 name: "Chicken Feathers - Feather Farming + Combat Training"
 type: combat
@@ -68,14 +73,18 @@ steps:
     phase: "combat"
     action: KILL_LOOP_CONFIG
     args: "/home/wil/Desktop/manny_mcp/routines/money_making/configs/chicken_feathers.json"
-    description: "Kill 100 chickens, loot Feathers; bones auto-buried, food forced none (50% HP safety stop)"
-    timeout_ms: 14400000   # blocking command (see ROUTINE_SCHEMA.md (e)); no await_condition. Raised
-    # from 3600000 -> 14400000 2026-07-19: the 1h timeout was orphaning the still-running Java KILL_LOOP
-    # as an unmanaged_loop (run_routine.py exits the step but never stops the loop it launched -- see
-    # DEFECT-30 candidate, journals/2026-07-19_newbakshesh_ban_and_pivot.md). This was hand-patched
-    # directly on diort by the lane-1 supervisor during the incident; reconciling it back into the repo
-    # here so the next provision doesn't silently downgrade the live host. DEFECT-30 itself (STOP the
-    # loop on timeout, don't just raise the ceiling) is still open.
+    description: "Kill 1000 chickens (configs/chicken_feathers.json), loot Feathers; bones auto-buried, food forced none (50% HP safety stop)"
+    timeout_ms: 21600000   # blocking command (see ROUTINE_SCHEMA.md (e)); no await_condition.
+    # TIMEOUT DERIVATION (audit finding 6): the config batch is kills=1000, NOT the 100 the old
+    # description/comment reasoned about. The prior 14400000 (4h) ceiling was raised from 1h during the
+    # 2026-07-19 orphaned-loop incident to stop run_routine.py abandoning the still-running Java loop as
+    # an unmanaged_loop -- it was NEVER re-derived for a 1000-kill batch. Re-sized here to 21600000 (6h)
+    # for the actual 1000 kills with margin: F2P Lumbridge-coop chickens die fast, but at a conservative
+    # ~15s/kill worst case (slow/contested world, respawn + loot) 1000 kills is ~4.2h, so 6h gives ~40%
+    # headroom -- keeping the batch from routinely tripping the DEFECT-30 stop-on-timeout truncation and
+    # re-paying the TAB_OPEN/SWITCH_COMBAT_STYLE setup each restart. The KILL_LOOP stall detector
+    # (5 min no kill progress) still backstops genuine hangs. DEFECT-30 (STOP the loop on timeout, don't
+    # just raise the ceiling) is a separate open item, orthogonal to this sizing.
 
 # Flat loop: after each 100-kill batch, jump back to step 1 and go again.
 # Stops when Defence hits 20 (Grammar 2 <skill>_level:N). Batches are also

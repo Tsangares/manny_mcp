@@ -34,14 +34,16 @@
 #        top    (plane2) pin (3205,3208), actions "Climb-down, Bottom-floor"
 #      i.e. it IS the same stacked-column tile (x/y within 1) on all 3 planes,
 #      confirming two Climb-up/Climb-down hops (0->1->2) with per-floor
-#      GOTO+plane-await is structurally correct. Ground/middle-floor waypoints
+#      GOTO+plane-await is structurally correct. ALL THREE floor waypoints
 #      below corrected from 3205,3209 -> 3205,3208 to match the wiki pin AND
 #      routines/common_actions.yaml's validated "3205 3208 0" ground-floor
-#      stair approach (repeated 3x in that file). Top-floor waypoint
-#      (3205,3209) kept as-is -- it matches the wiki's top pin (3205,3208,
-#      within 1 tile) exactly AND matches routines/skilling/cooking_lumbridge.
-#      yaml's southern_staircase_top, a routine whose own notes say
-#      "Successfully tested with Raw tuna cooking".
+#      stair approach (repeated 3x in that file). The 2nd-floor (top) waypoint
+#      at step 16 was ALSO corrected 3205,3209 -> 3205,3208 (audit finding 5)
+#      for consistency with the ground/1st-floor correction and the wiki's top
+#      pin (3205,3208) -- it previously kept 3209 with a "within 1 tile"
+#      justification, an overlooked correction in the same desk pass. The old
+#      value was functionally harmless (location: await tolerates a 3-tile
+#      Chebyshev radius) but the coordinate is now uniform across all 3 floors.
 #   3. BANK BOOTH: CONFIRMED. oldschool.runescape.wiki/w/Lumbridge_Castle_bank
 #      raw wikitext: {{Map|...|x=3209|y=3219|plane=2|r=5|...}} -- within 1
 #      tile of this routine's 3208,3220,2. ALSO cross-validated by 5 other
@@ -62,20 +64,23 @@
 #
 # STILL LIVE-GATED (desk verification could not resolve these):
 #   * Bridge hop coordinates + on-bridge walkability (no external source).
-#   * DOOR RISK on the courtyard(3221,3218) -> south-staircase(3205,3208)
-#     leg: journals/navigation/indoor_navigation_lessons_2025-01-04.md
-#     documents a "side room door" at (3218,3217) in this same wing of the
-#     castle (flagged there as a trap for the KITCHEN route, not this one) --
-#     its coordinates sit almost exactly on the straight-line path from
-#     courtyard to stairs (interpolated y at x=3218 is ~3216-3218). Desk
-#     research found no confirmation either way of whether this specific
-#     door blocks the courtyard->stair walk, and the schema's mcp_tool
+#   * DOOR RISK on the courtyard(3221,3218) <-> south-staircase(3205,3208)
+#     leg -- applies to BOTH directions (audit finding 4): journals/navigation/
+#     indoor_navigation_lessons_2025-01-04.md documents a "side room door" at
+#     (3218,3217) in this same wing of the castle (flagged there as a trap for
+#     the KITCHEN route, not this one) -- its coordinates sit almost exactly on
+#     the straight-line path between courtyard and stairs (interpolated y at
+#     x=3218 is ~3216-3218). Desk research found no confirmation either way of
+#     whether this specific door blocks the walk, and the schema's mcp_tool
 #     whitelist has no generic "scan/open any door in path" primitive to add
-#     defensively without a confirmed door name/coordinate. A live run MUST
+#     defensively without a confirmed door name/coordinate. The OUTBOUND leg
+#     (steps 7->8, courtyard -> stair) AND the RETURN leg (steps 19->20, stair
+#     -> courtyard) walk the identical line in opposite directions and carry
+#     the SAME unaddressed risk. A live run MUST
 #     `get_transitions()`/`scan_tile_objects("door")` near (3218,3217) before
-#     trusting steps 7->8 unattended; if a closed door is found, insert an
-#     explicit `INTERACT_OBJECT <Door_name> Open` step there per this doc's
-#     door-handling pattern before shipping this out of DRAFT.
+#     trusting EITHER leg (7->8 and 19->20) unattended; if a closed door is
+#     found, insert an explicit `INTERACT_OBJECT <Door_name> Open` step on both
+#     legs per this doc's door-handling pattern before shipping out of DRAFT.
 # ===========================================================================
 #
 # WHAT IT DOES
@@ -276,10 +281,20 @@ steps:
     timeout_ms: 60000
 
   # ========== BANK: deposit cowhides, keep equipment ==========
+  # RESILIENCE (audit findings 1+2): the bank leg is the economic payoff of the
+  # whole routine, so a failed bank step must NOT silently continue with a full
+  # inventory. There is NO "bank is open" await atom in the engine's Grammar-1
+  # vocabulary (plane/has_item/no_item/inventory_count/location/idle/dialogue --
+  # monitoring._parse_condition), so BANK_OPEN cannot be gated by an await; it
+  # instead uses `on_failure: retry:2` (re-send up to 2x, then abort). The
+  # deposit IS verifiable -- `inventory_count:<=0` confirms the inventory really
+  # emptied -- so BANK_DEPOSIT_ALL gets that await (which also gives it the
+  # Python-side retry-at-2x) plus `on_failure: abort` as the final backstop.
   - id: 13
     phase: "banking"
     action: BANK_OPEN
     description: "Open the bank"
+    on_failure: "retry:2"
     delay_after_ms: 1000
 
   - id: 14
@@ -290,21 +305,25 @@ steps:
       only targets the inventory panel widget, confirmed 2026-07-18. Changed
       from BANK_DEPOSIT_ITEM Cowhide so a dirty inventory self-heals every
       cycle -- see DESK-VERIFICATION PASS #5 in the file header."
+    await_condition: "inventory_count:<=0"
+    on_failure: "abort"
+    timeout_ms: 10000
     delay_after_ms: 500
 
   - id: 15
     phase: "banking"
     action: BANK_CLOSE
     description: "Close the bank"
+    on_failure: "abort"
     delay_after_ms: 500
 
   # ========== RETURN: BANK -> COW FIELD (reverse hops) ==========
   - id: 16
     phase: "travel_to_field"
     action: GOTO
-    args: "3205 3209 2"
+    args: "3205 3208 2"
     description: "Reposition at the 2nd-floor staircase"
-    await_condition: "location:3205,3209"
+    await_condition: "location:3205,3208"
     timeout_ms: 60000
 
   - id: 17
@@ -361,6 +380,19 @@ steps:
     args: "3247 3228 0"
     description: "Bridge east end"
     await_condition: "location:3247,3228"
+    timeout_ms: 60000
+
+  # Mirror of outbound step 3 (audit finding 3): split the bridge-east-end ->
+  # field leg into the same two short hops the outbound leg uses, instead of
+  # one ~38-tile diagonal GOTO. The single long hop reintroduced the DEFECT-21
+  # corner-cutting risk the short-hop design exists to avoid, with no
+  # intermediate location check between the bridge and the field on the way back.
+  - id: "23b"
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3247 3235 0"
+    description: "North hop toward the cow field (mirror of outbound step 3)"
+    await_condition: "location:3247,3235"
     timeout_ms: 60000
 
   - id: 24
