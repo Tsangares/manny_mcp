@@ -37,3 +37,14 @@ date,account,host,section,first_contact,failure_class,live_minutes,run_id
 2026-07-19,ifixifixit,llama,08_combat,NR,not-reached-structural-gap-05b-DEFECT29-sword-shield-bow-STILL-unmeasured,0,20260719T224748Z_ifixifixit
 2026-07-19,ifixifixit,llama,09_banking,NR,not-reached-structural-gap-05b,0,20260719T224748Z_ifixifixit
 2026-07-19,ifixifixit,llama,10_prayer_magic,NR,not-reached-structural-gap-05b,0,20260719T224748Z_ifixifixit
+2026-07-19,fishibis2800,llama,01_character_creation,P,new-jar-d0668f58-matcher-soak-PASS,1,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,01_experience_selection,P,new-jar-d0668f58-matcher-soak-PASS,1,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,02_gielinor_guide,P,new-jar-d0668f58-matcher-soak-PASS,1,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,03_survival_expert,P,new-jar-d0668f58-matcher-soak-PASS,1,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,04_woodcutting_firemaking,P,new-jar-d0668f58-matcher-soak-PASS,1,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,05_cooking,P,gate-skipped-progress130>=120,0,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,05b_06_quest_guide_ladder,F,gate-skip-positioning-mismatch;cooking-section-skipped-so-player-OUTSIDE-building;05b-assumes-INSIDE;follower-cannot-cross-cook-compound-fence;I-cant-reach-that-modal;trapped-3078-3097-pocket;11-step-errors;revert-VALID-plain-accepted-undershoot;NOT-exact-mode;matcher-clean;NO-ban,25,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,07_mining_smithing,NR,not-reached-05b-gate-skip-positioning-gap,0,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,08_combat,NR,not-reached-DEFECT29-sword-shield-bow-STILL-unmeasured,0,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,09_banking,NR,not-reached-05b,0,20260719T231115Z_fishibis2800
+2026-07-19,fishibis2800,llama,10_prayer_magic,NR,not-reached-05b,0,20260719T231115Z_fishibis2800
