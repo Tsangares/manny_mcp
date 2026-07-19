@@ -520,8 +520,9 @@ DEFECT-27 (manny `873eec7`), DEFECT-22 loginIndex diagnostic (manny `70fac7a`), 
 
 `chicken_feathers.yaml`'s `KILL_LOOP_CONFIG` step timeout is reconciled to `14400000` in the repo
 (`routines/money_making/chicken_feathers.yaml`) to match the lane-1 supervisor's diort hand-patch made
-during the incident (was diverging: repo had `3600000`/stance `Stab`, diort had `14400000`/stance
-`Stab`). Stance is left at `Block` (current defence-catch-up phase) — only the timeout was reconciled,
+during the incident (was diverging: repo had `3600000`/stance `Block`, diort had `14400000`/stance
+`Stab`). Stance is left at `Block` (current defence-catch-up phase, matching the repo — the diort
+hand-patch's `Stab` rotation was not carried back) — only the timeout was reconciled,
 so the next `provision` doesn't silently downgrade the live host's timeout back to 1h. DEFECT-30 (above)
 is the real fix; the timeout bump was a stopgap.
 
