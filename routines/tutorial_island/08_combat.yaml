@@ -109,6 +109,7 @@ steps:
     mcp_tool: equip_item
     args:
       item_name: "Bronze dagger"
+    on_failure: "retry:2"
 
   # Phase 2: Get sword and shield
   - id: 6
@@ -135,6 +136,7 @@ steps:
     mcp_tool: equip_item
     args:
       item_name: "Bronze sword"
+    on_failure: "retry:2"
 
   - id: 10
     description: "Re-open inventory tab before equipping shield"
@@ -147,6 +149,7 @@ steps:
     mcp_tool: equip_item
     args:
       item_name: "Wooden shield"
+    on_failure: "retry:2"
 
   # Phase 3: Combat tab and melee
   - id: 12
@@ -167,17 +170,19 @@ steps:
     # gate approach (3109,9515), used below after the kill.
 
   - id: 14
-    description: "Attack giant rat (melee)"
+    description: "Attack giant rat (melee) (hold through kill -- no Grammar-1 'target dead' atom)"
     action: INTERACT_NPC
     args: "Giant_rat Attack"
     delay_before_ms: 1000
+    delay_after_ms: 12000
     notes: "Wait for combat to complete, rat will die (\"Well done, you've made your first kill!\")"
 
   - id: 15
-    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none)"
+    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none). DEFECT-31: modal renders dialogue.open:false so repeat_until:no_dialogue no-ops -- press blind"
     action: KEY_PRESS
     args: "Space"
-    repeat_until: "no_dialogue"
+    repeat: 3
+    delay_after_ms: 500
     delay_before_ms: 500
 
   # Phase 3b: Exit the rat pen via the CONFIRMED double-gate route
@@ -231,6 +236,7 @@ steps:
     mcp_tool: equip_item
     args:
       item_name: "Shortbow"
+    on_failure: "retry:2"
 
   - id: 23
     description: "Re-open inventory tab before equipping arrows"
@@ -243,19 +249,22 @@ steps:
     mcp_tool: equip_item
     args:
       item_name: "Bronze arrow"
+    on_failure: "retry:2"
 
   - id: 25
-    description: "Attack giant rat (ranged)"
+    description: "Attack giant rat (ranged) (hold through kill -- no Grammar-1 'target dead' atom)"
     action: INTERACT_NPC
     args: "Giant_rat Attack"
     delay_before_ms: 1000
+    delay_after_ms: 12000
     notes: "Stay outside cage, attack through fence. \"Moving on: click the indicated ladder.\""
 
   - id: 26
-    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none)"
+    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none). DEFECT-31: modal renders dialogue.open:false so repeat_until:no_dialogue no-ops -- press blind"
     action: KEY_PRESS
     args: "Space"
-    repeat_until: "no_dialogue"
+    repeat: 3
+    delay_after_ms: 500
     delay_before_ms: 500
 
   # Phase 5: Exit to banking
@@ -272,6 +281,7 @@ steps:
     action: INTERACT_OBJECT
     args: "Ladder Climb-up"
     await_condition: "plane:0"
+    delay_after_ms: 3000
     notes: "Exits to surface, continue to banking section"
 
 # WORKING PATTERNS SUMMARY (updated 2026-07-18):

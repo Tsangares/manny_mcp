@@ -69,13 +69,16 @@ steps:
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
+    delay_after_ms: 1500
     notes: "Door at (3124, 3126) blocks access to ladder"
 
   - id: 2
-    description: "Climb ladder up to roof"
+    description: "Climb ladder up to roof (abort -- don't march to descent having never left plane 0)"
     action: INTERACT_OBJECT
     args: "Ladder Climb-up"
     await_condition: "plane:1"
+    on_failure: abort
+    timeout_ms: 15000
     delay_before_ms: 1000
     notes: "Ladder at (3123, 3128)"
 
@@ -84,6 +87,7 @@ steps:
     action: INTERACT_OBJECT
     args: "Ladder Climb-down"
     await_condition: "plane:0"
+    timeout_ms: 15000
     delay_before_ms: 1000
     notes: "Climb down immediately after climbing up -- bank booth is on plane 0"
 
@@ -133,7 +137,7 @@ steps:
   - id: 9
     description: "Walk to door in front of Account Guide room"
     action: GOTO
-    args: "3124 3124 0"
+    args: "3124 3124 0 exact"
     await_condition: "location:3124,3124"
     timeout_ms: 60000
     delay_before_ms: 500
@@ -144,6 +148,7 @@ steps:
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
+    delay_after_ms: 1500
     notes: "Door at (3125, 3124) leads to Account Guide -- CONFIRMED, Driver #4 (defects log:216-218)"
 
 # PITFALLS DISCOVERED:

@@ -201,10 +201,14 @@ steps:
 
   # ===================== Phase 3: Brother Brace (Prayer) =====================
   - id: 12
-    description: "Talk to Brother Brace"
+    description: "Talk to Brother Brace (pacing NPC — repeat re-resolves live tile; abort so a miss doesn't march prayer-uncredited into magic/mainland)"
     action: INTERACT_NPC
     args: "Brother_Brace Talk-to"
     await_condition: "dialogue"
+    repeat: 8
+    timeout_ms: 5000
+    delay_before_ms: 600
+    on_failure: abort
 
   - id: 13
     description: "Advance Brother Brace intro dialogue"
@@ -220,10 +224,14 @@ steps:
     notes: "TAB_OPEN does not cover this on Tutorial Island (defects log:256-257) -- direct widget click used instead"
 
   - id: 15
-    description: "Talk to Brother Brace again"
+    description: "Talk to Brother Brace again (pacing NPC — repeat re-resolves live tile; abort so a miss doesn't march prayer-uncredited into magic/mainland)"
     action: INTERACT_NPC
     args: "Brother_Brace Talk-to"
     await_condition: "dialogue"
+    repeat: 8
+    timeout_ms: 5000
+    delay_before_ms: 600
+    on_failure: abort
 
   - id: 16
     description: "Complete Brother Brace dialogue (friends-list steps auto-credit during continues)"
@@ -323,6 +331,17 @@ steps:
       cast fires the "Learning the Ropes" completion scroll. Re-run 25b+25c up to
       ~3x if the first click misses (chicken paces).
 
+  - id: "25b2"
+    description: "Re-select Wind Strike in case the first cast missed (a miss clicks ground and DESELECTS the spell)"
+    action: CLICK_WIDGET
+    args: "14286859"
+    delay_before_ms: 1200
+  - id: "25c2"
+    description: "Re-cast Wind Strike on the chicken"
+    action: CLICK_NPC
+    args: "Chicken"
+    delay_before_ms: 1200
+
   # ===================== Phase 6: Final dialogue, Ironman decline, mainland exit =====================
   # FULLY RE-VALIDATED LIVE 2026-07-19 (newbakshesh, shadow-nav jar). Two hard-won corrections
   # vs Driver #5's notes:
@@ -352,6 +371,7 @@ steps:
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
+    repeat_until_timeout_ms: 4000
     notes: "Stops when the mainland Yes/No menu appears (state reports it as player_chat/empty -- DEFECT-6)."
 
   - id: 28
@@ -386,6 +406,8 @@ steps:
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
+    repeat_until_timeout_ms: 4000
+    max_iterations: 20
     notes: |
       Several pages ("When you get to the mainland...", "look for this icon...
       Lumbridge Guide"). The state file reports dialogue closed BETWEEN pages,
@@ -393,6 +415,13 @@ steps:
       the Magic Instructor", press space a few more times. Done when the overlay
       reads "When you're ready, use your Home Teleport spell" and the Home
       Teleport icon flashes.
+
+  - id: "30c"
+    description: "Blind belt-and-braces space presses to reach the Home Teleport prompt (DEFECT-6 inter-page gap)"
+    action: KEY_PRESS
+    args: "space"
+    repeat: 3
+    delay_before_ms: 600
 
   - id: 31
     description: "Re-open Magic tab before Home Teleport (tab may have closed)"
