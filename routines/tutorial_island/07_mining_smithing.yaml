@@ -233,23 +233,33 @@ steps:
       smithing item-selection interface.
 
   - id: 18
-    description: "Select Dagger in the smithing interface"
+    description: "Smith the bronze dagger (real widget-ID click, NOT CLICK_AT)"
     mcp_tool: click_widget
     args:
-      text: "Dagger"
+      widget_id: 20447241
     repeat_until: "has_item:Bronze dagger"
     repeat_until_timeout_ms: 6000
     max_iterations: 5
     notes: |
-      LIVE 2026-07-18: with a hammer present, USE_ITEM_ON_OBJECT bronze Anvil
-      opens the smith interface. The clickable "Dagger" cell is a widget with a
-      "Smith" menu action (this session: container id 20447241) -- but it must
-      be clicked with a PLAIN LEFT-CLICK: CLICK_WIDGET <id> with the "Smith"
-      action string FAILS ("Could not click widget"), while CLICK_WIDGET <id>
-      with NO action succeeds and smiths the dagger. click_widget(text="Dagger")
-      is the session-independent form used here (text-search then click); if it
-      proves flaky, fall back to SCAN_WIDGETS Dagger -> CLICK_WIDGET <id> (no
-      action). Widget IDs change between sessions, so do NOT hardcode 20447241.
+      MUST click by widget_id (Mode 3 -> plain 'CLICK_WIDGET 20447241', no action).
+      LIVE-PROVEN both accounts + blast 2026-07-19: this smiths the dagger.
+
+      DO NOT use text:/action: here. handle_click_widget with text="Dagger" or
+      action="Smith" finds the cell but its SCAN bounds are INTERFACE-RELATIVE
+      (x=23,y=78); the handler treats them as screen-absolute and fires
+      'CLICK_AT 57 84', which lands on the game world near the top-left corner
+      and WALKS THE PLAYER NORTH instead of smithing (blast run 20260719T073150Z:
+      5x SCAN_WIDGETS, 0 daggers, player drifted to 3078,9514). See DEFECT
+      candidate in journals. The widget_id path skips CLICK_AT entirely.
+
+      The id 20447241 = packed group 312, child 9. Group 312 is the FIXED
+      tutorial smithing interface, so this id is STABLE across sessions/accounts
+      (the prior note's "IDs change between sessions" caution does not apply to a
+      static interface group). If a future variant differs, SCAN_WIDGETS Dagger
+      to read the id, then CLICK_WIDGET <id> with NO action (the proven form).
+
+      HISTORY (superseded): step 18 previously used click_widget(text="Dagger"),
+      which is what triggered the CLICK_AT-walk-north failure described above.
 
   - id: 19
     description: "Advance dialogue after smithing"
@@ -258,23 +268,40 @@ steps:
     repeat_until: "no_dialogue"
     delay_before_ms: 1000
 
+  # POSITION-PIN before the gate: INTERACT_OBJECT is range-based and step 16-18
+  # left us at the anvil (~3083,9499), ~12 tiles from the gate. Without this
+  # approach the gate 'Open' silently failed ("Could not find or interact with
+  # Gate", blast run 20260719T073150Z step 20). Gate confirmed via
+  # QUERY_TRANSITIONS at (3094,9502)+(3094,9503) plane 0, state closed, action
+  # 'Open'. Approach from the WEST-adjacent tile (3093,9502).
   - id: 20
-    description: "Continue to combat section - open gate"
+    description: "Walk to the gate's west-adjacent tile"
+    action: GOTO
+    args: "3093 9502 0"
+    delay_before_ms: 500
+    await_condition: "location:3093,9502"
+    timeout_ms: 60000
+
+  - id: 21
+    description: "Open the gate to the combat training area"
     action: INTERACT_OBJECT
     args: "Gate Open"
     delay_before_ms: 1000
-    notes: "Gate leads east to combat training area."
-    # TODO: verify coord -- the journal jumps straight from "smith dagger" to
-    # "Next: combat section" without recording the mining-area exit gate's
-    # world coordinate or an approach waypoint. INTERACT_OBJECT is left
-    # range-based (matches the pre-existing file's behavior); 08_combat.yaml
-    # step 1 adds a defensive GOTO to the combat instructor's known location
-    # (3104, 9509) as the safety net for this untranscribed transition.
+    notes: |
+      Gate at (3094,9502/9503) leads east to combat. 08_combat.yaml step 1 adds
+      a defensive GOTO to the combat instructor (3104,9509) as the safety net if
+      this open doesn't fully seat the transition.
 
 # PITFALLS DISCOVERED (carried over + Driver #2 2026-07-17):
 # 1. Multiple rock types - identify tin (bluish) vs copper (brown/orange) by appearance
 # 2. This tutorial variant does NOT require Prospect - confirmed dead code path, removed
-# 3. Smithing interface requires a widget click to select "Dagger"
-# 4. USE_ITEM_ON_OBJECT works with partial names (like cooking): "tin"->Tin ore, "bronze"->Bronze bar
+# 3. Smithing interface: click the Dagger cell by widget_id (CLICK_WIDGET), NOT
+#    by text/action (those route through CLICK_AT on relative bounds and walk the
+#    player off into the world). See step 18 notes.
+# 4. USE_ITEM_ON_OBJECT item names must be FULL & UNIQUE, not partials: the item
+#    matcher is substring .contains() on the first inventory slot, so "tin" hits
+#    Tinderbox before Tin ore and "bronze" hits Bronze axe before Bronze bar.
+#    Use "Tin ore" and "Bronze bar". (Cooking got away with partials only because
+#    no colliding item was carried.)
 # 5. DEFECT-1 (INTERACT_OBJECT camera-orient crash): FIXED on jar 2fcb602, confirmed by Driver #3/#4.
 #    INTERACT_OBJECT is used directly (no hover-sweep workaround needed).
