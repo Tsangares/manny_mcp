@@ -158,12 +158,20 @@ steps:
   - id: 11
     description: "Smelt bronze bar at furnace (retries until bar is obtained)"
     action: USE_ITEM_ON_OBJECT
-    args: "tin Furnace"
+    args: "Tin ore Furnace"
     delay_before_ms: 1000
     repeat_until: "has_item:Bronze bar"
     repeat_until_timeout_ms: 8000
     max_iterations: 5
-    notes: "Partial item name 'tin' matches 'Tin ore'; smelting consumes both the tin and copper ore automatically. State-checked await mirrors the 04 cook-shrimp fix."
+    notes: |
+      ITEM NAME MUST BE THE FULL 'Tin ore' -- NOT the partial 'tin'.
+      findItemIdByName uses substring .contains(): the partial 'tin' matches
+      'Tinderbox' (carried since firemaking, slot 3) BEFORE 'Tin ore' (slot 8),
+      so 'tin' used the TINDERBOX on the furnace -> no smelt -> repeat_until
+      exhausted 5x. Live-proven failure: blast run 2026-07-19 00:19-00:20
+      (log 'Target: Tinderbox -> Furnace'). The GOTO/seating was fine (furnace
+      found at distance 2); the sole bug was the item-name collision.
+      Smelting consumes both the tin and copper ore automatically.
 
   - id: 12
     description: "Advance dialogue after smelting"
@@ -214,9 +222,15 @@ steps:
   - id: 17
     description: "Open smithing interface at anvil"
     action: USE_ITEM_ON_OBJECT
-    args: "bronze Anvil"
+    args: "Bronze bar Anvil"
     delay_before_ms: 1000
-    notes: "Partial name 'bronze' matches 'Bronze bar'. Opens the smithing item-selection interface."
+    notes: |
+      ITEM NAME MUST BE THE FULL 'Bronze bar' -- NOT the partial 'bronze'.
+      Same substring-collision class as step 11: 'bronze' .contains()-matches
+      'Bronze axe' (slot 2, from woodcutting) and 'Bronze pickaxe' (slot 7)
+      BEFORE 'Bronze bar', so the partial would use the AXE on the anvil and
+      open no interface. Full 'Bronze bar' resolves uniquely. Opens the
+      smithing item-selection interface.
 
   - id: 18
     description: "Select Dagger in the smithing interface"
