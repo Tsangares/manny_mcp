@@ -89,9 +89,17 @@ steps:
     action: INTERACT_OBJECT
     args: "Staircase Climb-down"
     description: "Climb down stairs to Dwarven Mine"
-    await_condition: "plane:0"
+    await_condition: "location:3019,9739"
+    timeout_ms: 15000
     delay_after_ms: 2000
-    notes: "Underground uses different Y coordinates"
+    notes: "Underground uses different Y coordinates (+6400 offset), NOT a plane
+      change -- the Dwarven Mine is still plane 0. await FIXED 2026-07-19 (H-5):
+      was `plane:0`, which is ALWAYS already true here (the player is on plane 0
+      before the click), so it passed on the first poll whether or not the
+      staircase click worked -- a missed click only surfaced later as a
+      confusing step-5 GOTO timeout from the surface. Now waits on the
+      underground landing tile (locations.inside_building, 3019,9739), which
+      actually verifies the descent."
 
   # ========== PHASE 2: WALK TO IRON ROCKS ==========
   - id: 5

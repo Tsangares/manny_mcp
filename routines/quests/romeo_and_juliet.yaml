@@ -66,12 +66,27 @@ steps:
     action: INTERACT_NPC
     args: "Romeo Talk-to"
     description: "Talk to Romeo to start quest"
+    await_condition: "dialogue"
+    timeout_ms: 15000
+    notes: "await dialogue (2026-07-19) so the drain below doesn't check-first
+      on a not-yet-open dialogue and no-op."
 
   - id: 3
     phase: "start_quest"
     action: CLICK_CONTINUE
-    description: "Continue through Romeo's dialogue (space spam)"
-    notes: "Romeo asks you to deliver a message to Juliet"
+    description: "Exhaust Romeo's opener monologue (blind fixed-count)"
+    repeat: 8
+    delay_before_ms: 800
+    notes: "H-9 FIX (2026-07-19): was a single unconditional CLICK_CONTINUE,
+      which cannot drain Romeo's multi-page opener -- an unexhausted monologue
+      silently blocks the next GOTO/interact (ROUTINE_SCHEMA.md (i)). Uses a
+      BLIND fixed-count repeat, NOT repeat_until:no_dialogue -- per the
+      live-validated tutorial_island/05_cooking_to_quest_guide.yaml LANE-2
+      correction (2026-07-19), a monologue transiently reports dialogue
+      open=false BETWEEN pages (DEFECT-24), so a check-first no_dialogue loop
+      exits after one press. Extra CLICK_CONTINUE presses after the dialogue
+      closes are inert (ClickContinueCommand no-ops when no continue button is
+      visible). Romeo asks you to deliver a message to Juliet."
 
   # ========== PHASE 2: TALK TO JULIET ==========
   - id: 4
@@ -96,18 +111,28 @@ steps:
     args: "3158 3425 1"
     description: "Walk to Juliet"
     location: juliet_house_upstairs
+    await_condition: "location:3158,3425"
+    timeout_ms: 30000
+    notes: "await added 2026-07-19 (H-9): the GOTO had no await, so the talk-to
+      below could fire mid-walk."
 
   - id: 7
     phase: "juliet"
     action: INTERACT_NPC
     args: "Juliet Talk-to"
     description: "Talk to Juliet"
+    await_condition: "dialogue"
+    timeout_ms: 15000
 
   - id: 8
     phase: "juliet"
     action: CLICK_CONTINUE
-    description: "Continue through Juliet's dialogue (space spam)"
-    notes: "Juliet tells you about Father Lawrence"
+    description: "Exhaust Juliet's dialogue (blind fixed-count)"
+    repeat: 8
+    delay_before_ms: 800
+    notes: "H-9 FIX (2026-07-19): blind fixed-count drain (was single
+      CLICK_CONTINUE); see step 3's note for why not repeat_until:no_dialogue.
+      Juliet tells you about Father Lawrence."
 
   - id: 9
     phase: "juliet"
@@ -131,13 +156,19 @@ steps:
     action: INTERACT_NPC
     args: "Father_Lawrence Talk-to"
     description: "Talk to Father Lawrence"
-    notes: "NPC name uses underscore"
+    await_condition: "dialogue"
+    timeout_ms: 15000
+    notes: "NPC name uses underscore. await dialogue added 2026-07-19 (H-9)."
 
   - id: 12
     phase: "father_lawrence"
     action: CLICK_CONTINUE
-    description: "Continue through Father Lawrence's dialogue"
-    notes: "He tells you about the Apothecary and cadava berries"
+    description: "Exhaust Father Lawrence's dialogue (blind fixed-count)"
+    repeat: 8
+    delay_before_ms: 800
+    notes: "H-9 FIX (2026-07-19): blind fixed-count drain (was single
+      CLICK_CONTINUE); see step 3's note for why not repeat_until:no_dialogue.
+      He tells you about the Apothecary and cadava berries."
 
   # ========== PHASE 4: GET CADAVA BERRIES ==========
   # DANGER: Dark Wizards at stone circle (~3224, 3370) - level 7, aggressive!
@@ -262,9 +293,15 @@ steps:
   - id: 19
     phase: "apothecary"
     action: CLICK_CONTINUE
-    description: "Continue dialogue to receive potion"
-    await_condition: "has_item:Cadava potion"
-    notes: "Space-spam through dialogue. Game auto-detects berries in inventory."
+    description: "Continue dialogue until the Cadava potion is received"
+    repeat_until: "has_item:Cadava potion"
+    repeat_until_timeout_ms: 3000
+    max_iterations: 15
+    notes: "H-8 FIX (2026-07-19): was a single CLICK_CONTINUE + a passive
+      await_condition:has_item:Cadava potion, which could never advance the
+      multi-page exchange on its own and would hang to timeout. Now CLICKs
+      repeatedly until the potion appears (Grammar 1 has_item in repeat_until).
+      Game auto-detects berries in inventory."
     validated: true  # Confirmed 2026-01-27
 
   # ========== PHASE 6: GIVE POTION TO JULIET ==========
@@ -290,6 +327,10 @@ steps:
     args: "3158 3425 1"
     description: "Walk to Juliet"
     location: juliet_house_upstairs
+    await_condition: "location:3158,3425"
+    timeout_ms: 30000
+    notes: "await added 2026-07-19 (H-9): GOTO had no await, so the talk-to
+      below could fire mid-walk."
 
   - id: 23
     phase: "juliet_potion"
@@ -300,10 +341,15 @@ steps:
   - id: 24
     phase: "juliet_potion"
     action: CLICK_CONTINUE
-    description: "Continue through cutscene (spam space)"
-    notes: "Long cutscene - Juliet drinks potion, family mourns"
-    await_condition: "no_item:Cadava potion"
-    timeout_ms: 60000
+    description: "Continue through the cutscene until the potion is consumed"
+    repeat_until: "no_item:Cadava potion"
+    repeat_until_timeout_ms: 4000
+    max_iterations: 20
+    notes: "H-8 FIX (2026-07-19): was a single CLICK_CONTINUE + passive
+      await_condition:no_item:Cadava potion (60s), which could not drain the
+      long cutscene and hung to timeout. Now CLICKs repeatedly until the potion
+      leaves the inventory (up to ~80s across 20 iterations). Long cutscene --
+      Juliet drinks potion, family mourns."
 
   # ========== PHASE 7: COMPLETE QUEST WITH ROMEO ==========
   - id: 25
@@ -352,13 +398,19 @@ steps:
     action: INTERACT_NPC
     args: "Romeo Talk-to"
     description: "Talk to Romeo"
+    await_condition: "dialogue"
+    timeout_ms: 15000
 
   - id: 29
     phase: "complete_quest"
     action: CLICK_CONTINUE
-    description: "Continue through final cutscene (spam space)"
-    notes: "Crypt scene - Romeo meets Phillipa instead!"
-    timeout_ms: 60000
+    description: "Exhaust the final cutscene dialogue (blind fixed-count)"
+    repeat: 15
+    delay_before_ms: 900
+    notes: "M-7 FIX (2026-07-19): blind fixed-count drain (was single
+      CLICK_CONTINUE + a 60s timeout that did nothing to advance the scene);
+      higher count for the longer end cutscene. See step 3's note for why not
+      repeat_until:no_dialogue. Crypt scene - Romeo meets Phillipa instead!"
 
 # Rewards
 rewards:

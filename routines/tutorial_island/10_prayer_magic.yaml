@@ -1,8 +1,16 @@
 # Tutorial Island - Part 10: Account Guide, Prayer & Magic (final section)
-# STATUS: VALIDATED (steps transcribed 2026-07-18 from
-# journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md, Driver #4 ~02:00 PT
-# "CHAPEL/PRAYER SECTION PASSED" and Driver #5 ~11:16 PT
-# "ISLAND COMPLETE" -- full end-to-end mainland exit confirmed)
+# STATUS: PARTIALLY VALIDATED -- BLOCKED at the Brother Brace prayer section
+# (steps 12/15). The Account Guide section and the chapel approach are
+# transcribed/validated, but a live blocker found 2026-07-19 stops an
+# end-to-end run: Brother Brace (id 3319) PACES a 2-3 tile radius and ~10
+# INTERACT_NPC/CLICK_NPC attempts from every adjacent tile all returned "I
+# can't reach that!" (resolve->click latency lands on his vacated tile). The
+# prayer section past step 12 -- and therefore the Magic section and mainland
+# exit downstream of it -- is NOT re-validated on this jar. See the "OPEN
+# BLOCKER" note above step 8 (~:153) for detail; a pacing-NPC-aware retry that
+# re-resolves the live tile per attempt is needed before this runs unattended.
+# (The earlier Driver #4 "CHAPEL/PRAYER SECTION PASSED" / Driver #5 "ISLAND
+# COMPLETE" notes predate the 2026-07-19 blocker and no longer hold end-to-end.)
 #
 # This routine handles the final sections:
 # 1. Account Guide section (account management explanation)

@@ -79,31 +79,33 @@ steps:
       timeout_ms explicit (fixed 2026-07-18, see chicken_killer_training.yaml
       for the full explanation): KILL_LOOP blocks synchronously until
       max_kills, so the 30s default would make run_routine.py give up and
-      exit long before 100 kills finish."
+      exit long before 100 kills finish. This is the LAST step of the linear
+      pass (required for a KILL_LOOP* step -- ROUTINE_SCHEMA.md (e.1)); the
+      flat loop below re-runs the batch."
     expected_result: "Combat XP gained, 100 cows defeated"
 
-  # ========== PHASE 3: COLLECT HIDES (OPTIONAL) ==========
-  # NOTE (flagged 2026-07-18, not changed): steps 7 and 8 are documented below
-  # as two ALTERNATIVE modes ("Two modes available"), but both run
-  # unconditionally back-to-back in this flat steps: list -- 100 no-loot kills
-  # immediately followed by 200 more kills with hide collection. Left as-is;
-  # picking one mode over the other is a content/design decision, not a
-  # mechanical defect.
-  - id: 8
-    phase: "collection"
-    action: KILL_COW_GET_HIDES
-    description: "Kill cows and collect hides for money (runs until manually
-      stopped -- KillCowGetHidesCommand.java has no kill-count arg)"
-    timeout_ms: 3600000
-    notes: "Alternative: Kills cows AND picks up cowhide drops. Arg signature
-      is `KILL_COW_GET_HIDES [food_name]` (KillCowGetHidesCommand.java:22) --
-      the bare `200` previously here was parsed as a food_name, not a kill
-      count (there is no kill-count arg at all), so it would have silently
-      tried to eat an item literally named \"200\" on low HP. Fixed
-      2026-07-18: dropped the bogus arg, left food unset (no food management).
-      timeout_ms explicit (fixed 2026-07-18): same blocking-command timeout
-      issue as step 7 above."
-    expected_result: "Combat XP + cowhide inventory"
+# ========== REMOVED 2026-07-19 (H-7): KILL_COW_GET_HIDES step ==========
+# The old step 8 ran `KILL_COW_GET_HIDES` with timeout_ms:3600000, but that
+# command has NO kill-count arg (KillCowGetHidesCommand.java runs until manually
+# stopped). After exactly 1h, run_routine.py gave up and reported the step
+# failed -- while the plugin kept killing cows UNSUPERVISED indefinitely. Unlike
+# KILL_LOOP/KILL_LOOP_CONFIG it is NOT covered by the DEFECT-26 active_loop
+# polling fix, so the watchdog/run-ledger protection died with the runner. It
+# also made step 7's KILL_LOOP non-terminal (validator warning). Removed per the
+# triage report's short-term recommendation; a max-kills arg for
+# KILL_COW_GET_HIDES is a plugin-side follow-up. For cowhide money-making with a
+# real kill cap + banking, use routines/money_making/cowhide_banking.yaml (uses
+# KILL_LOOP_CONFIG, which IS active_loop-managed).
+
+# Flat loop: after a 100-kill batch, re-run from step 6 (walk to pen + KILL_LOOP)
+# so training continues across batches. Bounded by `--loops N` on the CLI (the
+# only real pass cap -- ROUTINE_SCHEMA.md (d)/(f)); skips the one-time
+# bank/equip steps 1-5. No Grammar-2 stop atom fits "combat level" (combat is
+# not a single trainable skill -- ROUTINE_SCHEMA.md (c) has only <skill>_level),
+# so pass count is the intended bound here.
+loop:
+  enabled: true
+  repeat_from_step: 6
 
 # Combat settings
 combat_settings:
@@ -114,17 +116,14 @@ combat_settings:
 
 # Notes
 notes: |
-  Two modes available:
+  Pure combat training via KILL_LOOP (no looting; fastest XP/hour, no
+  inventory management). Runs 100-kill batches, repeating from step 6 until
+  `--loops N` is exhausted.
 
-  1. KILL_LOOP: Pure combat training (no looting)
-     - Fastest XP/hour
-     - No inventory management
-     - Use for pure combat levels
-
-  2. KILL_COW_GET_HIDES: Combat + money making
-     - Kills cows and loots cowhide
-     - Banks when inventory full
-     - Use for combat + GP
+  For combat + cowhide money-making (the old "mode 2", removed 2026-07-19 per
+  H-7 because KILL_COW_GET_HIDES is uncapped/unmanaged), use
+  routines/money_making/cowhide_banking.yaml instead -- it uses
+  KILL_LOOP_CONFIG with a real kill cap, loot config, and banking.
 
   Created with MCP tools:
   - list_available_commands(category="combat")

@@ -71,13 +71,25 @@ steps:
     action: INTERACT_NPC
     args: "Fred_the_Farmer Talk-to"
     description: "Talk to Fred the Farmer to start quest"
-    # VALIDATED: Underscore naming works
+    await_condition: "dialogue"
+    timeout_ms: 15000
+    # VALIDATED: Underscore naming works. await dialogue added 2026-07-19 (H-11)
+    # so the drain below doesn't check-first on a not-yet-open dialogue.
 
   - id: 3
     phase: "start_quest"
     action: CLICK_CONTINUE
-    description: "Accept quest - need to bring 20 balls of wool"
-    notes: "Multiple continue clicks needed through dialogue"
+    description: "Exhaust Fred's opener dialogue (blind fixed-count)"
+    repeat: 8
+    delay_before_ms: 800
+    notes: "H-11 FIX (2026-07-19): the step's own note said 'Multiple continue
+      clicks needed through dialogue' but it sent exactly ONE CLICK_CONTINUE --
+      the unexhausted opener silently blocks step 4's PICK_UP_ITEM
+      (ROUTINE_SCHEMA.md (i)). Uses a BLIND fixed-count repeat, NOT
+      repeat_until:no_dialogue -- the monologue false-closes open=false between
+      pages (DEFECT-24), so a check-first no_dialogue loop stops after one press
+      (live-validated in 05_cooking_to_quest_guide.yaml LANE-2, 2026-07-19).
+      Extra presses after the dialogue closes are inert."
 
   # ========== PHASE 2: GET SHEARS ==========
   - id: 4
@@ -100,10 +112,16 @@ steps:
     phase: "shear_sheep"
     action: INTERACT_NPC
     args: "Sheep Shear"
-    description: "Shear sheep to get wool"
-    repeat: 20
-    await_condition: "inventory_count:>=20"
+    description: "Shear sheep until carrying 20 wool"
+    repeat: 25
+    await_condition: "inventory_count:>=21"
     notes: |
+      H-10 FIX (2026-07-19): await was inventory_count:>=20, but the player is
+      ALSO carrying the Shears (picked up step 4), which occupy a slot -- so
+      >=20 went true at 19 wool + 1 shears and stopped ONE WOOL SHORT of the 20
+      the quest needs (the deficit only surfaced at turn-in). Now >=21 (20 wool
+      + shears). repeat bumped 20->25 for headroom against already-sheared
+      sheep (await short-circuits once 20 wool are collected).
       PITFALL: Some sheep are already sheared (no "Shear" action).
       If shearing fails, move to different part of pen and retry.
       Sheep respawn with wool after a few minutes.
@@ -174,8 +192,13 @@ steps:
   - id: 15
     phase: "complete_quest"
     action: CLICK_CONTINUE
-    repeat: 5
-    description: "Continue through dialogue to complete quest"
+    repeat: 8
+    delay_before_ms: 800
+    description: "Exhaust the completion dialogue (blind fixed-count)"
+    notes: "M-7 FIX (2026-07-19): was a blind repeat:5; the file's own pitfall
+      note says '~5 dialogue screens' -- an under-count risk. Bumped to a
+      generous blind repeat:8 (extra presses inert). Not repeat_until:no_dialogue
+      -- see step 3's note (DEFECT-24 mid-monologue false-close)."
     expected_result: "Quest complete!"
 
 # Rewards (VALIDATED)

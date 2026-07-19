@@ -93,11 +93,28 @@ steps:
     action: INTERACT_NPC
     args: "Wizard_Mizgog Talk-to"
     description: "Talk to Wizard Mizgog"
+    await_condition: "dialogue"
+    timeout_ms: 15000
+    notes: "await dialogue added 2026-07-19 so the opener drain below starts
+      only once the conversation is actually open."
 
   - id: 6
     phase: "complete_quest"
     action: CLICK_CONTINUE
-    description: "Click through initial dialogue"
+    repeat: 6
+    delay_before_ms: 800
+    description: "Click through Mizgog's opener until the quest option appears"
+    notes: "H-12 FIX (2026-07-19): was a single unconditional CLICK_CONTINUE, but
+      the file's own header says Mizgog's opener needs MULTIPLE continues before
+      the 'Give me a quest please' option renders -- if step 7's option click
+      fires before the option exists it silently no-ops and the quest never
+      starts (ROUTINE_SCHEMA.md (i)). Uses a generous BLIND fixed-count repeat.
+      NOT repeat_until:no_dialogue: this drain ends at an OPTIONS menu (step 7
+      selects it), and no_dialogue would never go true while options are open --
+      CLICK_CONTINUE cannot close an options list (ClickContinueCommand only
+      clicks a 'click here to continue' widget), so the loop would spin to its
+      cap. Extra continue presses while the options are already showing are
+      inert."
 
   - id: 7
     phase: "complete_quest"
@@ -108,8 +125,12 @@ steps:
   - id: 8
     phase: "complete_quest"
     action: CLICK_CONTINUE
-    repeat: 5
-    description: "Click through Mizgog explaining about imps and beads"
+    repeat: 6
+    delay_before_ms: 800
+    description: "Click through Mizgog explaining about imps and beads (until the Yes option)"
+    notes: "M-7: blind fixed-count drain (bumped 5->6) up to the 'Yes' option in
+      step 9. Blind, not no_dialogue, for the same options-boundary reason as
+      step 6."
 
   - id: 9
     phase: "complete_quest"
@@ -120,8 +141,10 @@ steps:
   - id: 10
     phase: "complete_quest"
     action: CLICK_CONTINUE
-    repeat: 2
+    repeat: 4
+    delay_before_ms: 800
     description: "Click through completion dialogue"
+    notes: "M-7: blind fixed-count drain (bumped 2->4 for headroom; extra presses inert)."
     expected_result: "Quest complete! Received Amulet of accuracy"
 
 rewards:

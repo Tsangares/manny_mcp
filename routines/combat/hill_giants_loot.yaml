@@ -1,102 +1,79 @@
 # Hill Giants Combat Routine with Looting
-# Fights Hill Giants, picks up valuable drops, buries bones
+# Fights Hill Giants, loots valuable drops, buries bones (auto).
 # Location: Edgeville Dungeon
 #
-# Requirements: Combat gear, food, brass key for re-entry
+# Requirements: Combat gear, brass key for re-entry.
+#
+# ============================ REWRITE 2026-07-19 (H-6) =====================
+# This routine previously used a hand-rolled attack-spam loop:
+#   ATTACK_NPC Hill_Giant (delay 1000ms) -> PICK_UP_ITEM Big_bones / Law_rune /
+#   Limpwurt_root -> BURY_ALL -> EAT, all inside a flat loop.
+# That was broken by construction (see CORPUS_VALIDATION_TRIAGE_2026-07-19.md
+# H-6): ATTACK_NPC fires ONE attack action and returns immediately, but a Hill
+# Giant kill takes far longer than the 1s delay -- so every pass ran the loot
+# steps while the giant was still alive (finding nothing), buried nothing, and
+# EAT (which has no HP-threshold arg) ate unconditionally every single pass,
+# draining food. Replaced with KILL_LOOP_CONFIG, the command built exactly for
+# this: it searches/attacks/waits-for-death per kill internally, loots the
+# configured items, and always auto-picks-up + buries bones (ROUTINE_SCHEMA.md
+# (h)). Loot list lives in the JSON config below.
+#
+# TRADEOFF (per H-6): KILL_LOOP_CONFIG forces food management OFF
+# (KillLoopConfigCommand.java:101 -> "<npc> none <kills>"), so the HP safety
+# stop is 50% (not the food-managed 30% floor). Hill Giants hit reasonably
+# hard, so bring good armour and run modest batches. If you need active food
+# management instead, use `action: KILL_LOOP` with `args: "Hill_Giant Swordfish
+# 100"` and accept the default rune-only loot (no Limpwurt root), or alternate
+# KILL_LOOP_CONFIG batches with manual restock steps.
+# ===========================================================================
 
 name: "Hill Giants with Looting"
-description: "Kill Hill Giants, loot law runes and big bones, bury bones for Prayer XP"
+description: "Kill Hill Giants, loot law/nature runes, limpwurt roots and big bones; bones auto-buried for Prayer XP"
 type: "combat"
 skill: "strength"
 
-# Loot priorities
-loot_items:
-  - "Law rune"
-  - "Big bones"
-  - "Limpwurt root"
-  - "Nature rune"
-
-loop:
-  enabled: true
-  max_iterations: 100
-  start_step: 1
-
 steps:
-  # Step 1: Attack a Hill Giant
+  # Kill batch: attack Hill Giants until the config's kill cap, looting the
+  # configured drops. Blocking command (ROUTINE_SCHEMA.md (e)) -- large
+  # timeout_ms, NO await_condition; run_routine.py blocks on the live
+  # active_loop until the batch truly finishes (DEFECT-26, ROUTINE_SCHEMA.md
+  # (e.1)). This is the LAST step of the linear pass, as required for a
+  # KILL_LOOP* step.
   - id: 1
     phase: "combat"
-    action: ATTACK_NPC
-    args: "Hill_Giant"
-    description: "Attack nearest Hill Giant"
-    delay_after_ms: 1000
-    notes: "Will find and attack available giant"
+    action: KILL_LOOP_CONFIG
+    args: "/home/wil/Desktop/manny_mcp/routines/combat/configs/hill_giants_loot.json"
+    description: "Kill up to 100 Hill Giants, loot Law/Nature runes + Limpwurt roots; Big bones auto-picked-up and buried, food forced none (50% HP safety stop)."
+    timeout_ms: 3600000
 
-  # Step 2: Pick up Big bones
-  - id: 3
-    phase: "loot"
-    action: PICK_UP_ITEM
-    args: "Big_bones"
-    description: "Pick up big bones"
-    delay_after_ms: 600
-    notes: "May fail if no bones dropped or full inventory"
+# Flat loop: after a full kill batch, re-run it until the inventory fills with
+# loot (Grammar 2 stop condition -- ROUTINE_SCHEMA.md (c)). There is no banking
+# leg here, so inventory_full is the natural stop; also bounded by
+# `./run_routine.py <this file> --loops N` (the only real pass cap --
+# ROUTINE_SCHEMA.md (d)/(f)).
+loop:
+  enabled: true
+  repeat_from_step: 1
+  stop_conditions:
+    - "inventory_full"
 
-  # Step 4: Pick up Law rune (valuable!)
-  - id: 4
-    phase: "loot"
-    action: PICK_UP_ITEM
-    args: "Law_rune"
-    description: "Pick up law rune if dropped"
-    delay_after_ms: 600
-    notes: "Not always dropped, continue if not found"
-
-  # Step 5: Pick up Limpwurt root
-  - id: 5
-    phase: "loot"
-    action: PICK_UP_ITEM
-    args: "Limpwurt_root"
-    description: "Pick up limpwurt root if dropped"
-    delay_after_ms: 600
-    notes: "Valuable herb secondary"
-
-  # Step 6: Bury bones for Prayer XP
-  - id: 6
-    phase: "prayer"
-    action: BURY_ALL
-    args: ""
-    description: "Bury all bones in inventory"
-    delay_after_ms: 1000
-    notes: "Big bones = 15 Prayer XP each"
-
-  # Step 7: Eat food (EAT_FOOD was removed; EAT has no HP-threshold arg -
-  # it always eats the best available food when called, unlike the old
-  # "eat if HP below 25" behavior. This now eats every loop iteration.)
-  - id: 7
-    phase: "sustain"
-    action: EAT
-    args: ""
-    description: "Eat best available food"
-    delay_after_ms: 500
-    notes: "EAT has no threshold arg - eats unconditionally each iteration (was: eat if HP below 25). Consider adding a CHECK_HP_THRESHOLD-gated flow or switching to KILL_LOOP if unconditional eating wastes food."
-
-# Notes for manual execution
+# Notes for operators
 notes: |
-  This routine is designed for Edgeville Dungeon Hill Giants.
+  Edgeville Dungeon Hill Giants.
 
   BEFORE STARTING:
-  - Ensure you have food (swordfish recommended)
-  - Have at least 1 empty inventory slot for bones
-  - Open gates in dungeon path manually first time
+  - Ensure you have a Brass key (dungeon re-entry) and good melee armour.
+  - Start standing among the Hill Giants (this routine has no travel leg).
+  - Have empty inventory slots for loot + bones.
 
-  DROPS TO COLLECT:
-  - Big bones (always) - 15 Prayer XP
-  - Law runes (rare) - valuable!
-  - Limpwurt roots (uncommon) - sell or use for potions
-  - Nature runes (rare) - valuable
+  LOOT CONFIG: routines/combat/configs/hill_giants_loot.json
+    {"npc": "Hill Giant", "kills": 100,
+     "loot_items": ["Law rune", "Big bones", "Limpwurt root", "Nature rune"]}
+  ("Big bones" in loot_items is redundant -- bones are ALWAYS auto-picked-up
+  and buried by KILL_LOOP* regardless of config -- but listed for clarity.)
 
   WHEN TO LEAVE:
-  - Out of food
-  - Inventory full of loot
+  - Inventory full of loot (the flat-loop stop_condition), or out of HP/supplies.
 
   BANKING:
-  - Teleport to Varrock, use west bank
-  - Or climb out and use Edgeville bank
+  - Climb out and use Edgeville bank, or teleport to Varrock west bank.

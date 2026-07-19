@@ -152,9 +152,18 @@ steps:
     action: INTERACT_OBJECT
     args: "Ladder Climb-down"
     description: "Climb down into Edgeville Dungeon"
-    await_condition: "plane:0"
+    await_condition: "location:3116,9851"
+    timeout_ms: 15000
     delay_after_ms: 2000
-    notes: "Underground plane is still 0"
+    notes: "await FIXED 2026-07-19 (M-3): was `plane:0` -- but the Edgeville
+      Dungeon is still plane 0 (only the Y coordinate offsets underground), so
+      the condition was ALWAYS already true before the click and passed on the
+      first poll whether or not the ladder click worked; a missed click only
+      surfaced as a misattributed step-15 GOTO timeout back on the surface. Now
+      waits on the dungeon landing tile 3116,9851 (= locations.hill_giants_dungeon
+      in the sibling routines/combat/hill_giants_travel.yaml; ~8 tiles north of
+      this file's own step-15 target 3117,9843), which actually verifies the
+      descent. Coordinate is corpus-derived, not independently live-verified."
 
   # Step 15: Walk to Hill Giants area
   - id: 15

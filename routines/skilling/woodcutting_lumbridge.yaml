@@ -102,7 +102,18 @@ steps:
     phase: "banking"
     action: BANK_CLOSE
     description: "Close bank"
-    notes: "Loop back to step 5 for continuous woodcutting"
+    notes: "Loop back to step 5 (woodcutting) for continuous grind -- see loop: block"
+
+# Flat loop: after each bank trip, jump back to step 5 (walk to trees + chop)
+# and repeat until the woodcutting level target is reached. repeat_from_step: 5
+# skips the one-time deposit/prep in steps 1-4. Bound in practice by
+# `--loops N` on the CLI as well (see ROUTINE_SCHEMA.md (d)/(f)).
+# stop_conditions uses Grammar 2 (`<skill>_level:N`).
+loop:
+  enabled: true
+  repeat_from_step: 5
+  stop_conditions:
+    - "woodcutting_level:30"
 
 # Notes
 notes: |

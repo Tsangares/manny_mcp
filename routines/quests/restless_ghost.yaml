@@ -201,8 +201,15 @@ steps:
   - id: 15
     phase: "talk_ghost"
     action: CLICK_CONTINUE
-    repeat: 10
-    description: "Listen to ghost's story about stolen skull"
+    repeat: 14
+    delay_before_ms: 800
+    description: "Listen to ghost's story about stolen skull (blind fixed-count)"
+    notes: "M-7 FIX (2026-07-19): bumped 10->14 with pacing -- the file's own
+      header (:38) says 'About 10+ continues total', so repeat:10 risked
+      under-draining and blocking the next step. Extra CLICK_CONTINUE presses
+      after the dialogue closes are inert. Blind repeat (not repeat_until:
+      no_dialogue) per the DEFECT-24 mid-monologue false-close, see
+      05_cooking_to_quest_guide.yaml LANE-2 (2026-07-19)."
 
   # ========== PHASE 4: GET SKULL ==========
   - id: 16

@@ -59,11 +59,16 @@ locations:
     notes: "Y coordinate offset by -6400 for underground"
 
   iron_rocks_guild:
-    x: 3030
-    y: 9720
+    x: 3029
+    y: 9739
     plane: 0
     description: "Iron rock cluster in Mining Guild"
-    notes: "Multiple iron rocks close together, fast respawn"
+    notes: "Multiple iron rocks close together, fast respawn.
+      FIXED 2026-07-19 (H-3): was (3030, 9720) -- documented MEMBERS-ONLY /
+      UNREACHABLE by superheat_steel_bars.yaml:353-357 ('GOTO fails with
+      UNREACHABLE... y-coords should be ~9735-9745'). Retargeted to (3029,
+      9739), the reachable cluster used by mine_iron_ore.yaml and
+      superheat_steel_bars.yaml."
 
 # Step-by-step routine
 steps:
@@ -121,16 +126,20 @@ steps:
     action: INTERACT_OBJECT
     args: "Ladder Climb-down"
     description: "Climb down ladder to Mining Guild"
-    delay_after_ms: 2000
-    notes: "Requires 60 Mining to enter"
+    await_condition: "location:3019,9737"
+    timeout_ms: 10000
+    notes: "Requires 60 Mining to enter. await added 2026-07-19 (M-12): verify
+      the underground landing (mining_guild_underground) before step 8's GOTO
+      fires from an unverified position -- delay_after_ms:2000 alone did not
+      confirm the descent."
 
   # ========== PHASE 3: WALK TO IRON ROCKS ==========
   - id: 8
     phase: "navigate"
     action: GOTO
-    args: "3030 9720 0"
+    args: "3029 9739 0"
     description: "Walk to iron rock cluster in Mining Guild"
-    await_condition: "location:3030,9720"
+    await_condition: "location:3029,9739"
     timeout_ms: 15000
 
   # ========== PHASE 4: MINE AND SUPERHEAT LOOP ==========
@@ -160,8 +169,14 @@ steps:
     action: CAST_SPELL_ON_INVENTORY_ITEM
     args: "Superheat_Item Iron_ore"
     description: "Cast Superheat Item on iron ore to make iron bar"
-    delay_after_ms: 1800
-    notes: "Consumes 4 fire runes + 1 nature rune, produces iron bar"
+    await_condition: "no_item:Iron ore"
+    timeout_ms: 15000
+    notes: "Consumes 4 fire runes + 1 nature rune, produces iron bar.
+      await added 2026-07-19 (H-4): the real cast takes ~3.5s but the step
+      previously had only delay_after_ms:1800, so the inner-loop exit check ran
+      ~1.7s early on stale inventory. Waiting on no_item:Iron ore (per
+      ROUTINE_SCHEMA.md worked example j.3 and superheat_steel_bars.yaml step
+      10) guarantees the ore is consumed before the exit_conditions are read."
 
   # ========== PHASE 5: REPEAT OR BANK ==========
   # The routine should loop steps 9-10 until:

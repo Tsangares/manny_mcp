@@ -113,6 +113,27 @@ steps:
     action: INTERACT_NPC
     args: "Cook Talk-to"
     description: "Talk to Cook to start quest"
+    await_condition: "dialogue"
+    timeout_ms: 15000
+    notes: "await dialogue added 2026-07-19 (M-7) so the drains below start on an
+      open conversation."
+
+  # M-7 FIX (2026-07-19): the three CLICK_DIALOGUE option picks below (8/8b/8c)
+  # previously ran back-to-back with NO interleaved continue drains -- if any
+  # intermediate narrative page renders, the next option's text is not present
+  # and CLICK_DIALOGUE silently no-ops, stalling the quest-accept (everything
+  # downstream then runs pointlessly). Each option pick is now preceded by a
+  # short BLIND CLICK_CONTINUE drain that clears any narrative page so the option
+  # list is showing; continues are inert if the options are already up
+  # (ClickContinueCommand no-ops when no continue button is visible). Blind
+  # fixed-count, not repeat_until:no_dialogue (DEFECT-24 mid-monologue
+  # false-close -- see restless_ghost.yaml step 15 / 05_cooking LANE-2).
+  - id: 7b
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain any Cook opener page before the first option"
 
   - id: 8
     phase: "start_quest"
@@ -121,6 +142,13 @@ steps:
     description: "Ask the Cook what's wrong"
     expected_result: "Cook explains the problem"
 
+  - id: 8a
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain the Cook's explanation before the next option"
+
   - id: 8b
     phase: "start_quest"
     action: CLICK_DIALOGUE
@@ -128,12 +156,26 @@ steps:
     description: "Agree to help the Cook"
     expected_result: "Quest progresses"
 
+  - id: 8b2
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain any narrative page before the accept option"
+
   - id: 8c
     phase: "start_quest"
     action: CLICK_DIALOGUE
     args: "Actually, I know where to find this stuff."
     description: "Accept the quest"
     expected_result: "Quest started"
+
+  - id: 8d
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain the post-accept dialogue"
 
   # ========== PHASE 3: GET EGG ==========
   - id: 9
@@ -150,8 +192,11 @@ steps:
     action: PICK_UP_ITEM
     args: "Egg"
     description: "Pick up egg from ground"
+    await_condition: "has_item:Egg"
+    timeout_ms: 15000
     expected_result: "Egg in inventory"
-    notes: "Egg spawns inside chicken coop fence"
+    notes: "Egg spawns inside chicken coop fence. await added 2026-07-19 (M-7)
+      to verify pickup before travelling on."
 
   # ========== PHASE 4: GET MILK ==========
   - id: 11
@@ -168,8 +213,11 @@ steps:
     action: USE_ITEM_ON_NPC
     args: "Bucket Dairy cow"
     description: "Use bucket on dairy cow to get milk"
+    await_condition: "has_item:Bucket of milk"
+    timeout_ms: 15000
     expected_result: "Bucket of milk in inventory"
-    notes: "Dairy cow has 'Milk' option, not regular cows"
+    notes: "Dairy cow has 'Milk' option, not regular cows. await added
+      2026-07-19 (M-7) to verify the milk before travelling on."
 
   # ========== PHASE 5: GET FLOUR ==========
   - id: 13
@@ -186,7 +234,10 @@ steps:
     action: INTERACT_OBJECT
     args: "Wheat Pick"
     description: "Pick wheat from field"
+    await_condition: "has_item:Grain"
+    timeout_ms: 15000
     expected_result: "Grain in inventory"
+    notes: "await added 2026-07-19 (M-7) to verify the grain before entering the windmill."
 
   - id: 15
     phase: "get_flour"
@@ -215,6 +266,10 @@ steps:
     action: USE_ITEM_ON_OBJECT
     args: "Grain Hopper"
     description: "Put grain in hopper"
+    await_condition: "no_item:Grain"
+    timeout_ms: 15000
+    notes: "await added 2026-07-19 (M-7): grain is consumed into the hopper;
+      verify it left the inventory before operating the controls."
 
   - id: 19
     phase: "get_flour"
@@ -233,7 +288,10 @@ steps:
     action: USE_ITEM_ON_OBJECT
     args: "Pot Flour bin"
     description: "Use pot on flour bin to collect flour"
+    await_condition: "has_item:Pot of flour"
+    timeout_ms: 15000
     expected_result: "Pot of flour in inventory"
+    notes: "await added 2026-07-19 (M-7) to verify the flour before returning to the Cook."
 
   # ========== PHASE 6: COMPLETE QUEST ==========
   - id: 22
@@ -250,6 +308,17 @@ steps:
     action: INTERACT_NPC
     args: "Cook Talk-to"
     description: "Talk to Cook with all items"
+    await_condition: "dialogue"
+    timeout_ms: 15000
+
+  - id: 24
+    phase: "complete_quest"
+    action: CLICK_CONTINUE
+    repeat: 6
+    delay_before_ms: 800
+    description: "Drain the completion dialogue (blind fixed-count)"
+    notes: "M-7 FIX (2026-07-19): added a completion drain -- the turn-in step
+      had no dialogue exhaustion at all. Blind fixed-count (extra presses inert)."
     expected_result: "Quest complete!"
 
 # Rewards
