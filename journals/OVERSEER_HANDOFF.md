@@ -744,3 +744,23 @@ scripted tutorial on a naked residential IP with no humanization is the exact pr
 forward: the prior fresh accounts' **~6h retry-heavy Tutorial Island** likely primed the bots-core
 before the metronomic grind tripped the ban — so humanization must cover the **tutorial phase**
 (variable pacing, no identical-retry spam), not just grind clicks.
+
+---
+
+## STATUS update — proxy wiring built (not deployed), session paused by user
+
+**Proxy egress code is DONE and committed** (`403e235`, author Tsangares) — opt-in only, default OFF, zero behavior change when unused:
+- `scripts/remote/proxy_relay.sh` — `start|stop|status` a pproxy SOCKS5 relay on the run host, reads `proxies.dataimpulse.socks5` from `~/.manny/credentials.yaml`, listens `127.0.0.1:${MANNY_SOCKS_PORT:-1080}`, `status` does the egress `curl` IP check.
+- `scripts/remote/client_remote.sh` — when `MANNY_SOCKS_PORT`/`MANNY_PROXY=1` set, brings relay up + appends `-DsocksProxyHost=127.0.0.1 -DsocksProxyPort=<port>` to the JVM (routes the raw game socket residential). Aborts launch if relay fails (never leaks home IP).
+- `scripts/remote/mannyctl` — `mannyctl <host> proxy <start|stop|status>` + `--proxy` flag on `start`/`run`.
+- `requirements.txt` — `pproxy>=2.7.0`.
+- Verified offline: relay smoke test egressed `82.0.170.71` (residential), NOT home `96.39.231.108`. Secret never printed. Parked humanization files left untouched.
+
+**NOT done (all gated, deferred):**
+- Deploy sequence, in order: `mannyctl diort push-creds` (user-gated; also fixes diort's stale banned `default: new`) → `mannyctl diort provision` (ships scripts + installs pproxy) → `mannyctl diort proxy start` + `proxy status` (confirm `82.x`/`74.x` exit) → then launch.
+- **Unproven link:** the JVM game socket (43594) actually traversing the socks props — must be confirmed in the client log on a throwaway/banned alias before any real session (per proxy-plan verification gate).
+- **Sticky session unconfirmed:** `:10000` rotates the residential exit per request; a live OSRS session needs a stable IP. Confirm dataimpulse sticky syntax + store a sticky `socks5` value before any sustained login.
+- **pproxy/Python 3.14 caveat:** pproxy 2.7.9 crashes on `asyncio.get_event_loop()` under 3.14; relay uses a loop-shim launcher (covers 3.10–3.14). Confirm pproxy imports cleanly on diort after provision.
+- **punitpun tutorial run: NOT launched** — held behind proxy verification + humanization (unchanged standing gate). Map `punitpun → :5` in `hosts.yaml` before launch so it can't collide with the `:2` newbakshesh evidence client.
+
+Session paused here at user request.
