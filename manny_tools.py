@@ -3026,6 +3026,26 @@ def validate_routine_deep(
                         f"and only responds when done, so send_and_await races it and its "
                         f"retry re-sends the command.{hint}")
 
+            # Check (DEFECT-26): steps AFTER a blocking kill loop in the same
+            # linear pass. run_routine.py now BLOCKS on the plugin's exported
+            # active_loop signal until KILL_LOOP/KILL_LOOP_CONFIG truly finishes
+            # (previously the loop's IPC response returned early, so later steps
+            # ran CONCURRENTLY with the still-grinding loop -- "unreachable but
+            # appeared to run"). Any step after such a command now waits out the
+            # entire grind first. That's fine for a flat-loop tail (the loop is
+            # the LAST step and repeats), but a mid-routine follow-up step is
+            # almost always an authoring mistake under the new semantics.
+            if action in ("KILL_LOOP", "KILL_LOOP_CONFIG") and i < len(routine_steps):
+                warnings.append(
+                    f"Step {i}: '{action}' is a blocking kill loop but is NOT the "
+                    f"last step. run_routine.py (DEFECT-26) now blocks on the "
+                    f"plugin's active_loop signal until the loop finishes, so the "
+                    f"following step(s) only run AFTER the entire grind ends "
+                    f"(they used to appear to run concurrently). If you intended a "
+                    f"repeating batch, make this the last step and use "
+                    f"loop.repeat_from_step; otherwise the trailing steps are dead "
+                    f"until the loop's max_kills / HP-safety stop / STOP fires.")
+
             # Check (Track B): unbounded while(true) commands.
             if action in UNBOUNDED_COMMANDS:
                 warnings.append(

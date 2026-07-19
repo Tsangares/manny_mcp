@@ -268,6 +268,40 @@ that just fire one client-thread action and return immediately (`GOTO`,
 `INTERACT_OBJECT`, `INTERACT_NPC`, `CLICK_DIALOGUE`, `BANK_*`, `PICK_UP_ITEM`,
 ...) are the ones `await_condition` (Grammar 1, section (c)) is for.
 
+### (e.1) DEFECT-26 — how `KILL_LOOP` / `KILL_LOOP_CONFIG` actually block now
+
+The "Let the runner block on the plugin's own response" note in the two
+`KILL_LOOP*` rows above was **wrong in practice** and is the root of DEFECT-26.
+`KillLoopCommand` runs a detached background loop and its IPC response returns
+**early** — sub-operations inside the loop (equip / drop / cook / bury) each
+emit a request-id-correlated response, so `transport.send_command` matches the
+*first* one and reports "success" ~seconds in, while the loop grinds on for
+hours. `run_routine.py` then reported "1 loop SUCCESS" and exited, and the
+watchdog (attached to the run pid) exited with it — leaving the grind
+**unmanaged**.
+
+Fix: the plugin now exports a live `active_loop` object into the state JSON
+(`GameEngine.StateExporter` ← `KillLoopCommand.getActiveLoopStatus()`; keys:
+`command`, `target`, `iteration`, `kills`, `max_kills`, `updated_at`; `null`
+when idle). For `KILL_LOOP`/`KILL_LOOP_CONFIG` steps, `run_routine.py` now
+**polls `active_loop` and blocks until the loop truly finishes** (or the step's
+`timeout_ms`), so the run process — and the watchdog on its pid — stay alive
+for the whole grind. Consequences for authors:
+
+- **Still set a large `timeout_ms`** (≥ `3600000` for a 100-kill batch). It now
+  bounds the `active_loop` wait, not just the (early) IPC response.
+- **A `KILL_LOOP*` step must be the LAST step of a linear pass.** Because the
+  runner now blocks to completion, any step *after* a kill loop runs only once
+  the entire grind ends (it used to appear to run *concurrently* with the
+  still-grinding loop). For a repeating batch, make the loop the last step and
+  use `loop.repeat_from_step` (see `chicken_feathers.yaml`). `validate_routine_deep`
+  now WARNS on a non-terminal `KILL_LOOP`/`KILL_LOOP_CONFIG` step.
+- **Relaunching over a running loop is refused.** `run_routine.py` checks
+  `active_loop` before starting and refuses (unless `--force`) if a kill loop is
+  already active for the account, and the plugin itself now rejects a second
+  concurrent `KILL_LOOP` (single-loop guard) — both preventing the dual-loop
+  collision.
+
 ---
 
 ## (f) Dead-key blacklist — these parse clean and do NOTHING
