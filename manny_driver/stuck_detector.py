@@ -4,6 +4,7 @@ Detects when the agent is stuck (repeating commands, position unchanged,
 state stale) and provides recovery suggestions.
 """
 import logging
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field, replace
@@ -34,9 +35,13 @@ LOGIN_FORM_INDICES = frozenset({2, 4})
 # GameState enum name for a completed login. Reaching it clears every login latch.
 LOGGED_IN_STATE = "LOGGED_IN"
 
-# Seconds a non-form login-error screen must persist before the driver-side
-# heuristic itself flags terminal-suspect (backstop for a missed plugin latch).
-LOGIN_STUCK_SECONDS = 30.0
+# Seconds a non-form login-error screen must persist on the SAME login_index
+# before the driver-side heuristic itself flags terminal-suspect (backstop for
+# a missed plugin latch). Raised well past any legitimate connect/transition
+# screen duration: a real ban screen parks on one stable index, transitions
+# churn through several within seconds. The plugin-latch path (terminal_login_failure)
+# is NOT gated by this window and still fires immediately.
+LOGIN_STUCK_SECONDS = 120.0
 
 # PRIMARY signal prompt — strict, tokenised vision classification of the rasterised
 # login screen. Kept here so the driver and tests share one source of truth.
@@ -127,8 +132,18 @@ def parse_vision_verdict(text) -> Tuple[str, str]:
     """
     if not text or not isinstance(text, str):
         return ("UNKNOWN", "")
-    upper = text.upper()
     first_line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    # PRIMARY: the prompt asks for the token FIRST. Require an exact match on the
+    # leading word, not merely "appears anywhere" -- avoids whole-text substring
+    # matching mislabeling e.g. "not BANNED, it's NORMAL" as BANNED.
+    lead = re.match(r"[A-Za-z_]+", first_line)
+    lead = lead.group(0).upper() if lead else ""
+    if lead in _VISION_TOKENS:
+        return (lead, first_line[:200])
+    # FALLBACK: response didn't lead with the bare token (e.g. wrapped in prose or
+    # markdown). Priority-ordered substring scan of the whole text, most severe
+    # (terminal) categories first, so a malformed reply still fails toward caution.
+    upper = text.upper()
     for tok in _VISION_TOKENS:
         if tok in upper:
             return (tok, first_line[:200])
@@ -213,6 +228,7 @@ class StuckDetector:
         self._last_check = time.time()
         # DEFECT-22b login/ban tracking
         self._login_error_since: Optional[float] = None
+        self._login_error_index: Optional[int] = None
         self._last_login: Optional[LoginClassification] = None
 
     # Observation-only tools (no game side-effects)
@@ -268,6 +284,7 @@ class StuckDetector:
         if not cls.present:
             # Old plugin / no signal — do not misclassify, clear state.
             self._login_error_since = None
+            self._login_error_index = None
             self.signals.login_terminal = False
             self.signals.login_stuck_seconds = 0.0
             return cls
@@ -275,6 +292,7 @@ class StuckDetector:
         if cls.logged_in:
             # Success clears every login latch.
             self._login_error_since = None
+            self._login_error_index = None
             self.signals.login_terminal = False
             self.signals.login_stuck_seconds = 0.0
             self.signals.login_failure_message = ""
@@ -285,12 +303,19 @@ class StuckDetector:
             self.signals.login_failure_message = cls.message
 
         if cls.on_error_screen:
-            if self._login_error_since is None:
+            # The persistence timer only accrues while the SAME login_index persists.
+            # A real ban screen parks on one stable index; transition/"connecting"
+            # screens churn through several indices within seconds. An index change
+            # (even between two non-form indices) restarts the window — it is not
+            # evidence of a stable failure, just a screen we haven't classified.
+            if self._login_error_since is None or self._login_error_index != cls.login_index:
                 self._login_error_since = now
+                self._login_error_index = cls.login_index
             self.signals.login_stuck_seconds = max(0.0, now - self._login_error_since)
         else:
             # Normal form / transient in-progress state — reset the persistence timer.
             self._login_error_since = None
+            self._login_error_index = None
             self.signals.login_stuck_seconds = 0.0
         return cls
 
@@ -303,9 +328,14 @@ class StuckDetector:
     def login_terminal_suspected(self) -> bool:
         """True when the run must STOP for a login failure (no relaunch/hop/retry).
 
-        Fires on the confident plugin latch, OR the driver-side persistence backstop
-        (a non-form login-error screen held past LOGIN_STUCK_SECONDS) for a plugin that
-        exports raw fields but missed its own latch.
+        Fires on EITHER:
+          (a) the confident plugin latch (terminal_login_failure=true) — the
+              authoritative signal, gated by nothing but itself, fires immediately; or
+          (b) the driver-side persistence backstop: the SAME non-{2,4} login_index held
+              unchanged for the whole LOGIN_STUCK_SECONDS window, for a plugin that
+              exports raw fields but missed its own latch. A churning/transition index
+              (e.g. a connecting screen) never accrues enough persisted time to fire —
+              any index change resets the window.
         """
         return bool(
             self.signals.login_terminal
@@ -323,6 +353,7 @@ class StuckDetector:
         self.recent_errors.clear()
         self.signals = StuckSignals()
         self._login_error_since = None
+        self._login_error_index = None
         self._last_login = None
 
     def get_recovery_hint(self) -> str:

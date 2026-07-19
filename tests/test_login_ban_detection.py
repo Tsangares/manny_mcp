@@ -183,8 +183,9 @@ class TestStuckDetectorLogin:
         assert "STOP" in hint and "relaunch" in hint
 
     def test_persistence_backstop_without_plugin_latch(self):
-        # Non-form error screen that persists past LOGIN_STUCK_SECONDS latches suspect
-        # even if the plugin never set terminal_login_failure (old/missed latch).
+        # Non-form error screen that persists past LOGIN_STUCK_SECONDS on the SAME
+        # index latches suspect even if the plugin never set terminal_login_failure
+        # (old/missed latch). Index 14 is stable across both polls.
         d = StuckDetector()
         err = {"game_state": "LOGIN_SCREEN", "login_index": 14,
                "terminal_login_failure": False}
@@ -192,6 +193,57 @@ class TestStuckDetectorLogin:
         assert d.login_terminal_suspected is False  # just started
         d.record_login_state(err, now=1000.0 + LOGIN_STUCK_SECONDS + 1)
         assert d.login_terminal_suspected is True
+
+    def test_transition_index_held_31s_does_not_latch(self):
+        # Regression: a low "connecting"/transition index (not a stable ban screen)
+        # held for 31s used to false-positive under the old 30s window. It must not
+        # latch now -- 31s is far short of the raised LOGIN_STUCK_SECONDS backstop,
+        # and no plugin latch was set either.
+        d = StuckDetector()
+        transition = {"game_state": "LOGIN_SCREEN", "login_index": 1,
+                      "terminal_login_failure": False}
+        d.record_login_state(transition, now=2000.0)
+        d.record_login_state(transition, now=2031.0)
+        assert d.login_terminal_suspected is False
+        assert d.signals.login_stuck_seconds == pytest.approx(31.0)
+
+    def test_stable_index_125s_with_plugin_latch_fires(self):
+        # The authoritative plugin latch fires immediately and stays fired across a
+        # long-held stable index -- the persistence window never gates the latch path.
+        d = StuckDetector()
+        banned = {"game_state": "LOGIN_SCREEN", "login_index": 14,
+                  "terminal_login_failure": True, "login_failure_message": "banned"}
+        d.record_login_state(banned, now=3000.0)
+        assert d.login_terminal_suspected is True
+        d.record_login_state(banned, now=3000.0 + 125.0)
+        assert d.login_terminal_suspected is True
+
+    def test_stable_non_form_index_120s_without_latch_fires(self):
+        # Backstop path (b): same non-{2,4} index unchanged for >= LOGIN_STUCK_SECONDS
+        # (now 120s) with no plugin latch still fires -- covers a plugin that exports
+        # raw fields but missed its own latch.
+        d = StuckDetector()
+        err = {"game_state": "LOGIN_SCREEN", "login_index": 7,
+               "terminal_login_failure": False}
+        d.record_login_state(err, now=4000.0)
+        assert d.login_terminal_suspected is False
+        d.record_login_state(err, now=4000.0 + LOGIN_STUCK_SECONDS)
+        assert d.login_terminal_suspected is True
+
+    def test_churning_index_never_latches(self):
+        # Indices that keep changing (1 -> 3 -> 1 -> ...) never accrue a stable
+        # persistence window, regardless of total elapsed time -- this is the
+        # transition-screen churn pattern, not a parked ban screen.
+        d = StuckDetector()
+        now = 5000.0
+        sequence = [1, 3, 1, 3, 1, 3, 1, 3, 1, 3]
+        for idx in sequence:
+            login = {"game_state": "LOGIN_SCREEN", "login_index": idx,
+                     "terminal_login_failure": False}
+            d.record_login_state(login, now=now)
+            assert d.login_terminal_suspected is False
+            now += LOGIN_STUCK_SECONDS  # each hop is itself a long hold, but never stable
+        assert d.login_terminal_suspected is False
 
     def test_login_success_clears_signals(self):
         d = StuckDetector()
