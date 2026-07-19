@@ -390,6 +390,17 @@ do_push_creds() {
   if is_local; then die "'$HOST' is local — creds already here"; fi
   local src="$HOME/.manny/credentials.yaml"
   [ -f "$src" ] || die "no $src on the orchestrator"
+
+  # finding #5: a Bolt re-import silently resets `default:` to a BANNED alias
+  # (new/newbakshesh). Sanitize the LOCAL creds before pushing so a banned
+  # default can never be propagated to a host and then auto-started unattended.
+  local fixcreds="$SCRIPT_DIR/../fix_credentials_defaults.sh"
+  if [ -x "$fixcreds" ]; then
+    "$fixcreds" || die "credential sanitize failed — refusing to push a possibly-banned default"
+  else
+    echo "WARN: $fixcreds not executable; skipping default-alias sanitize" >&2
+  fi
+
   echo "About to copy live Jagex session credentials to $HOST ($H_SSH)."
   echo "This is an account-affecting step (new-device/new-IP login)."
   printf "Type 'yes' to proceed: "
