@@ -155,6 +155,7 @@ Valid fields:
 - "health" - Current/max health
 - "scenario" - Current task and progress
 - "camera" - Camera yaw and pitch
+- "login" - Login/ban diagnostics (game_state, login_index, terminal_login_failure, login_failure_message)
 
 If no fields specified, returns full state (backwards compatible).""",
     "inputSchema": {
@@ -166,7 +167,8 @@ If no fields specified, returns full state (backwards compatible).""",
                 "items": {
                     "type": "string",
                     "enum": ["location", "inventory", "inventory_full", "equipment",
-                             "skills", "dialogue", "nearby", "combat", "health", "scenario", "gravestone", "camera"]
+                             "skills", "dialogue", "nearby", "combat", "health", "scenario",
+                             "gravestone", "camera", "login"]
                 },
                 "description": "Optional list of fields to include. If not specified, returns all data."
             }
@@ -260,6 +262,12 @@ async def handle_get_game_state(arguments: dict) -> dict:
 
             elif field == "camera":
                 filtered["camera"] = player.get("camera", {})
+
+            elif field == "login":
+                # Ban/login diagnostics (DEFECT-22b). Top-level section, added by
+                # GameEngine.buildLoginState(). Absent on pre-DEFECT-22b plugins ->
+                # empty dict, which the driver treats as "no signal" (backward compat).
+                filtered["login"] = full_state.get("login", {})
 
         return {
             "success": True,

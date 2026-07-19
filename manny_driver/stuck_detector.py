@@ -6,9 +6,154 @@ state stale) and provides recovery suggestions.
 import logging
 import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from typing import Optional, Tuple
 
 logger = logging.getLogger("manny_driver.stuck")
+
+
+# ---------------------------------------------------------------------------
+# Login / ban detection (DEFECT-22b, driver side)
+#
+# Consumes the `login` state section exported by the plugin
+# (GameEngine.buildLoginState / manny commit 93dae33):
+#   { game_state, login_index, terminal_login_failure, login_failure_message }
+#
+# The plugin's persistence heuristic latches `terminal_login_failure=true` when a
+# non-{2,4} login-screen index persists across >=2 world-hop attempts without ever
+# reaching LOGGED_IN. This module mirrors the SECONDARY heuristic driver-side (so an
+# older plugin that only exports raw fields, or a missed latch, is still caught) and
+# feeds the PRIMARY vision confirmation (analyze_screenshot). Everything here is pure
+# and offline: no game client, no network, no vision dependency required.
+# ---------------------------------------------------------------------------
+
+# The two DOCUMENTED, stable login-screen form indices (username/password, OTP).
+# Everything else is an undocumented error/transition screen whose number drifts.
+LOGIN_FORM_INDICES = frozenset({2, 4})
+
+# GameState enum name for a completed login. Reaching it clears every login latch.
+LOGGED_IN_STATE = "LOGGED_IN"
+
+# Seconds a non-form login-error screen must persist before the driver-side
+# heuristic itself flags terminal-suspect (backstop for a missed plugin latch).
+LOGIN_STUCK_SECONDS = 30.0
+
+# PRIMARY signal prompt — strict, tokenised vision classification of the rasterised
+# login screen. Kept here so the driver and tests share one source of truth.
+BAN_CLASSIFICATION_PROMPT = (
+    "This is an OSRS login screen. Does it show an account ban, disable, lock, "
+    "appeal, or 'serious rule breaking' message? Answer strictly with ONE of these "
+    "tokens first: BANNED, LOCKED, MEMBERS_REQUIRED, WORLD_FULL, RATE_LIMITED, "
+    "NORMAL, or OTHER — then a one-line reason."
+)
+
+# Vision verdict tokens and how each maps to run policy.
+_VISION_TOKENS = (
+    "BANNED", "LOCKED", "MEMBERS_REQUIRED", "WORLD_FULL", "RATE_LIMITED",
+    "NORMAL", "OTHER",
+)
+# TERMINAL: stop the run, never relaunch/hop/retry.
+VISION_TERMINAL_CATEGORIES = frozenset({"BANNED", "LOCKED"})
+# TRANSIENT: bounded retry / world-hop is legitimate.
+VISION_TRANSIENT_CATEGORIES = frozenset({"WORLD_FULL", "RATE_LIMITED"})
+
+
+@dataclass
+class LoginClassification:
+    """Heuristic verdict for one polled `login` state section."""
+    present: bool                 # login section existed in the state file
+    terminal: bool                # stop-the-run: plugin latch or vision-confirmed ban
+    on_error_screen: bool         # LOGIN_SCREEN on a non-{2,4} error index
+    logged_in: bool
+    game_state: str = ""
+    login_index: int = -1
+    message: str = ""
+    category: str = "UNKNOWN"     # NORMAL | ERROR_SCREEN | TERMINAL_LOGIN_FAILURE | vision token
+    reason: str = ""
+    vision_used: bool = False
+
+
+def classify_login_state(login) -> LoginClassification:
+    """Pure, offline classification of the exported `login` section.
+
+    Accepts the dict from state["login"], or None/{}/garbage from a pre-DEFECT-22b
+    plugin that never exported the section. Backward compatibility is mandatory:
+    a missing/empty section must classify as NORMAL (present=False), never terminal.
+    """
+    if not isinstance(login, dict) or not login:
+        return LoginClassification(
+            present=False, terminal=False, on_error_screen=False, logged_in=False,
+            category="NORMAL", reason="no login section (pre-DEFECT-22b plugin)")
+
+    gs = login.get("game_state")
+    gs = gs if isinstance(gs, str) else ""
+
+    try:
+        idx = int(login.get("login_index", -1))
+    except (TypeError, ValueError):
+        idx = -1
+
+    terminal = bool(login.get("terminal_login_failure"))
+    msg = login.get("login_failure_message") or ""
+    if not isinstance(msg, str):
+        msg = str(msg)
+
+    logged_in = (gs == LOGGED_IN_STATE)
+    # login_index -1 means unreadable (client threw) — do NOT treat as an error screen.
+    on_error = (gs == "LOGIN_SCREEN" and idx >= 0 and idx not in LOGIN_FORM_INDICES)
+
+    if terminal:
+        category = "TERMINAL_LOGIN_FAILURE"
+        reason = msg or "plugin latched terminal_login_failure"
+    elif logged_in:
+        category, reason = "NORMAL", "logged in"
+    elif on_error:
+        category = "ERROR_SCREEN"
+        reason = "non-form login index %d on login screen" % idx
+    else:
+        category, reason = "NORMAL", "normal login form / login in progress"
+
+    return LoginClassification(
+        present=True, terminal=terminal, on_error_screen=on_error,
+        logged_in=logged_in, game_state=gs, login_index=idx, message=msg,
+        category=category, reason=reason)
+
+
+def parse_vision_verdict(text) -> Tuple[str, str]:
+    """Parse an analyze_screenshot response into (token, one-line-reason).
+
+    Returns ("UNKNOWN", "") when vision is unavailable / empty — the caller treats
+    UNKNOWN as "no vision signal" and keeps the heuristic verdict (graceful degrade).
+    """
+    if not text or not isinstance(text, str):
+        return ("UNKNOWN", "")
+    upper = text.upper()
+    first_line = next((ln.strip() for ln in text.splitlines() if ln.strip()), "")
+    for tok in _VISION_TOKENS:
+        if tok in upper:
+            return (tok, first_line[:200])
+    return ("OTHER", first_line[:200])
+
+
+def apply_vision_verdict(classification: LoginClassification,
+                         verdict_token: str,
+                         verdict_reason: str = "") -> LoginClassification:
+    """Fold a vision verdict into a heuristic classification (PRIMARY over SECONDARY).
+
+    Vision is authoritative when it produces a real token: it sets the category and can
+    ESCALATE to terminal (BANNED/LOCKED). It never DOWNGRADES a plugin-latched terminal
+    (a confirmed in-plugin latch outranks a vision "NORMAL"). An UNKNOWN/empty verdict
+    (vision unavailable) leaves the heuristic untouched — graceful degradation.
+    """
+    if not verdict_token or verdict_token == "UNKNOWN":
+        return classification
+    out = replace(classification, vision_used=True)
+    out.category = verdict_token
+    if verdict_reason:
+        out.reason = verdict_reason
+    # Escalate to terminal on a confirmed ban; keep an existing plugin latch.
+    out.terminal = classification.terminal or (verdict_token in VISION_TERMINAL_CATEGORIES)
+    return out
 
 
 @dataclass
@@ -20,6 +165,10 @@ class StuckSignals:
     consecutive_observations: int = 0  # get_game_state called without actions
     last_position: tuple = (0, 0, 0)
     state_stale_seconds: float = 0.0
+    # DEFECT-22b login/ban signals (see classify_login_state above).
+    login_terminal: bool = False          # plugin-latched terminal login failure
+    login_stuck_seconds: float = 0.0      # time held on a non-form login-error screen
+    login_failure_message: str = ""
 
     @property
     def is_stuck(self) -> bool:
@@ -29,6 +178,8 @@ class StuckSignals:
             or self.consecutive_errors >= 3
             or self.consecutive_observations >= 6
             or self.state_stale_seconds > 30
+            or self.login_terminal
+            or self.login_stuck_seconds >= LOGIN_STUCK_SECONDS
         )
 
     @property
@@ -44,6 +195,10 @@ class StuckSignals:
             reasons.append(f"observation loop ({self.consecutive_observations}x without action)")
         if self.state_stale_seconds > 30:
             reasons.append(f"state stale for {self.state_stale_seconds:.0f}s")
+        if self.login_terminal:
+            reasons.append("terminal login failure (suspected ban)")
+        elif self.login_stuck_seconds >= LOGIN_STUCK_SECONDS:
+            reasons.append(f"stuck on login-error screen for {self.login_stuck_seconds:.0f}s")
         return "; ".join(reasons) if reasons else "unknown"
 
 
@@ -56,6 +211,9 @@ class StuckDetector:
         self.recent_errors: deque[str] = deque(maxlen=10)
         self.signals = StuckSignals()
         self._last_check = time.time()
+        # DEFECT-22b login/ban tracking
+        self._login_error_since: Optional[float] = None
+        self._last_login: Optional[LoginClassification] = None
 
     # Observation-only tools (no game side-effects)
     OBSERVATION_TOOLS = {
@@ -96,6 +254,64 @@ class StuckDetector:
         """Record how old the game state is."""
         self.signals.state_stale_seconds = age_seconds
 
+    def record_login_state(self, login, now: float = None) -> LoginClassification:
+        """Consume the exported `login` state section and update login/ban signals.
+
+        `login` is state["login"] (dict), or None/{} on a pre-DEFECT-22b plugin — in
+        which case this is a no-op that clears any prior login signal (never a false
+        terminal). Returns the LoginClassification for callers that want the verdict.
+        """
+        now = now if now is not None else time.time()
+        cls = classify_login_state(login)
+        self._last_login = cls
+
+        if not cls.present:
+            # Old plugin / no signal — do not misclassify, clear state.
+            self._login_error_since = None
+            self.signals.login_terminal = False
+            self.signals.login_stuck_seconds = 0.0
+            return cls
+
+        if cls.logged_in:
+            # Success clears every login latch.
+            self._login_error_since = None
+            self.signals.login_terminal = False
+            self.signals.login_stuck_seconds = 0.0
+            self.signals.login_failure_message = ""
+            return cls
+
+        if cls.terminal:
+            self.signals.login_terminal = True
+            self.signals.login_failure_message = cls.message
+
+        if cls.on_error_screen:
+            if self._login_error_since is None:
+                self._login_error_since = now
+            self.signals.login_stuck_seconds = max(0.0, now - self._login_error_since)
+        else:
+            # Normal form / transient in-progress state — reset the persistence timer.
+            self._login_error_since = None
+            self.signals.login_stuck_seconds = 0.0
+        return cls
+
+    @property
+    def last_login_classification(self) -> Optional[LoginClassification]:
+        """The most recent login classification, or None if never polled."""
+        return self._last_login
+
+    @property
+    def login_terminal_suspected(self) -> bool:
+        """True when the run must STOP for a login failure (no relaunch/hop/retry).
+
+        Fires on the confident plugin latch, OR the driver-side persistence backstop
+        (a non-form login-error screen held past LOGIN_STUCK_SECONDS) for a plugin that
+        exports raw fields but missed its own latch.
+        """
+        return bool(
+            self.signals.login_terminal
+            or self.signals.login_stuck_seconds >= LOGIN_STUCK_SECONDS
+        )
+
     def check(self) -> StuckSignals:
         """Check all signals and return current stuck status."""
         return self.signals
@@ -106,9 +322,22 @@ class StuckDetector:
         self.recent_positions.clear()
         self.recent_errors.clear()
         self.signals = StuckSignals()
+        self._login_error_since = None
+        self._last_login = None
 
     def get_recovery_hint(self) -> str:
         """Get a recovery suggestion based on current signals."""
+        # Login/ban is terminal: STOP, never relaunch/hop/retry. Checked FIRST so it
+        # is never masked by a co-occurring generic stuck signal.
+        if self.signals.login_terminal or self.signals.login_stuck_seconds >= LOGIN_STUCK_SECONDS:
+            msg = self.signals.login_failure_message or "terminal login failure"
+            return (
+                f"Terminal login failure detected ({msg}). STOP the run now — do NOT "
+                "relaunch, world-hop, or retry. Confirm the reason with "
+                "analyze_screenshot (BANNED/LOCKED = stop; WORLD_FULL/RATE_LIMITED = "
+                "bounded retry only), then mark the account. A banned/disabled/locked "
+                "account cannot log in; retrying only hammers it."
+            )
         if self.signals.state_stale_seconds > 30:
             return (
                 "The game state file hasn't updated in over 30 seconds. "

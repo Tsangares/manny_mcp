@@ -14,6 +14,15 @@ notice, while nobody is watching, the three ways a long grind dies:
   3. NORMAL/ABNORMAL EXIT — the run process is gone. Recorded as completed (or
      dead, best-effort, if the last observation looked unhealthy) and the watchdog
      self-terminates.
+  4. SUSPECTED BAN / TERMINAL LOGIN FAILURE (DEFECT-22b) — the plugin latches
+     login.terminal_login_failure=true in the state file (a non-{2,4} login-error
+     screen persisting across world-hop attempts without ever logging in). A banned/
+     disabled/locked account can never log in, so continuing only hammers it: the
+     watchdog records status=suspected_ban with a login_failure event and SIGTERMs the
+     run (like a thermal kill — a terminal condition), then self-terminates. It does
+     NOT relaunch or world-hop. Vision confirmation (analyze_screenshot) is the LLM
+     driver's job when it reads the ledger — the watchdog is stdlib-only and has no
+     vision on diort; the plugin latch is the authoritative in-process signal it acts on.
 
 It maintains one JSON run-record per run at /tmp/manny_runs/<run_id>.json, written
 atomically (tmp + os.replace) every interval so a reader never sees a torn file.
@@ -163,6 +172,34 @@ def read_active_loop(state_file):
     return al if isinstance(al, dict) else None
 
 
+def read_login_state(state_file):
+    """Return the state file's ``login`` dict, or None. Never raises.
+
+    DEFECT-22b: the plugin publishes a login/ban diagnostic section
+    ``{game_state, login_index, terminal_login_failure, login_failure_message}``.
+    Absent on pre-DEFECT-22b plugins -> None (the watchdog then simply never fires the
+    suspected-ban path, preserving backward compatibility)."""
+    try:
+        with open(state_file, "r", errors="replace") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    login = data.get("login")
+    return login if isinstance(login, dict) else None
+
+
+def login_terminal_failure(login):
+    """True iff the plugin latched a terminal login failure. Never raises.
+
+    Keyed ONLY on the authoritative in-plugin latch ``terminal_login_failure`` — not on
+    any driver-side heuristic. Missing/garbage section -> False (backward compatible)."""
+    if not isinstance(login, dict):
+        return False
+    return bool(login.get("terminal_login_failure"))
+
+
 def pid_alive(pid):
     if not pid:
         return False
@@ -225,6 +262,7 @@ class RunRecord:
             "temp_c": None,
             "state_age_s": None,
             "active_loop": None,
+            "login": None,
             "status": "running",
             "crash_source": _CRASH_SRC,
             "events": [],
@@ -298,11 +336,13 @@ def main(argv):
         run_up = pid_alive(args.run_pid)
         client_up = pid_alive(args.client_pid) if args.client_pid else None
         active_loop = read_active_loop(state_file)
+        login = read_login_state(state_file)
 
         rec.update(last_check=now_iso(),
                    temp_c=temp,
                    state_age_s=(round(age, 1) if age is not None else None),
-                   active_loop=active_loop)
+                   active_loop=active_loop,
+                   login=login)
 
         unhealthy = False
 
@@ -358,6 +398,39 @@ def main(argv):
                 return 0  # terminal — the run is being torn down
         else:
             over_temp_streak = 0
+
+        # ---- 2b. suspected ban / terminal login failure (DEFECT-22b) -----------
+        # The plugin has latched terminal_login_failure: a banned/disabled/locked
+        # account that can never log in. STOP the run (terminal, like thermal); never
+        # relaunch or world-hop. Record it so the LLM driver can vision-confirm + mark
+        # the account. The plugin latch is the authoritative signal we act on.
+        if login_terminal_failure(login):
+            msg = (login or {}).get("login_failure_message") or "terminal login failure"
+            gs = (login or {}).get("game_state")
+            idx = (login or {}).get("login_index")
+            detail = ("plugin latched terminal_login_failure (game_state=%s login_index=%s): %s"
+                      % (gs, idx, msg))
+            rec.event("login_failure", detail)
+            if args.dry_run:
+                rec.event("suspected_ban",
+                          "[DRY-RUN] would SIGTERM run_pid=%s then client_pid=%s (%s)"
+                          % (args.run_pid, args.client_pid, msg))
+            else:
+                ok_run = sigterm(args.run_pid)
+                rec.event("suspected_ban",
+                          "SIGTERM run_pid=%s (%s): %s"
+                          % (args.run_pid, "sent" if ok_run else "failed", msg))
+                if args.client_pid:
+                    ok_cl = sigterm(args.client_pid)
+                    rec.event("suspected_ban",
+                              "SIGTERM client_pid=%s (%s)"
+                              % (args.client_pid, "sent" if ok_cl else "failed"))
+            rec.update(status="suspected_ban")
+            rec.event("needs_attention",
+                      "run stopped for suspected ban; do NOT relaunch/world-hop — "
+                      "vision-confirm (analyze_screenshot) and mark the account")
+            rec.flush()
+            return 0  # terminal — the run is being torn down
 
         # ---- 3. freeze: stale state file ---------------------------------------
         if age is None:

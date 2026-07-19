@@ -39,6 +39,9 @@ class Agent:
         self.llm = llm
         self.conversation = ConversationManager(window_size=config.conversation_window_size)
         self.stuck_detector = StuckDetector()
+        # DEFECT-22b: set to the final LoginClassification when a run is stopped for a
+        # suspected ban / terminal login failure; None otherwise.
+        self.login_terminal_result = None
 
         # Callbacks for CLI display
         self.on_tool_call = on_tool_call or (lambda *a: None)
@@ -313,7 +316,7 @@ class Agent:
         while self._monitoring and self._running:
             try:
                 # Get compact game state (also serves as health check)
-                state_args = {"fields": ["location", "inventory", "health", "skills"]}
+                state_args = {"fields": ["location", "inventory", "health", "skills", "login"]}
                 if self.config.account_id:
                     state_args["account_id"] = self.config.account_id
                 state_text = await self.mcp.call_tool("get_game_state", state_args)
@@ -327,6 +330,14 @@ class Agent:
                     self.on_status("State check failed, will retry next cycle")
                     await asyncio.sleep(interval)
                     continue
+
+                # DEFECT-22b: terminal login failure (suspected ban) -> STOP the run
+                # cleanly. Never relaunch, world-hop, or retry a banned account.
+                game_state = state.get("state", state)
+                self.stuck_detector.record_login_state(game_state.get("login"))
+                if self.stuck_detector.login_terminal_suspected:
+                    await self._handle_login_terminal()
+                    break
 
                 # Check for intervention triggers
                 trigger = None
@@ -460,6 +471,53 @@ class Agent:
                 )
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
+
+    async def _vision_confirm_login(self) -> tuple[str, str]:
+        """PRIMARY ban signal: classify the rasterised login screen via vision.
+
+        Returns (token, reason) from parse_vision_verdict. Degrades gracefully to
+        ("UNKNOWN", "") whenever vision is unavailable — no GEMINI_API_KEY / no .env
+        on diort, the tool errors, or the call raises — so the heuristic classification
+        stands and the run still stops. Never requires live connectivity in tests.
+        """
+        from .stuck_detector import BAN_CLASSIFICATION_PROMPT, parse_vision_verdict
+        try:
+            args = {"prompt": BAN_CLASSIFICATION_PROMPT}
+            if self.config.account_id:
+                args["account_id"] = self.config.account_id
+            text = await self.mcp.call_tool("analyze_screenshot", args)
+            try:
+                data = json.loads(text)
+            except (json.JSONDecodeError, TypeError):
+                data = None
+            if isinstance(data, dict):
+                if not data.get("success", True):
+                    # Vision unavailable (e.g. GEMINI_API_KEY unset) -> degrade.
+                    return ("UNKNOWN", "")
+                text = data.get("analysis", text)
+            return parse_vision_verdict(text)
+        except Exception as e:
+            logger.info(f"Vision login confirmation unavailable, using heuristic: {e}")
+            return ("UNKNOWN", "")
+
+    async def _handle_login_terminal(self):
+        """Confirm a suspected terminal login failure (vision PRIMARY, heuristic
+        fallback) and STOP the run — no relaunch, no world-hop, no retry."""
+        from .stuck_detector import apply_vision_verdict
+        cls = self.stuck_detector.last_login_classification
+        verdict, reason = await self._vision_confirm_login()
+        if cls is not None:
+            cls = apply_vision_verdict(cls, verdict, reason)
+        self.login_terminal_result = cls  # surfaced to the ledger / caller
+        cat = cls.category if cls else "TERMINAL_LOGIN_FAILURE"
+        why = cls.reason if cls else "terminal login failure"
+        src = "vision" if (cls and cls.vision_used) else "heuristic"
+        self.on_status(
+            f"SUSPECTED BAN: login {cat} ({src}: {why}). Stopping run; "
+            "not relaunching or world-hopping."
+        )
+        logger.warning(f"Terminal login failure [{src}]: {cat} — {why}")
+        self.stop()
 
     def stop(self):
         """Stop the agent."""
