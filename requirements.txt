@@ -8,3 +8,7 @@ pillow>=10.0.0
 
 # Gemini for analyze_screenshot (optional at runtime - server degrades gracefully without it)
 google-generativeai>=0.3.0
+
+# pproxy: pure-Python SOCKS5 relay for opt-in residential proxy egress on run
+# hosts (scripts/remote/proxy_relay.sh). See journals/2026-07-19_proxy_ip_wiring_plan.md.
+pproxy>=2.7.0

@@ -12,13 +12,14 @@
 #   mannyctl list
 #   mannyctl <host> provision                 # idempotent host setup (scripts/remote/provision.sh)
 #   mannyctl <host> push-creds                 # USER-GATED: rsync ~/.manny/credentials.yaml to host
-#   mannyctl <host> start <account>            # thermal-guarded launch (per-account XVFB display)
+#   mannyctl <host> start <account> [--proxy]  # thermal-guarded launch (per-account XVFB display)
+#   mannyctl <host> proxy <start|stop|status>  # local SOCKS5 relay (dataimpulse residential egress)
 #   mannyctl <host> stop <account>             # account-scoped stop (siblings keep running)
 #   mannyctl <host> stop --all                 # ESCAPE HATCH: sweep EVERY manny client on host
 #   mannyctl <host> restart <account>
 #   mannyctl <host> status [account]           # host status; with an account, scope the client list
 #   mannyctl <host> temp                       # quick remote package temp
-#   mannyctl <host> run <routine.yaml> [args]  # run_routine.py ON the host (+watchdog ledger)
+#   mannyctl <host> run <routine.yaml> [args] [--proxy]  # run_routine.py ON the host (+watchdog ledger)
 #   mannyctl <host> runs [run_id]              # print watchdog run ledger(s) (JSON, newest first)
 #   mannyctl <host> cmd <account> <COMMAND..>  # ad-hoc: send one plugin command, print response
 #   mannyctl <host> logs [account] [n]         # tail the client log on host
@@ -33,6 +34,10 @@ set -u
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 HOSTS_YAML="${MANNY_HOSTS_YAML:-$SCRIPT_DIR/hosts.yaml}"
+
+# Optional SOCKS relay port override, forwarded when --proxy is used on
+# start/run/proxy. Unset => the host scripts use their default (1080).
+PROXY_PORT="${MANNY_SOCKS_PORT:-}"
 
 # Prefer the repo venv python (has pyyaml); fall back to system python3.
 PYBIN="$REPO_DIR/venv/bin/python"
@@ -141,6 +146,13 @@ client_env_prefix() {
   local disp="${1:-$H_DISPLAY}"
   printf 'REPO_DIR=%q RUNELITE_LIBS=%q JAVA_BIN=%q XVFB_DISPLAY=%q TEMP_REFUSE_C=%q TEMP_WARN_C=%q' \
     "$H_STAGING" "$H_LIBS" "$H_JDK" "$disp" "$H_REFUSE" "$H_WARN"
+  # Opt-in proxy: --proxy on start/run sets PROXY_FLAG so the client egresses via
+  # the local SOCKS5 relay. Appended only when requested — default OFF, so
+  # status/stop/temp (which never set PROXY_FLAG) are untouched.
+  if [ -n "${PROXY_FLAG:-}" ]; then
+    printf ' MANNY_PROXY=1'
+    [ -n "${PROXY_PORT:-}" ] && printf ' MANNY_SOCKS_PORT=%q' "$PROXY_PORT"
+  fi
 }
 
 client_remote_cmd() {
@@ -149,10 +161,42 @@ client_remote_cmd() {
   echo "cd $(printf %q "$H_STAGING") && $(client_env_prefix "$disp") ./scripts/remote/client_remote.sh $*"
 }
 
+# proxy_remote_cmd <start|stop|status> — run proxy_relay.sh ON the host. Forwards
+# REPO_DIR (for the host venv python) and an optional MANNY_SOCKS_PORT override.
+proxy_remote_cmd() {
+  local action="$1"
+  local envp; envp="REPO_DIR=$(printf %q "$H_STAGING")"
+  [ -n "${PROXY_PORT:-}" ] && envp="$envp MANNY_SOCKS_PORT=$(printf %q "$PROXY_PORT")"
+  echo "cd $(printf %q "$H_STAGING") && $envp ./scripts/remote/proxy_relay.sh $(printf %q "$action")"
+}
+
 # ---- subcommands ----------------------------------------------------------
 
-do_start()   { local d; d="$(resolve_display "$1")"; run_on_host "$(client_remote_cmd "$d" start "$1")"; }
+# do_start [account] [--proxy] — --proxy (any position) sets PROXY_FLAG so the
+# client_env_prefix threads MANNY_PROXY=1 into the host launch env.
+do_start() {
+  local acct="" d
+  for a in "$@"; do
+    case "$a" in
+      --proxy) PROXY_FLAG=1 ;;
+      *) [ -z "$acct" ] && acct="$a" ;;
+    esac
+  done
+  [ -n "$acct" ] || die "start needs an account"
+  d="$(resolve_display "$acct")"
+  run_on_host "$(client_remote_cmd "$d" start "$acct")"
+}
 do_restart() { local d; d="$(resolve_display "$1")"; run_on_host "$(client_remote_cmd "$d" restart "$1")"; }
+
+# do_proxy <start|stop|status> — manage the host's local SOCKS5 relay directly.
+do_proxy() {
+  local action="${1:-}"
+  case "$action" in
+    start|stop|status) run_on_host "$(proxy_remote_cmd "$action")" ;;
+    "") die "proxy needs: start|stop|status" ;;
+    *)  die "unknown proxy action '$action' (start|stop|status)" ;;
+  esac
+}
 
 # do_stop <account> | --all — scoped by default; --all is the blanket sweep.
 do_stop() {
@@ -186,6 +230,22 @@ do_run() {
   case "${1:-}" in
     --attach|--foreground) attach=1; shift ;;
   esac
+
+  # --proxy (any position): forward the proxy env to the host run env and strip
+  # the flag from the run_routine.py args. Default OFF (proxy_env empty).
+  local proxy_env="" filtered=()
+  for a in "$@"; do
+    case "$a" in
+      --proxy) PROXY_FLAG=1 ;;
+      *) filtered+=("$a") ;;
+    esac
+  done
+  if [ "${#filtered[@]}" -gt 0 ]; then set -- "${filtered[@]}"; else set --; fi
+  if [ -n "${PROXY_FLAG:-}" ]; then
+    proxy_env="MANNY_PROXY=1"
+    [ -n "${PROXY_PORT:-}" ] && proxy_env="$proxy_env MANNY_SOCKS_PORT=$(printf %q "$PROXY_PORT")"
+  fi
+
   [ $# -ge 1 ] || die "run needs a routine path, e.g.: mannyctl $HOST run routines/combat/x.yaml --account new"
 
   # Derive a log filename: prefer the account (--account <id>), else the routine
@@ -210,7 +270,7 @@ do_run() {
   local args; args="$(printf '%q ' "$@")"
 
   if [ -n "$attach" ]; then
-    run_on_host "cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") run_routine.py $args"
+    run_on_host "cd $(printf %q "$H_STAGING") && ${proxy_env:+$proxy_env }$(printf %q "$H_VENVPY") run_routine.py $args"
     return
   fi
 
@@ -234,7 +294,7 @@ do_run() {
   # at $ledger. The watchdog runs from the repo root (cwd from the cd above) so it
   # can import mcptools.tools.monitoring.CRASH_PATTERNS; --temp-refuse mirrors this
   # host's hosts.yaml threshold. \$pid is expanded on the FAR side (same session).
-  run_on_host "cd $(printf %q "$H_STAGING") || exit 1; setsid $(printf %q "$H_VENVPY") run_routine.py $args </dev/null >$(printf %q "$log") 2>&1 & pid=\$!; disown; sleep 1; if kill -0 \$pid 2>/dev/null; then setsid $(printf %q "$H_VENVPY") scripts/remote/watchdog.py --run-id $(printf %q "$run_id") --account $(printf %q "$wd_acct") --routine $(printf %q "$routine") --run-pid \$pid --temp-refuse $(printf %q "${H_REFUSE:-88}") </dev/null >$(printf %q "$wd_log") 2>&1 & wpid=\$!; disown; echo \"MANNY_RUN_STARTED pid=\$pid\"; echo \"MANNY_WATCHDOG_STARTED wpid=\$wpid run_id=$(printf %q "$run_id")\"; else echo \"MANNY_RUN_FAILED (process exited immediately; see log)\" >&2; echo '--- tail of log ---' >&2; tail -n 20 $(printf %q "$log") >&2 || true; exit 1; fi"
+  run_on_host "cd $(printf %q "$H_STAGING") || exit 1; ${proxy_env:+$proxy_env }setsid $(printf %q "$H_VENVPY") run_routine.py $args </dev/null >$(printf %q "$log") 2>&1 & pid=\$!; disown; sleep 1; if kill -0 \$pid 2>/dev/null; then setsid $(printf %q "$H_VENVPY") scripts/remote/watchdog.py --run-id $(printf %q "$run_id") --account $(printf %q "$wd_acct") --routine $(printf %q "$routine") --run-pid \$pid --temp-refuse $(printf %q "${H_REFUSE:-88}") </dev/null >$(printf %q "$wd_log") 2>&1 & wpid=\$!; disown; echo \"MANNY_RUN_STARTED pid=\$pid\"; echo \"MANNY_WATCHDOG_STARTED wpid=\$wpid run_id=$(printf %q "$run_id")\"; else echo \"MANNY_RUN_FAILED (process exited immediately; see log)\" >&2; echo '--- tail of log ---' >&2; tail -n 20 $(printf %q "$log") >&2 || true; exit 1; fi"
   local rc=$?
   if [ $rc -eq 0 ]; then
     echo "routine detached on $HOST. log: $log"
@@ -348,7 +408,8 @@ main() {
   case "$sub" in
     provision)   do_provision ;;
     push-creds)  do_push_creds ;;
-    start)       [ $# -ge 1 ] || die "start needs an account"; do_start "$1" ;;
+    start)       [ $# -ge 1 ] || die "start needs an account"; do_start "$@" ;;
+    proxy)       do_proxy "$@" ;;
     stop)        do_stop "$@" ;;
     restart)     [ $# -ge 1 ] || die "restart needs an account"; do_restart "$1" ;;
     status)      do_status "$@" ;;

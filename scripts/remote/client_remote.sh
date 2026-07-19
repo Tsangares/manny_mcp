@@ -22,6 +22,8 @@
 #   TEMP_WARN_C     warn at/above (C)             (default: 80)
 #   REPO_DIR        manny_mcp repo (for venv creds) (default: script's ../..)
 #   NAV_BACKEND     Stage-2 nav flag (-Dmanny.navBackend) (default: "shadow")
+#   MANNY_PROXY     "1" => egress via local SOCKS5 relay  (default: unset = OFF)
+#   MANNY_SOCKS_PORT loopback relay port; setting it also enables proxy (default: 1080 when on)
 #
 # Subcommands (account-scoped — lane-2 safe, multiple accounts coexist):
 #   status [account]        host status; with an account, scope the client list
@@ -47,6 +49,19 @@ NAV_BACKEND="${NAV_BACKEND:-shadow}"
 XVFB_DISPLAY="${XVFB_DISPLAY:-:2}"
 XVFB_SOCKET="/tmp/.X11-unix/X${XVFB_DISPLAY#:}"
 XVFB_LOG="/tmp/xvfb${XVFB_DISPLAY#:}.log"
+
+# PROXY (opt-in, default OFF — zero behaviour change when unset). Egress the
+# JVM's TCP through a local pproxy SOCKS5 relay so the client's traffic (incl.
+# the raw OSRS game socket) leaves via the dataimpulse residential exit instead
+# of the host's home IP. Enabled when MANNY_SOCKS_PORT is set OR MANNY_PROXY=1.
+# See scripts/remote/proxy_relay.sh + journals/2026-07-19_proxy_ip_wiring_plan.md.
+MANNY_PROXY="${MANNY_PROXY:-}"
+MANNY_SOCKS_PORT="${MANNY_SOCKS_PORT:-}"
+PROXY_ENABLED=""
+if [ -n "$MANNY_SOCKS_PORT" ] || [ "$MANNY_PROXY" = "1" ]; then
+  PROXY_ENABLED=1
+  MANNY_SOCKS_PORT="${MANNY_SOCKS_PORT:-1080}"
+fi
 
 TEMP_REFUSE_C="${TEMP_REFUSE_C:-88}"
 TEMP_WARN_C="${TEMP_WARN_C:-80}"
@@ -245,18 +260,34 @@ print(a['jx_character_id'], a['jx_session_id'])
   char_id="$(echo "$creds" | cut -d' ' -f1)"; sess_id="$(echo "$creds" | cut -d' ' -f2)"
   [ -n "$char_id" ] && [ -n "$sess_id" ] || { echo "ERROR: empty jx ids for '$acct'" >&2; return 1; }
 
+  # 4b. PROXY (opt-in). If enabled, ensure the local SOCKS5 relay is up BEFORE
+  #     launch and prepare the JVM socks props. On relay failure we ABORT the
+  #     launch rather than fall back to direct egress — a proxied launch must
+  #     never silently leak the home IP.
+  local socks_props=""
+  if [ -n "$PROXY_ENABLED" ]; then
+    echo "proxy: ensuring SOCKS5 relay on 127.0.0.1:${MANNY_SOCKS_PORT} before launch ..."
+    if ! MANNY_SOCKS_PORT="$MANNY_SOCKS_PORT" REPO_DIR="$REPO_DIR" "$SCRIPT_DIR/proxy_relay.sh" start; then
+      echo "ERROR: proxy relay failed to start — refusing to launch (would leak home IP)." >&2
+      return 1
+    fi
+    socks_props="-DsocksProxyHost=127.0.0.1 -DsocksProxyPort=${MANNY_SOCKS_PORT}"
+  fi
+
   # 5. Launch
   local jar; jar="$(find "$RUNELITE_LIBS" -maxdepth 1 -iname '*shaded.jar' 2>/dev/null | head -1)"
   [ -n "$jar" ] || { echo "ERROR: no *shaded.jar under $RUNELITE_LIBS" >&2; return 1; }
   local log; [ "$acct" = "new" ] && log="/tmp/runelite.log" || log="/tmp/runelite_${acct}.log"
   : >"$log" 2>/dev/null || true
-  echo "launching account='$acct' jar=$jar display=$XVFB_DISPLAY log=$log navBackend=$NAV_BACKEND"
+  echo "launching account='$acct' jar=$jar display=$XVFB_DISPLAY log=$log navBackend=$NAV_BACKEND${socks_props:+ socks=127.0.0.1:${MANNY_SOCKS_PORT}}"
+  # $socks_props is intentionally UNQUOTED: it expands to two JVM -D args when the
+  # proxy is enabled, or to nothing at all when it is not (default OFF path).
   DISPLAY="$XVFB_DISPLAY" \
     _JAVA_OPTIONS="-Xmx1536m -XX:MaxMetaspaceSize=192m" \
     MANNY_ACCOUNT_ID="$acct" \
     JX_CHARACTER_ID="$char_id" \
     JX_SESSION_ID="$sess_id" \
-    setsid "$JAVA_BIN" -Dmanny.navBackend="$NAV_BACKEND" -jar "$jar" >"$log" 2>&1 </dev/null &
+    setsid "$JAVA_BIN" -Dmanny.navBackend="$NAV_BACKEND" $socks_props -jar "$jar" >"$log" 2>&1 </dev/null &
   local java_pid=$!; disown
   unset creds char_id sess_id
 
