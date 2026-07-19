@@ -18,3 +18,15 @@ date,account,host,section,first_contact,failure_class,live_minutes,run_id
 2026-07-19,punitpun,llama,08_combat,NR,not-reached-ladder-blocked,0,20260719T204118Z_punitpun
 2026-07-19,punitpun,llama,09_banking,NR,not-reached-ladder-blocked,0,20260719T204118Z_punitpun
 2026-07-19,punitpun,llama,10_prayer_magic,NR,not-reached-ladder-blocked,0,20260719T204118Z_punitpun
+2026-07-19,tovahkline,diort,TYPE_display_name_558,P,,16,20260719T221000Z_tovahkline
+2026-07-19,ifixifixit,llama,01_character_creation,P,,1,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,01b_experience_selection,P,,1,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,02_gielinor_guide,P,,1,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,03_survival_expert,P,,2,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,04_woodcutting_firemaking,P,,2,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,05_cooking,P,gate-skipped-progress130>=120,0,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,05b_06_quest_guide_ladder,F,exact-mode-regression/nav-trap,13,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,07_mining_smithing,NR,not-reached-nav-trap,0,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,08_combat,NR,not-reached-nav-trap,0,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,09_banking,NR,not-reached-nav-trap,0,20260719T214839Z_ifixifixit
+2026-07-19,ifixifixit,llama,10_prayer_magic,NR,not-reached-nav-trap,0,20260719T214839Z_ifixifixit
