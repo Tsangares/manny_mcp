@@ -174,12 +174,18 @@ steps:
 
   # POSITION-PIN before talking: INTERACT_NPC is range-based; step 10 left us
   # at the furnace, so walk back to the instructor before talking.
+  # LIVE 2026-07-18: approach the instructor from the CARDINAL-SOUTH tile
+  # (3081,9503). The instructor's home is ~(3081,9504); approaching from the
+  # east (by the rocks) or the diagonal 3080,9503 gives "I can't reach that!"
+  # and the talk silently no-ops (no dialogue, no hammer). Talking is what hands
+  # over the HAMMER, which is REQUIRED to smith -- without it USE_ITEM_ON_OBJECT
+  # bronze Anvil succeeds but opens no interface ("you need a hammer").
   - id: 13
-    description: "Walk back to the Mining Instructor"
+    description: "Walk to the Mining Instructor's cardinal-south tile"
     action: GOTO
-    args: "3080 9503 0"
+    args: "3081 9503 0"
     delay_before_ms: 500
-    await_condition: "location:3080,9503"
+    await_condition: "location:3081,9503"
     timeout_ms: 60000
 
   - id: 14
@@ -221,16 +227,15 @@ steps:
     repeat_until_timeout_ms: 6000
     max_iterations: 5
     notes: |
-      Driver #2 confirmed the smithing flow (Anvil -> menu -> Dagger widget
-      click -> Bronze dagger) but only captured a screen-relative hover-sweep
-      pixel offset (45,75) for the Dagger option, not a stable widget ID --
-      that offset is resolution/zoom-dependent and NOT usable here. Using
-      click_widget(text="Dagger") (canonical text-search-and-click) instead of
-      a hardcoded/guessed widget ID.
-    # TODO: verify coord -- confirm the smithing-interface "Dagger" widget ID
-    # via find_widget(text="Dagger") on a live run and hardcode it if the
-    # text-search proves flaky; journal only has a screen pixel offset, not a
-    # widget ID or world coordinate.
+      LIVE 2026-07-18: with a hammer present, USE_ITEM_ON_OBJECT bronze Anvil
+      opens the smith interface. The clickable "Dagger" cell is a widget with a
+      "Smith" menu action (this session: container id 20447241) -- but it must
+      be clicked with a PLAIN LEFT-CLICK: CLICK_WIDGET <id> with the "Smith"
+      action string FAILS ("Could not click widget"), while CLICK_WIDGET <id>
+      with NO action succeeds and smiths the dagger. click_widget(text="Dagger")
+      is the session-independent form used here (text-search then click); if it
+      proves flaky, fall back to SCAN_WIDGETS Dagger -> CLICK_WIDGET <id> (no
+      action). Widget IDs change between sessions, so do NOT hardcode 20447241.
 
   - id: 19
     description: "Advance dialogue after smithing"
