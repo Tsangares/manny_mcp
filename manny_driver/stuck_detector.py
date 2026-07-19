@@ -43,6 +43,36 @@ LOGGED_IN_STATE = "LOGGED_IN"
 # is NOT gated by this window and still fires immediately.
 LOGIN_STUCK_SECONDS = 120.0
 
+# ---------------------------------------------------------------------------
+# DEFECT-32 — oscillation-robust terminal-login detection.
+#
+# The live 2026-07-19 banned-account gate showed the client world-hopping FOREVER:
+# login_index oscillated 10 <-> 14 every cycle with errorScreen=true, so the SAME-index
+# streak backstop above (LOGIN_STUCK_SECONDS / _login_error_index) never accumulated —
+# its window resets on every index change — and the run never stopped. The client's own
+# WorldSelector defeated the streak detector it was supposed to feed.
+#
+# These two triggers are index-oscillation-robust: they measure how long the client has
+# sat in ANY non-form login-error state (index may flip freely between samples), and how
+# many times the error index has flipped (a world-hop proxy). Either firing is terminal.
+# ---------------------------------------------------------------------------
+
+# Continuous seconds on non-{2,4} login-error screens — index may CHANGE between samples,
+# the epoch only resets when a non-error state (LOGGED_IN / a {2,4} form / non-LOGIN_SCREEN
+# / unreadable -1) is seen. Chosen at 90s: comfortably past the 31s legitimate-transition
+# regression guard (a real connect/transition reaches LOGGED_IN within seconds), and below
+# the 120s stable-index backstop so an oscillating ban is caught at least as fast as a
+# parked one. Independent of index stability, so world-hopping cannot defeat it.
+LOGIN_ERROR_MAX_SECONDS = 90.0
+
+# Number of login-index CHANGES observed within one continuous error epoch (each flip ~=
+# a world-hop that repainted the login screen). 6 flips is far more than any healthy login
+# (which passes through a handful of transition frames then reaches LOGGED_IN) but is
+# reached quickly by a stuck hop-storm. A parked ban screen (0 flips) is caught by the
+# duration trigger instead; an oscillating ban (this defect) is caught by whichever fires
+# first.
+LOGIN_ERROR_MAX_HOPS = 6
+
 # PRIMARY signal prompt — strict, tokenised vision classification of the rasterised
 # login screen. Kept here so the driver and tests share one source of truth.
 BAN_CLASSIFICATION_PROMPT = (
@@ -182,8 +212,11 @@ class StuckSignals:
     state_stale_seconds: float = 0.0
     # DEFECT-22b login/ban signals (see classify_login_state above).
     login_terminal: bool = False          # plugin-latched terminal login failure
-    login_stuck_seconds: float = 0.0      # time held on a non-form login-error screen
+    login_stuck_seconds: float = 0.0      # time held on a non-form login-error screen (SAME index)
     login_failure_message: str = ""
+    # DEFECT-32 oscillation-robust signals (index may flip freely; see LOGIN_ERROR_* above).
+    login_error_seconds: float = 0.0      # continuous time in ANY non-form login-error state
+    login_error_hops: int = 0             # login-index changes within the current error epoch
 
     @property
     def is_stuck(self) -> bool:
@@ -195,6 +228,8 @@ class StuckSignals:
             or self.state_stale_seconds > 30
             or self.login_terminal
             or self.login_stuck_seconds >= LOGIN_STUCK_SECONDS
+            or self.login_error_seconds >= LOGIN_ERROR_MAX_SECONDS
+            or self.login_error_hops >= LOGIN_ERROR_MAX_HOPS
         )
 
     @property
@@ -214,6 +249,12 @@ class StuckSignals:
             reasons.append("terminal login failure (suspected ban)")
         elif self.login_stuck_seconds >= LOGIN_STUCK_SECONDS:
             reasons.append(f"stuck on login-error screen for {self.login_stuck_seconds:.0f}s")
+        elif self.login_error_seconds >= LOGIN_ERROR_MAX_SECONDS:
+            reasons.append(
+                f"login-error state (world-hopping) for {self.login_error_seconds:.0f}s")
+        elif self.login_error_hops >= LOGIN_ERROR_MAX_HOPS:
+            reasons.append(
+                f"login-error index oscillated across {self.login_error_hops} world-hops")
         return "; ".join(reasons) if reasons else "unknown"
 
 
@@ -226,10 +267,13 @@ class StuckDetector:
         self.recent_errors: deque[str] = deque(maxlen=10)
         self.signals = StuckSignals()
         self._last_check = time.time()
-        # DEFECT-22b login/ban tracking
+        # DEFECT-22b login/ban tracking (SAME-index streak backstop)
         self._login_error_since: Optional[float] = None
         self._login_error_index: Optional[int] = None
         self._last_login: Optional[LoginClassification] = None
+        # DEFECT-32 oscillation-robust tracking (epoch spans index changes)
+        self._login_error_epoch_since: Optional[float] = None
+        self._login_error_prev_index: Optional[int] = None
 
     # Observation-only tools (no game side-effects)
     OBSERVATION_TOOLS = {
@@ -283,18 +327,14 @@ class StuckDetector:
 
         if not cls.present:
             # Old plugin / no signal — do not misclassify, clear state.
-            self._login_error_since = None
-            self._login_error_index = None
+            self._reset_login_error_windows()
             self.signals.login_terminal = False
-            self.signals.login_stuck_seconds = 0.0
             return cls
 
         if cls.logged_in:
             # Success clears every login latch.
-            self._login_error_since = None
-            self._login_error_index = None
+            self._reset_login_error_windows()
             self.signals.login_terminal = False
-            self.signals.login_stuck_seconds = 0.0
             self.signals.login_failure_message = ""
             return cls
 
@@ -303,21 +343,43 @@ class StuckDetector:
             self.signals.login_failure_message = cls.message
 
         if cls.on_error_screen:
+            # ---- SAME-index streak backstop (DEFECT-22b; stable-index ban) ----------
             # The persistence timer only accrues while the SAME login_index persists.
-            # A real ban screen parks on one stable index; transition/"connecting"
-            # screens churn through several indices within seconds. An index change
-            # (even between two non-form indices) restarts the window — it is not
-            # evidence of a stable failure, just a screen we haven't classified.
+            # A parked ban screen rests on one stable index; an index change restarts
+            # this particular window. This path is DEAD against an oscillating ban —
+            # DEFECT-32's epoch/hop triggers below cover that case.
             if self._login_error_since is None or self._login_error_index != cls.login_index:
                 self._login_error_since = now
                 self._login_error_index = cls.login_index
             self.signals.login_stuck_seconds = max(0.0, now - self._login_error_since)
+
+            # ---- DEFECT-32 oscillation-robust epoch + hop counter ------------------
+            # The epoch spans ANY run of consecutive non-form login-error screens; index
+            # changes do NOT reset it (that is exactly how the client's world-hopping
+            # defeated the streak backstop). Each index flip within the epoch is counted
+            # as a world-hop.
+            if self._login_error_epoch_since is None:
+                self._login_error_epoch_since = now
+                self.signals.login_error_hops = 0
+            elif (self._login_error_prev_index is not None
+                  and cls.login_index != self._login_error_prev_index):
+                self.signals.login_error_hops += 1
+            self._login_error_prev_index = cls.login_index
+            self.signals.login_error_seconds = max(0.0, now - self._login_error_epoch_since)
         else:
-            # Normal form / transient in-progress state — reset the persistence timer.
-            self._login_error_since = None
-            self._login_error_index = None
-            self.signals.login_stuck_seconds = 0.0
+            # Normal form / transient in-progress state — reset BOTH windows.
+            self._reset_login_error_windows()
         return cls
+
+    def _reset_login_error_windows(self):
+        """Clear both the SAME-index streak and the DEFECT-32 oscillation epoch/hop state."""
+        self._login_error_since = None
+        self._login_error_index = None
+        self._login_error_epoch_since = None
+        self._login_error_prev_index = None
+        self.signals.login_stuck_seconds = 0.0
+        self.signals.login_error_seconds = 0.0
+        self.signals.login_error_hops = 0
 
     @property
     def last_login_classification(self) -> Optional[LoginClassification]:
@@ -331,15 +393,21 @@ class StuckDetector:
         Fires on EITHER:
           (a) the confident plugin latch (terminal_login_failure=true) — the
               authoritative signal, gated by nothing but itself, fires immediately; or
-          (b) the driver-side persistence backstop: the SAME non-{2,4} login_index held
-              unchanged for the whole LOGIN_STUCK_SECONDS window, for a plugin that
-              exports raw fields but missed its own latch. A churning/transition index
-              (e.g. a connecting screen) never accrues enough persisted time to fire —
-              any index change resets the window.
+          (b) the driver-side SAME-index persistence backstop: the SAME non-{2,4}
+              login_index held unchanged for the whole LOGIN_STUCK_SECONDS window, for a
+              plugin that exports raw fields but missed its own latch; or
+          (c) DEFECT-32 oscillation-robust triggers: continuous non-form login-error
+              state past LOGIN_ERROR_MAX_SECONDS, OR the error index flipping more than
+              LOGIN_ERROR_MAX_HOPS times within one error epoch. Unlike (b), these do NOT
+              require a stable index — they catch the world-hopping ban (index oscillating
+              10<->14) that defeats the streak backstop. A genuinely healthy transition
+              reaches LOGGED_IN within seconds and never crosses either threshold.
         """
         return bool(
             self.signals.login_terminal
             or self.signals.login_stuck_seconds >= LOGIN_STUCK_SECONDS
+            or self.signals.login_error_seconds >= LOGIN_ERROR_MAX_SECONDS
+            or self.signals.login_error_hops >= LOGIN_ERROR_MAX_HOPS
         )
 
     def check(self) -> StuckSignals:
@@ -354,14 +422,24 @@ class StuckDetector:
         self.signals = StuckSignals()
         self._login_error_since = None
         self._login_error_index = None
+        self._login_error_epoch_since = None
+        self._login_error_prev_index = None
         self._last_login = None
 
     def get_recovery_hint(self) -> str:
         """Get a recovery suggestion based on current signals."""
         # Login/ban is terminal: STOP, never relaunch/hop/retry. Checked FIRST so it
         # is never masked by a co-occurring generic stuck signal.
-        if self.signals.login_terminal or self.signals.login_stuck_seconds >= LOGIN_STUCK_SECONDS:
+        if (self.signals.login_terminal
+                or self.signals.login_stuck_seconds >= LOGIN_STUCK_SECONDS
+                or self.signals.login_error_seconds >= LOGIN_ERROR_MAX_SECONDS
+                or self.signals.login_error_hops >= LOGIN_ERROR_MAX_HOPS):
             msg = self.signals.login_failure_message or "terminal login failure"
+            if not self.signals.login_terminal and (
+                    self.signals.login_error_seconds >= LOGIN_ERROR_MAX_SECONDS
+                    or self.signals.login_error_hops >= LOGIN_ERROR_MAX_HOPS):
+                msg = ("login-error stall: %ds in a login-error state across %d world-hops"
+                       % (self.signals.login_error_seconds, self.signals.login_error_hops))
             return (
                 f"Terminal login failure detected ({msg}). STOP the run now — do NOT "
                 "relaunch, world-hop, or retry. Confirm the reason with "

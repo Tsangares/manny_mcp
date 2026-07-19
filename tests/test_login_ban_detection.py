@@ -18,12 +18,20 @@ import os
 import pytest
 
 from manny_driver.stuck_detector import (
+    LOGIN_ERROR_MAX_HOPS,
+    LOGIN_ERROR_MAX_SECONDS,
     LOGIN_STUCK_SECONDS,
     StuckDetector,
     apply_vision_verdict,
     classify_login_state,
     parse_vision_verdict,
 )
+
+
+def _err(idx):
+    """A non-form login-error screen at the given login_index (no plugin latch)."""
+    return {"game_state": "LOGIN_SCREEN", "login_index": idx,
+            "terminal_login_failure": False}
 
 
 # ---------------------------------------------------------------------------
@@ -230,20 +238,26 @@ class TestStuckDetectorLogin:
         d.record_login_state(err, now=4000.0 + LOGIN_STUCK_SECONDS)
         assert d.login_terminal_suspected is True
 
-    def test_churning_index_never_latches(self):
-        # Indices that keep changing (1 -> 3 -> 1 -> ...) never accrue a stable
-        # persistence window, regardless of total elapsed time -- this is the
-        # transition-screen churn pattern, not a parked ban screen.
+    def test_churning_index_latches_under_defect32(self):
+        # DEFECT-32 REVERSAL: this scenario (login_index flipping without ever logging in)
+        # used to be dismissed as harmless "transition churn" and asserted to NEVER latch.
+        # The 2026-07-19 live gate proved that wrong -- a banned client world-hops FOREVER,
+        # oscillating the index, and the run never stopped. Sustained oscillating
+        # login-error state is now terminal via the hop-count trigger, regardless of index
+        # stability. (A genuinely healthy transition reaches LOGGED_IN within seconds --
+        # see test_healthy_transition_then_login_does_not_latch.)
+        from manny_driver.stuck_detector import LOGIN_ERROR_MAX_HOPS
         d = StuckDetector()
         now = 5000.0
-        sequence = [1, 3, 1, 3, 1, 3, 1, 3, 1, 3]
+        sequence = [1, 3, 1, 3, 1, 3, 1, 3]  # 7 flips >= LOGIN_ERROR_MAX_HOPS (6)
         for idx in sequence:
-            login = {"game_state": "LOGIN_SCREEN", "login_index": idx,
-                     "terminal_login_failure": False}
-            d.record_login_state(login, now=now)
-            assert d.login_terminal_suspected is False
-            now += LOGIN_STUCK_SECONDS  # each hop is itself a long hold, but never stable
-        assert d.login_terminal_suspected is False
+            d.record_login_state({"game_state": "LOGIN_SCREEN", "login_index": idx,
+                                  "terminal_login_failure": False}, now=now)
+            now += 1.0  # fast churn: total dwell stays well under LOGIN_ERROR_MAX_SECONDS
+        assert d.signals.login_error_hops >= LOGIN_ERROR_MAX_HOPS
+        assert d.login_terminal_suspected is True
+        # The OLD same-index streak backstop stayed dead (index never stable).
+        assert d.signals.login_stuck_seconds < LOGIN_STUCK_SECONDS
 
     def test_login_success_clears_signals(self):
         d = StuckDetector()
@@ -271,6 +285,104 @@ class TestStuckDetectorLogin:
                               "terminal_login_failure": False}, now=1.0)
         d.record_login_state({"game_state": "LOGIN_SCREEN", "login_index": 2,
                               "terminal_login_failure": False}, now=1000.0)
+        assert d.login_terminal_suspected is False
+
+
+# ---------------------------------------------------------------------------
+# DEFECT-32 — oscillation-robust terminal-login (login-ban stall)
+#
+# The 2026-07-19 live gate: a BANNED account world-hopped forever, login_index
+# oscillating 10<->14 with errorScreen=true. The SAME-index streak backstop above never
+# accumulated (it resets on every index change), so the run never stopped. These triggers
+# fire on continuous error DWELL or index-FLIP count, regardless of index stability.
+# ---------------------------------------------------------------------------
+class TestDefect32OscillationStall:
+    def test_oscillating_10_14_latches_by_hops(self):
+        # The exact live fingerprint: index flips 10<->14 while world-hopping. Duration
+        # stays tiny (fast cadence) so ONLY the hop trigger can fire -> proves the new
+        # logic catches what the OLD same-index streak (dead here) misses.
+        d = StuckDetector()
+        now = 0.0
+        for idx in [10, 14, 10, 14, 10, 14, 10, 14]:  # 7 flips >= 6
+            d.record_login_state(_err(idx), now=now)
+            now += 0.6  # ~plugin state cadence; total ~4.2s << LOGIN_ERROR_MAX_SECONDS
+        assert d.signals.login_error_seconds < LOGIN_ERROR_MAX_SECONDS
+        assert d.signals.login_error_hops >= LOGIN_ERROR_MAX_HOPS
+        assert d.login_terminal_suspected is True
+        assert d.check().is_stuck is True
+        # OLD stable-index streak provably dead against oscillation.
+        assert d.signals.login_stuck_seconds < LOGIN_STUCK_SECONDS
+        hint = d.get_recovery_hint()
+        assert "STOP" in hint and "relaunch" in hint
+
+    def test_oscillating_latches_by_duration_when_hops_are_slow(self):
+        # Slow-cadence oscillation (few flips) still latches on continuous DWELL, so a
+        # coarse poller (e.g. the 60s-interval watchdog) is covered too.
+        d = StuckDetector()
+        d.record_login_state(_err(10), now=0.0)
+        d.record_login_state(_err(14), now=45.0)   # 1 flip, dwell 45s < threshold
+        assert d.login_terminal_suspected is False
+        d.record_login_state(_err(10), now=LOGIN_ERROR_MAX_SECONDS)  # dwell == threshold
+        assert d.signals.login_error_hops < LOGIN_ERROR_MAX_HOPS     # duration, not hops
+        assert d.login_terminal_suspected is True
+
+    def test_healthy_transition_then_login_does_not_latch(self):
+        # 22247ce concern, oscillation-robust: a few brief non-form transition frames on
+        # the way to LOGGED_IN. Below both thresholds; success clears everything.
+        d = StuckDetector()
+        d.record_login_state({"game_state": "LOGIN_SCREEN", "login_index": 2,
+                              "terminal_login_failure": False}, now=0.0)  # form
+        d.record_login_state(_err(3), now=1.0)   # transient connect frame
+        d.record_login_state(_err(1), now=2.5)   # another, index changed
+        assert d.login_terminal_suspected is False
+        d.record_login_state({"game_state": "LOGGED_IN", "login_index": -1,
+                              "terminal_login_failure": False}, now=4.0)
+        assert d.login_terminal_suspected is False
+        assert d.signals.login_error_seconds == 0.0
+        assert d.signals.login_error_hops == 0
+
+    def test_duration_trigger_boundary(self):
+        # Stable non-form index (no flips) -> only the duration trigger can fire.
+        # Just under LOGIN_ERROR_MAX_SECONDS does NOT latch; exactly at it does.
+        d = StuckDetector()
+        d.record_login_state(_err(9), now=100.0)
+        d.record_login_state(_err(9), now=100.0 + LOGIN_ERROR_MAX_SECONDS - 0.1)
+        assert d.login_terminal_suspected is False
+        d.record_login_state(_err(9), now=100.0 + LOGIN_ERROR_MAX_SECONDS)
+        assert d.signals.login_error_hops == 0
+        assert d.login_terminal_suspected is True
+
+    def test_hop_trigger_boundary(self):
+        # Exactly LOGIN_ERROR_MAX_HOPS flips latches; one flip short does not.
+        # (1 + N indices -> N flips.) Keep dwell tiny so hops are the sole trigger.
+        def run(n_flips):
+            d = StuckDetector()
+            now = 0.0
+            idxs = [10]
+            while len(idxs) <= n_flips:
+                idxs.append(14 if idxs[-1] == 10 else 10)
+            for idx in idxs:
+                d.record_login_state(_err(idx), now=now)
+                now += 1.0
+            return d
+
+        short = run(LOGIN_ERROR_MAX_HOPS - 1)
+        assert short.signals.login_error_hops == LOGIN_ERROR_MAX_HOPS - 1
+        assert short.signals.login_error_seconds < LOGIN_ERROR_MAX_SECONDS
+        assert short.login_terminal_suspected is False
+
+        exact = run(LOGIN_ERROR_MAX_HOPS)
+        assert exact.signals.login_error_hops == LOGIN_ERROR_MAX_HOPS
+        assert exact.login_terminal_suspected is True
+
+    def test_reset_clears_oscillation_state(self):
+        d = StuckDetector()
+        for idx in [10, 14, 10, 14, 10, 14, 10]:
+            d.record_login_state(_err(idx), now=0.0)
+        assert d.login_terminal_suspected is True
+        d.reset()
+        assert d.signals.login_error_hops == 0
+        assert d.signals.login_error_seconds == 0.0
         assert d.login_terminal_suspected is False
 
 
@@ -309,6 +421,104 @@ class TestWatchdogLogin:
         assert wd.login_terminal_failure({"terminal_login_failure": False}) is False
         assert wd.login_terminal_failure(None) is False
         assert wd.login_terminal_failure({}) is False
+
+    def test_login_error_screen_predicate(self):
+        # DEFECT-32 raw error-state predicate (no plugin latch required).
+        wd = _load_watchdog()
+        assert wd.login_error_screen({"game_state": "LOGIN_SCREEN", "login_index": 14}) is True
+        assert wd.login_error_screen({"game_state": "LOGIN_SCREEN", "login_index": 10}) is True
+        # documented form indices, unreadable index, non-login states, garbage => False
+        assert wd.login_error_screen({"game_state": "LOGIN_SCREEN", "login_index": 2}) is False
+        assert wd.login_error_screen({"game_state": "LOGIN_SCREEN", "login_index": 4}) is False
+        assert wd.login_error_screen({"game_state": "LOGIN_SCREEN", "login_index": -1}) is False
+        assert wd.login_error_screen({"game_state": "LOGGED_IN", "login_index": -1}) is False
+        assert wd.login_error_screen(None) is False
+        assert wd.login_error_screen({}) is False
+
+    def test_main_login_ban_stall_oscillating(self, tmp_path, monkeypatch):
+        # DEFECT-32: banned client world-hops, login_index oscillates 14<->10 with NO
+        # plugin latch. The watchdog must stall the run on the hop trigger and SIGTERM it.
+        wd = _load_watchdog()
+        sf = tmp_path / "state.json"
+        sf.write_text(json.dumps({"player": {}}))  # only read_active_loop touches the file
+        killed = []
+        monkeypatch.setattr(wd, "pkg_temp_c", lambda: None)
+        monkeypatch.setattr(wd, "pid_alive", lambda pid: True)
+        monkeypatch.setattr(wd, "sigterm", lambda pid: killed.append(int(pid)) or True)
+        monkeypatch.setattr(wd, "RUNS_DIR", str(tmp_path))
+        monkeypatch.setattr(wd, "LOGIN_ERROR_MAX_HOPS", 3)  # fire fast, no real long sleep
+        monkeypatch.setattr(wd.time, "sleep", lambda *_a, **_k: None)
+        seq = iter([14, 10, 14, 10, 14, 10, 14, 10])
+        monkeypatch.setattr(wd, "read_login_state",
+                            lambda _sf: {"game_state": "LOGIN_SCREEN",
+                                         "login_index": next(seq, 10),
+                                         "terminal_login_failure": False})
+        argv = ["--run-id", "STALL1", "--account", "new", "--routine", "r.yaml",
+                "--run-pid", "424242", "--client-pid", "434343",
+                "--state-file", str(sf), "--log-file", str(tmp_path / "c.log"),
+                "--interval", "1"]
+        assert wd.main(argv) == 0
+        rec = json.loads((tmp_path / "STALL1.json").read_text())
+        assert rec["status"] == "login_ban_stall"
+        assert 424242 in killed and 434343 in killed
+        kinds = [e["kind"] for e in rec["events"]]
+        assert "login_stall" in kinds
+        assert "login_ban_stall" in kinds
+        assert "needs_attention" in kinds
+
+    def test_main_login_stall_dry_run_does_not_sigterm(self, tmp_path, monkeypatch):
+        wd = _load_watchdog()
+        sf = tmp_path / "state.json"
+        sf.write_text(json.dumps({"player": {}}))
+        killed = []
+        monkeypatch.setattr(wd, "pkg_temp_c", lambda: None)
+        monkeypatch.setattr(wd, "pid_alive", lambda pid: True)
+        monkeypatch.setattr(wd, "sigterm", lambda pid: killed.append(int(pid)) or True)
+        monkeypatch.setattr(wd, "RUNS_DIR", str(tmp_path))
+        monkeypatch.setattr(wd, "LOGIN_ERROR_MAX_HOPS", 2)
+        monkeypatch.setattr(wd.time, "sleep", lambda *_a, **_k: None)
+        seq = iter([14, 10, 14, 10])
+        monkeypatch.setattr(wd, "read_login_state",
+                            lambda _sf: {"game_state": "LOGIN_SCREEN",
+                                         "login_index": next(seq, 10),
+                                         "terminal_login_failure": False})
+        argv = ["--run-id", "STALL2", "--account", "new", "--routine", "r.yaml",
+                "--run-pid", "111", "--state-file", str(sf),
+                "--log-file", str(tmp_path / "c.log"), "--interval", "1", "--dry-run"]
+        assert wd.main(argv) == 0
+        rec = json.loads((tmp_path / "STALL2.json").read_text())
+        assert rec["status"] == "login_ban_stall"
+        assert killed == []  # dry-run never actually kills
+        assert any("DRY-RUN" in e["detail"] for e in rec["events"]
+                   if e["kind"] == "login_ban_stall")
+
+    def test_main_healthy_transition_then_exit_no_stall(self, tmp_path, monkeypatch):
+        # A transient non-form frame, then LOGGED_IN, then the run exits -> completed,
+        # never login_ban_stall (the epoch resets on the logged-in poll).
+        wd = _load_watchdog()
+        sf = tmp_path / "state.json"
+        sf.write_text(json.dumps({"player": {}}))
+        monkeypatch.setattr(wd, "pkg_temp_c", lambda: None)
+        monkeypatch.setattr(wd, "tail_crash_matches", lambda log, seen: [])
+        monkeypatch.setattr(wd, "RUNS_DIR", str(tmp_path))
+        monkeypatch.setattr(wd.time, "sleep", lambda *_a, **_k: None)
+        alive = iter([True, True, False])
+        monkeypatch.setattr(wd, "pid_alive", lambda pid: next(alive, False))
+        logins = iter([
+            {"game_state": "LOGIN_SCREEN", "login_index": 14, "terminal_login_failure": False},
+            {"game_state": "LOGGED_IN", "login_index": -1, "terminal_login_failure": False},
+        ])
+        monkeypatch.setattr(wd, "read_login_state",
+                            lambda _sf: next(logins,
+                                             {"game_state": "LOGGED_IN", "login_index": -1,
+                                              "terminal_login_failure": False}))
+        argv = ["--run-id", "OK1", "--account", "spare", "--routine", "r.yaml",
+                "--run-pid", "222", "--state-file", str(sf),
+                "--log-file", str(tmp_path / "c.log"), "--interval", "1"]
+        assert wd.main(argv) == 0
+        rec = json.loads((tmp_path / "OK1.json").read_text())
+        assert rec["status"] == "completed"
+        assert "login_ban_stall" not in [e["kind"] for e in rec["events"]]
 
     def test_main_records_suspected_ban_dry_run(self, tmp_path, monkeypatch):
         wd = _load_watchdog()

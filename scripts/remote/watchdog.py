@@ -23,6 +23,14 @@ notice, while nobody is watching, the three ways a long grind dies:
      NOT relaunch or world-hop. Vision confirmation (analyze_screenshot) is the LLM
      driver's job when it reads the ledger — the watchdog is stdlib-only and has no
      vision on diort; the plugin latch is the authoritative in-process signal it acts on.
+  5. LOGIN-BAN STALL (DEFECT-32) — the plugin latch above is DEFEATED when the client
+     world-hops forever: login_index oscillates (e.g. 10<->14) so the in-plugin same-index
+     streak never accumulates and terminal_login_failure never latches. Independently of
+     the latch, the watchdog stalls a run that sits in a non-form login-error state past
+     LOGIN_ERROR_MAX_SECONDS of continuous dwell OR more than LOGIN_ERROR_MAX_HOPS
+     login-index flips (a world-hop proxy). Recorded as status=login_ban_stall with a
+     login_stall event (dwell seconds + hop count), then SIGTERMs the run like a
+     suspected_ban. Same do-NOT-relaunch/world-hop guidance applies.
 
 It maintains one JSON run-record per run at /tmp/manny_runs/<run_id>.json, written
 atomically (tmp + os.replace) every interval so a reader never sees a torn file.
@@ -54,6 +62,17 @@ STATE_STALE_S = 120          # state file older than this => needs_attention
 LOG_TAIL_LINES = 200         # scan this many trailing log lines for crash sigs
 THERMAL_CONSECUTIVE = 2      # consecutive over-temp checks before we kill
 MAX_EVENTS = 500             # cap the events list so the record can't grow unbounded
+
+# ---- DEFECT-32: oscillation-robust terminal-login (login-ban stall) --------------
+# A banned account can never log in; the client world-hops and RETRIES forever. The
+# in-plugin latch (terminal_login_failure) is defeated because its same-index streak
+# resets on every world-hop (login_index oscillates e.g. 10<->14). So, independently of
+# the latch, the watchdog stalls a run that SITS in a non-form login-error state: past
+# LOGIN_ERROR_MAX_SECONDS of continuous error dwell, OR after more than
+# LOGIN_ERROR_MAX_HOPS login-index flips within one error epoch (a world-hop proxy).
+LOGIN_FORM_INDICES = frozenset({2, 4})   # documented username/password + authenticator forms
+LOGIN_ERROR_MAX_SECONDS = 90.0           # continuous non-form login-error dwell => terminal
+LOGIN_ERROR_MAX_HOPS = 6                 # login-index flips within one error epoch => terminal
 
 # ---- crash signatures: prefer the repo's canonical list, fall back to vendored --
 # This file lives at <repo>/scripts/remote/watchdog.py, so running it as a script
@@ -200,6 +219,25 @@ def login_terminal_failure(login):
     return bool(login.get("terminal_login_failure"))
 
 
+def login_error_screen(login):
+    """True iff `login` is a non-form login-error screen (DEFECT-32). Never raises.
+
+    LOGIN_SCREEN on a readable, non-{2,4} login_index that has NOT logged in. Unlike
+    login_terminal_failure this does NOT require the in-plugin latch — it is the raw
+    error-state signal the oscillation-robust stall detector accrues dwell/hops over.
+    Backward compatible: missing/garbage section, unreadable index (-1), or a real form
+    index all return False."""
+    if not isinstance(login, dict):
+        return False
+    if login.get("game_state") != "LOGIN_SCREEN":
+        return False
+    try:
+        idx = int(login.get("login_index", -1))
+    except (TypeError, ValueError):
+        return False
+    return idx >= 0 and idx not in LOGIN_FORM_INDICES
+
+
 def pid_alive(pid):
     if not pid:
         return False
@@ -329,6 +367,10 @@ def main(argv):
     over_temp_streak = 0
     stale_armed = True   # only fire a fresh "stale" event on each stale onset
     last_unhealthy = False
+    # DEFECT-32 login-ban stall tracking (oscillation-robust; spans index changes).
+    login_err_since = None
+    login_err_prev_idx = None
+    login_err_hops = 0
 
     while True:
         temp = pkg_temp_c()
@@ -431,6 +473,57 @@ def main(argv):
                       "vision-confirm (analyze_screenshot) and mark the account")
             rec.flush()
             return 0  # terminal — the run is being torn down
+
+        # ---- 2c. login-ban STALL: oscillation-robust terminal login (DEFECT-32) --
+        # The client's own world-hopping oscillates login_index (e.g. 10<->14), so the
+        # in-plugin same-index streak never latches terminal_login_failure and the run
+        # would world-hop forever. Independently of the latch: if the client sits in ANY
+        # non-form login-error state past LOGIN_ERROR_MAX_SECONDS, or the error index
+        # flips more than LOGIN_ERROR_MAX_HOPS times, it is terminal — STOP cleanly.
+        if login_error_screen(login):
+            nowt = time.time()
+            cur_idx = (login or {}).get("login_index")
+            if login_err_since is None:
+                login_err_since = nowt
+                login_err_hops = 0
+            elif login_err_prev_idx is not None and cur_idx != login_err_prev_idx:
+                login_err_hops += 1
+            login_err_prev_idx = cur_idx
+            dwell = max(0.0, nowt - login_err_since)
+            if dwell >= LOGIN_ERROR_MAX_SECONDS or login_err_hops >= LOGIN_ERROR_MAX_HOPS:
+                trig = ("dwell %.0fs >= %.0fs" % (dwell, LOGIN_ERROR_MAX_SECONDS)
+                        if dwell >= LOGIN_ERROR_MAX_SECONDS
+                        else "hops %d >= %d" % (login_err_hops, LOGIN_ERROR_MAX_HOPS))
+                rec.event("login_stall",
+                          "non-form login-error state persisted (login_index=%s dwell=%.0fs "
+                          "hops=%d): %s — client world-hopping without logging in, treating "
+                          "as terminal" % (cur_idx, dwell, login_err_hops, trig))
+                if args.dry_run:
+                    rec.event("login_ban_stall",
+                              "[DRY-RUN] would SIGTERM run_pid=%s then client_pid=%s (%s)"
+                              % (args.run_pid, args.client_pid, trig))
+                else:
+                    ok_run = sigterm(args.run_pid)
+                    rec.event("login_ban_stall",
+                              "SIGTERM run_pid=%s (%s): %s"
+                              % (args.run_pid, "sent" if ok_run else "failed", trig))
+                    if args.client_pid:
+                        ok_cl = sigterm(args.client_pid)
+                        rec.event("login_ban_stall",
+                                  "SIGTERM client_pid=%s (%s)"
+                                  % (args.client_pid, "sent" if ok_cl else "failed"))
+                rec.update(status="login_ban_stall")
+                rec.event("needs_attention",
+                          "run stopped: login-error stall (no login after %.0fs / %d world-hops); "
+                          "do NOT relaunch/world-hop — vision-confirm (analyze_screenshot) and "
+                          "mark the account" % (dwell, login_err_hops))
+                rec.flush()
+                return 0  # terminal — the run is being torn down
+        else:
+            # Reached a normal form / logged-in / non-login state — reset the epoch.
+            login_err_since = None
+            login_err_prev_idx = None
+            login_err_hops = 0
 
         # ---- 3. freeze: stale state file ---------------------------------------
         if age is None:
