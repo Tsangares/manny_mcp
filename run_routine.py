@@ -333,6 +333,39 @@ def print_results(result: dict):
     print("\n" + "=" * 50)
 
 
+def run_dry_run(routine_path: str, max_loops: int, as_json: bool) -> int:
+    """Offline dry-run of a routine (or every section of a chain/directory).
+
+    Returns a process exit code: 0 if every simulated routine PASSED, 1 if any
+    reported a dry-run failure. Sends no command and contacts no client.
+    """
+    from mcptools import dryrun
+
+    if is_chain(routine_path):
+        entries, _base = resolve_chain(routine_path)
+        overall = True
+        for i, entry in enumerate(entries, start=1):
+            rp = entry["routine"]
+            if not os.path.exists(rp):
+                print(f"[dry-run {i}/{len(entries)}] MISSING: {rp}")
+                overall = False
+                continue
+            result = asyncio.run(dryrun.dry_run_routine(rp, max_loops))
+            if as_json:
+                print(json.dumps(result, indent=2))
+            else:
+                print(dryrun.format_report(result))
+            overall = overall and result.get("success", False)
+        return 0 if overall else 1
+
+    result = asyncio.run(dryrun.dry_run_routine(routine_path, max_loops))
+    if as_json:
+        print(json.dumps(result, indent=2))
+    else:
+        print(dryrun.format_report(result))
+    return 0 if result.get("success", False) else 1
+
+
 def main():
     parser = argparse.ArgumentParser(description='Run a YAML routine')
     parser.add_argument('routine', help='Path to a routine YAML, a chain YAML, or a directory of routines')
@@ -345,12 +378,22 @@ def main():
     parser.add_argument('--force', action='store_true',
                         help='DEFECT-26: start even if the account already has a kill loop '
                              'active (normally refused to avoid a concurrent dual-loop)')
+    parser.add_argument('--dry-run', action='store_true',
+                        help='OFFLINE simulation: step the routine through its control flow '
+                             'against a fixture StateModel WITHOUT sending any command or '
+                             'contacting a client. Catches sequencing/await/loop bugs '
+                             '(guaranteed-timeout steps, condition-vocabulary mixing, '
+                             'blocking-command timeout traps) pre-login. See mcptools/dryrun.py.')
 
     args = parser.parse_args()
 
     if not os.path.exists(args.routine):
         print(f"Error: Routine file not found: {args.routine}")
         sys.exit(1)
+
+    # Dry-run mode: offline sequencing simulation, no client, no login.
+    if args.dry_run:
+        sys.exit(run_dry_run(args.routine, args.loops, args.json))
 
     # Chain / directory mode: run an ordered sequence of routines.
     if is_chain(args.routine):

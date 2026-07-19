@@ -716,7 +716,51 @@ for blocking commands, or any of the dead keys in (f)** — those are exactly
 the classes of bug this document exists to prevent by construction, since
 the validator won't catch them.
 
-Then dry-run with a small step/loop count before a long unattended run:
+### (k.1) Offline `--dry-run` — dynamic sequencing simulation (no client)
+
+`validate_routine_deep` is *static* — it never executes the routine, so it
+cannot catch the classes of bug in sections (c)/(e)/(d)/(i) (condition-grammar
+mixing, blocking-command timeout traps, loop-schema mixing, guaranteed-timeout
+await/dialogue steps). `./run_routine.py <file> --dry-run` closes that gap
+*offline*: it steps the routine through the **same** control flow
+`handle_execute_routine` uses (inner/outer + flat loops, `on_failure`,
+`repeat`/`repeat_until`) against a scripted, dict-based `StateModel` fixture,
+sending **no command and contacting no client** (`mcptools/dryrun.py`).
+
+```bash
+# Offline simulation — safe to run pre-login, at zero account risk
+./run_routine.py routines/money_making/cowhide_banking.yaml --dry-run
+./run_routine.py routines/money_making/chicken_feathers.yaml --dry-run --loops 2
+./run_routine.py routines/skilling/your_routine.yaml --dry-run --json
+```
+
+Each command mutates the model via a small **effect table** (`GOTO` sets
+location, `INTERACT_OBJECT ... Climb-up/down` changes plane, `BANK_DEPOSIT_ALL`
+empties the inventory, `KILL_LOOP_CONFIG` runs its configured batch — filling
+the inventory for non-stackable loot like Cowhide; unknown commands default to
+"succeeds after min duration" **with a WARN**). Awaits are then evaluated
+against the mutated model, reusing the engine's own helpers (Grammar 1 via
+`monitoring._parse_condition`/`_check_condition`, Grammar 2 via
+`routine.check_stop_condition`). It flags, per step:
+
+- **guaranteed-timeout steps** — an `await_condition`/`repeat_until` the model
+  can never satisfy after the command's effect (the key detection);
+- **condition-vocabulary mixing** — a Grammar-2 atom in an `await_condition`
+  (parse error) or a Grammar-1 atom in `stop_conditions`/`exit_conditions`
+  (silent never-trigger, surfaced as a WARN);
+- **blocking-command timeout traps** — a `KILL_LOOP*`/`MINE_ORE`/… whose modeled
+  batch duration exceeds its `timeout_ms`, or one carrying an `await_condition`;
+- **silent step-failure march-on** — a failed step under `on_failure: continue`
+  is still reported, with a note that the live runner would march past it.
+
+Output is a step-by-step trace + summary (steps simulated, simulated
+wall-clock, failures/warnings); add `--json` for the raw dict. Exit code is `0`
+only if every simulated routine PASSED. **Honest limits:** dry-run cannot verify
+coordinate reachability/collision (a separate Java route-lint covers that),
+NPC/widget availability, or timing realism (durations are coarse estimates). A
+PASS is *necessary, not sufficient* before a live run.
+
+Then still smoke it with a small step/loop count before a long unattended run:
 
 ```bash
 # Single pass, from the top
