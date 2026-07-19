@@ -657,3 +657,52 @@ the humanize-seed passthrough hunk in `mcptools/tools/routine.py`.
 `git stash push -u -m "parked camera-drift edits" utility/CameraDrift.java
 utility/commands/KillLoopCommand.java utility/HumanizeVerify.java` — build/deploy, then
 `git stash pop` to restore them. Never commit or advance them.
+
+---
+## STATUS — 2026-07-19 (verification + review phase complete)
+
+**Full writeup:** `journals/2026-07-19_verification_and_review.md`. This section is the
+durable-state summary; the journal has commit-by-commit detail and exact commands.
+
+**Offline verification pipeline built, run, and green:**
+- **Layer 1 (existing):** `validate_routine_deep` — static YAML validation.
+- **Layer 2 (new):** `mcptools/dryrun.py` — `./run_routine.py <file> --dry-run`, an offline
+  dynamic sequencing simulator that steps a routine through its real control flow against a
+  fixture `StateModel`, zero client contact (`manny_mcp` `bd9c8c3`/`b1b55e2`/`c65f1de`).
+  Corpus result: **39/39 executable routines PASS**, 0 real sequencing bugs — all initial
+  failures were model gaps (dialogue item-grants, gather-fill, ladders), fixed. Tests to 324.
+- **Layer 3 (new):** `manny` `pathfinder/RouteLintVerify.java` — collision-map waypoint
+  linter, wired into `scripts/refresh_pathfinder_data.sh --verify`
+  (`5590802`/`4536b91`/`27dc5fa`/`70fe060`/`87c3882`). **Final state: 116/116 checks, 1
+  legitimate skip** (`hill_giants_restock` brass-key door — a keyed-door transport-graph
+  limitation, not a coordinate bug).
+
+**5 real waypoint bugs found by the linter and fixed (desk review had missed all of them):**
+cowhide_banking bridge pins sitting in the River Lum + a staircase pin blocked on all planes
+(`manny_mcp` `786c52e`, `manny` `4536b91`), plus 3 one-tile-off pins in
+`mining_falador_iron.yaml` found in the corpus sweep (`manny_mcp` `87c3882`, `manny` `70fe060`).
+
+**Adversarial review of the full day's diff (both repos, read-only):** 0 CONFIRMED bugs; 3
+PLAUSIBLE false-latch paths in the ban-DETECTION heuristic (healthy login wrongly flagged
+banned) — all fixed: plugin stable-same-index streak + 120s staleness reset +
+`[LOGIN][SHADOW]` diagnostics (`manny` `d553977`); driver backstop now needs a stable index
+held ≥120s OR the plugin latch, plugin-latch path still stops immediately (`manny_mcp`
+`22247ce`, tests to 321). Plus 2 minor-note fixes: pathfinder failure-cache + empty-fingerprint
+edge case (`manny` `2020530`), dry-run inner-loop-restart fidelity (`manny_mcp` `c65f1de`).
+
+**Final HEADs:** `manny` `2020530`, `manny_mcp` `5ee78a2`.
+
+**Jar record:** rebuilt clean at `manny` HEAD `2020530` (stash-before-build discipline, parked
+humanization edits confirmed absent from the artifact):
+`runelite-client/build/libs/client-1.12.34-SNAPSHOT-shaded.jar`, 40,095,064 bytes, sha256
+`054d629858dcc055982ff16eafab6a3f7cb0452f5de13b458876ed5555820e7b`. Provisioning to diort NOT
+done — pending user approval. Full record in
+`journals/TRACK_G_PREFLIGHT_RUNBOOK_2026-07-19.md` B4.
+
+**Remaining sequence — every step below is live-gated on the USER, nothing further is possible
+offline:** B1 (user decision: proxy/IP + account posture — the standing blocker) → jar staging
+to diort → live gate #32 (zero-risk banned-alias login probe, confirms the hardened ban-latch
+logic) → #25 (DEFECT-21 bridge-crossing follower check — coordinates now harness-proven,
+follower click-behavior is the remaining unknown) → #26 (attended cowhide cycles) → #28 (Track
+G: 4+ hour unattended cowhide proof, the capstone). Full preconditions and procedure:
+`journals/TRACK_G_PREFLIGHT_RUNBOOK_2026-07-19.md`.
