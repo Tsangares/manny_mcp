@@ -426,7 +426,84 @@ document and in (f). You can also hand-write the JSON directly and call
 
 ---
 
-## (i) Three worked examples
+## ⚠️ (i) Two live-validated authoring traps: ambiguous names and unexhausted dialogue
+
+Both found live on 2026-07-18, both silent — no error, no validator hit (k).
+
+### Position-pin before `INTERACT_OBJECT`/`INTERACT_NPC` when the name is ambiguous
+
+Both commands resolve purely by name to the **closest match to the player**
+— 15-tile default radius, closest-first (`manny_src/utility/InteractionSystem.java:547-550,596-610`
+for objects; `:1916-1979` for NPCs). No ID/uniqueness check: if two distinct
+instances share a display name, the nearer one always wins.
+
+**Live failure:** the tutorial mining area has two "Rocks" outcrops — tin
+and copper. `INTERACT_OBJECT Rocks Mine` with no repositioning between ore
+types farmed the nearer one (tin) forever: 13 tin, 0 copper, cascading into
+smelting/smithing. Fixed in `routines/tutorial_island/07_mining_smithing.yaml:93-140`;
+validated coords: tin `3076,9504`, copper `3085,9502`.
+
+**Rule:** when the target name is ambiguous in the area (check
+`scan_tile_objects`/`query_nearby` first), precede the INTERACT with a
+`GOTO` + `location:` await pinning the player next to the intended instance.
+
+```yaml
+# WRONG — "Rocks" matches both outcrops; always resolves to the nearer (tin).
+- id: 8
+  action: INTERACT_OBJECT
+  args: "Rocks Mine"
+  description: "Mine copper ore"
+
+# RIGHT — pin next to the copper instance first.
+- id: 7
+  action: GOTO
+  args: "3085 9502 0"
+  await_condition: "location:3085,9502"
+  timeout_ms: 20000
+- id: 8
+  action: INTERACT_OBJECT
+  args: "Rocks Mine"
+  description: "Mine copper — nearest 'Rocks' is now the copper outcrop"
+  timeout_ms: 30000
+```
+
+### The `CLICK_DIALOGUE "<speaker name>"` no-op trap
+
+**DEFECT-24 (filed, fix pending):** the dialogue state writer can misreport
+a multi-page NPC monologue as `type:"options"` and hint
+`CLICK_DIALOGUE "<speaker name>"`. That's a no-op: widget group 231 child 4
+(`15138820`, `NPC_NAME_ID`, `routine.py:346`) is the speaker-name **header**,
+not an option; child 5 (`15138821`) is the continue button
+(`journals/romeo_quest_widget193_death_2026-02-09.md:78`); child 6
+(`15138822`, `NPC_TEXT_ID`, `routine.py:347`) is body text.
+
+**Correct pattern** (live-validated,
+`routines/tutorial_island/05_cooking_to_quest_guide.yaml:110-135`):
+`INTERACT_NPC` to start, then `CLICK_CONTINUE` in a
+`repeat_until: "no_dialogue"` loop (Grammar 1, section (c)) until the
+monologue is fully **exhausted** — an unexhausted monologue silently blocks
+whatever comes next (tabs, gated objects).
+
+```yaml
+- id: 10
+  action: INTERACT_NPC
+  args: "Quest_Guide Talk-to"
+- id: 11
+  action: CLICK_CONTINUE
+  repeat_until: "no_dialogue"   # NOT CLICK_DIALOGUE "<speaker name>" — DEFECT-24
+  repeat_until_timeout_ms: 3000
+  max_iterations: 15
+- id: 12
+  action: TAB_OPEN
+  args: "quests"
+- id: 13
+  action: INTERACT_OBJECT
+  args: "Ladder Climb-down"
+```
+
+---
+
+## (j) Three worked examples
 
 ### 1. Linear quest (adapted from `routines/quests/cooks_assistant.yaml`)
 
@@ -550,7 +627,7 @@ loop:
 
 ---
 
-## (j) Validation workflow
+## (k) Validation workflow
 
 Before running a new/edited routine:
 
