@@ -30,7 +30,7 @@ type: combat
 skill: combat
 
 config:
-  style: "Slash"   # aggressive stance -> Strength XP (bronze sword); see header for rotation
+  style: "Block"   # defensive stance -> Defence XP (bronze sword). PHASE: defence catch-up (def 1 -> ~15), strength paused. Rotate to "Stab" (Attack) then "Slash" (Strength) per the balancing plan; see header for rotation
 
 # Documentation-only (engine reads coords from step args, not this block).
 locations:
