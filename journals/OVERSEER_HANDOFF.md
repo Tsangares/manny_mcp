@@ -706,3 +706,41 @@ logic) → #25 (DEFECT-21 bridge-crossing follower check — coordinates now har
 follower click-behavior is the remaining unknown) → #26 (attended cowhide cycles) → #28 (Track
 G: 4+ hour unattended cowhide proof, the capstone). Full preconditions and procedure:
 `journals/TRACK_G_PREFLIGHT_RUNBOOK_2026-07-19.md`.
+
+---
+## STATUS — 2026-07-19 (window #4 DEPLOYED to diort; B3 gate FAILED on plugin path → DEFECT-32)
+
+**Deploy window #4 shipped to diort** (jar + manny_mcp repo, provision path, no client disturbed):
+- diort's `runelite-client-libs` jar is now `054d629…` (manny HEAD `2020530`) — verified sha256.
+  The parked humanization files (`mcptools/humanize.py`, `tests/test_humanize.py`, the
+  `routine.py` seed-passthrough hunk) were **git-stashed before the repo rsync and restored after**,
+  so diort has clean committed HEAD, NOT the parked edits (routine.py's module-level
+  `import humanize` would otherwise have crashed the engine / activated humanization on the host).
+- **Credential-default hazard hit AGAIN (4th time):** laptop `~/.manny/credentials.yaml` had
+  `default: newbakshesh` (BANNED); **diort's own** had `default: new` (BANNED). Laptop is now
+  corrected to `punitpun`. **diort's is still `new`** — the auto-mode classifier (correctly)
+  blocked an ad-hoc remote `sed` of the creds file; fix it with `mannyctl diort push-creds` or a
+  reviewed manual edit. Harmless as long as every launch names an explicit account (they all did).
+- `hosts.yaml` gained `new: ":4"` under diort `account_displays` (banned-alias gate display only).
+
+**B3 ban-detection gate: FAIL on the plugin-only path** (full writeup:
+`journals/2026-07-19_B3_ban_detection_gate.md`). Launched banned `new` on `:4`; the client
+**world-hopped continuously and never latched terminal** — `loginIndex` oscillates 10↔14
+(`errorScreen=true`), the WorldSelector's own hopping changes the index each cycle so the
+`d553977`/`22247ce` stable-same-index streak backstop never accumulates (dead against this real
+case), and state `login`/`terminal_login_failure` stayed null. The intended PRIMARY detector —
+vision via `analyze_screenshot` through the Python driver — was **not exercised** (bare
+`mannyctl start` runs only the Java plugin; `manny-diort` MCP not connected this session).
+- **DEFECT-32 (new):** ban heuristic must be **hop-count/error-duration based**, not stable-index
+  based, and/or world-hopping should be gated behind the terminal-suspicion check so the client
+  stops racing its own detector. B3 stays **NOT cleared** until (a) the vision path is gated
+  (re-run `new` through the Python driver, or with MCP `analyze_screenshot`), and (b) DEFECT-32 is
+  addressed.
+
+**punitpun tutorial decision (user):** run the **hardened tutorial corpus, one fast pass** — but
+**NOT yet**. Held behind the mat+dataimpulse proxy being wired AND humanization proven (a ~1h
+scripted tutorial on a naked residential IP with no humanization is the exact profile that burned
+`new`/`newbakshesh`; punitpun is the reserved clean account). User hypothesis worth carrying
+forward: the prior fresh accounts' **~6h retry-heavy Tutorial Island** likely primed the bots-core
+before the metronomic grind tripped the ban — so humanization must cover the **tutorial phase**
+(variable pacing, no identical-retry spam), not just grind clicks.
