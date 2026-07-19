@@ -151,6 +151,45 @@ class TestControlFlow:
         res = await dryrun.dry_run_routine(_write(tmp_path, doc), max_loops=1)
         assert res["success"] is True, res["failures"]
 
+    async def test_dialogue_advance_grants_item_via_declared_await(self, tmp_path):
+        """A quest item handed over across a CLICK_CONTINUE is unknowable to the
+        model, so the declared has_item await/repeat_until is trusted
+        (assume-postcondition) rather than false-failed. Mirrors restless_ghost
+        step 8 and romeo_and_juliet step 19."""
+        doc = {
+            "name": "reward-dialogue",
+            "steps": [
+                {"id": 1, "action": "INTERACT_NPC", "args": "Priest Talk-to",
+                 "await_condition": "dialogue"},
+                {"id": 2, "action": "CLICK_CONTINUE", "repeat": 5,
+                 "await_condition": "has_item:Ghostspeak amulet"},
+                {"id": 3, "action": "CLICK_CONTINUE",
+                 "repeat_until": "has_item:Cadava potion"},
+            ],
+        }
+        res = await dryrun.dry_run_routine(_write(tmp_path, doc), max_loops=1)
+        assert res["success"] is True, res["failures"]
+
+    async def test_mine_inner_loop_terminates_on_inventory_full(self, tmp_path):
+        """A MINE_ORE inner loop gating on inventory_full must EXIT (gather-fill
+        models the full inventory) rather than spin to the safety cap."""
+        doc = {
+            "name": "mine-inner",
+            "steps": [
+                {"id": 1, "action": "MINE_ORE", "args": "iron 1",
+                 "timeout_ms": 45000},
+                {"id": 2, "action": "BANK_DEPOSIT_ALL"},
+            ],
+            "loop": {"inner": {"enabled": True, "start_step": 1, "end_step": 1,
+                               "exit_conditions": ["inventory_full"],
+                               "on_exit": "goto_step:2"},
+                     "outer": {"enabled": True, "start_step": 1, "end_step": 2,
+                               "exit_conditions": []}},
+        }
+        res = await dryrun.dry_run_routine(_write(tmp_path, doc), max_loops=1)
+        assert res["success"] is True, res["failures"]
+        assert not any("safety cap" in w for w in res["warnings"])
+
     async def test_on_failure_continue_marches_on_but_reports(self, tmp_path):
         """A failed step with on_failure:continue keeps simulating yet the run
         is still reported as failed (the silent-march-on class made visible)."""
@@ -221,6 +260,35 @@ class TestStateModel:
         i = dryrun.DryRunInterpreter({"steps": []}, model=dryrun.StateModel())
         i._apply_effect("TOTALLY_MADE_UP", "")
         assert any("Unknown command" in w for w in i.warnings)
+
+    def test_known_plugin_command_does_not_warn(self):
+        """A real plugin command with no modeled effect is a silent generic
+        success -- NOT flagged unknown (that alarm is reserved for typos)."""
+        i = dryrun.DryRunInterpreter({"steps": []}, model=dryrun.StateModel())
+        for cmd in ("BANK_WITHDRAW", "USE_ITEM_ON_OBJECT", "CAMERA_STABILIZE",
+                    "TELEPORT_HOME", "CLICK_WIDGET", "CLICK_NPC"):
+            note, modeled = i._apply_effect(cmd, "x")
+            assert modeled is False
+        assert i.warnings == []
+
+    def test_gather_command_fills_inventory(self):
+        """MINE_ORE/CHOP_TREE/FISH accumulate -> fill the 28-slot inventory so
+        an ``inventory_full`` inner-loop exit can actually trigger."""
+        for cmd, args in (("MINE_ORE", "iron 1"), ("CHOP_TREE", "oak"),
+                          ("FISH", "lobster")):
+            m = dryrun.StateModel()
+            i = dryrun.DryRunInterpreter({"steps": []}, model=m)
+            i._apply_effect(cmd, args)
+            assert len(m.items) == 28
+        assert i.warnings == []
+
+    def test_ladder_verbs_change_plane(self):
+        m = dryrun.StateModel(location=(0, 0, 0))
+        i = dryrun.DryRunInterpreter({"steps": []}, model=m)
+        i._apply_effect("CLIMB_LADDER_UP", "")
+        assert m.plane == 1
+        i._apply_effect("CLIMB_LADDER_DOWN", "")
+        assert m.plane == 0
 
 
 def test_known_grammar2_recognizer():

@@ -60,6 +60,55 @@ BLOCKING_COMMANDS = {
 }
 KILL_LOOP_COMMANDS = {"KILL_LOOP", "KILL_LOOP_CONFIG"}
 
+# Blocking gather commands that ACCUMULATE their yield into the inventory (as
+# opposed to POWER_*/FISH_DROP which drop, or COOK_ALL/SMELT_* which transform).
+# Modeled as filling the 28-slot inventory so an ``inventory_full`` inner-loop
+# exit (the documented "mine/chop/fish until full then bank" pattern, e.g.
+# skilling/mine_iron_ore.yaml) actually TERMINATES in the simulation instead of
+# spinning to the step-execution safety cap. Justified by these commands'
+# documented "until inventory full" semantics (COMMAND_REFERENCE.md Skilling /
+# the routines' own inner-loop design).
+GATHER_FILL_COMMANDS = {"MINE_ORE", "CHOP_TREE", "FISH", "KILL_COW_GET_HIDES"}
+
+# Every command the Manny plugin actually exposes (COMMAND_REFERENCE.md, 131
+# commands). A verb in this set but WITHOUT a specific modeled effect below is
+# a legitimate command we simply don't simulate -- treated as generic success
+# at its declared await (the honest unmodeled default), NOT flagged as unknown.
+# The "unknown command" warning is reserved for verbs absent here (typos / not
+# in the plugin), which is the signal actually worth surfacing.
+KNOWN_COMMANDS = frozenset({
+    "ATTACK_NPC", "BANK_CHECK", "BANK_CLOSE", "BANK_DEPOSIT_ALL",
+    "BANK_DEPOSIT_EQUIPMENT", "BANK_DEPOSIT_ITEM", "BANK_OPEN", "BANK_WITHDRAW",
+    "BURY_ALL", "BURY_ITEM", "BUY_GE", "CAMERA_PITCH", "CAMERA_POINT_AT",
+    "CAMERA_RESET", "CAMERA_STABILIZE", "CAMERA_YAW", "CAST_SPELL",
+    "CAST_SPELL_NPC", "CAST_SPELL_ON_GROUND_ITEM",
+    "CAST_SPELL_ON_INVENTORY_ITEM", "CHECK_HP_THRESHOLD", "CHOP_TREE",
+    "CLICK_AT", "CLICK_CHILD_WIDGET", "CLICK_CONTINUE", "CLICK_DIALOGUE",
+    "CLICK_NPC", "CLICK_WIDGET", "CLIMB_LADDER_DOWN", "CLIMB_LADDER_UP",
+    "CLOSE_INTERFACE", "COLLECT_LUMBRIDGE_TIN_COPPER", "COOK_ALL", "DESELECT",
+    "DROP_ALL", "DROP_ITEM", "DUMP_COLLISION", "EAT", "EMERGENCY_STOP",
+    "EQUIP_BEST_MELEE", "EQUIPMENT_LOG", "F2P_MODE", "FIND_GRAVE", "FIND_NPC",
+    "FIND_OBJECT", "FISH", "FISH_DRAYNOR_LOOP", "FISH_DROP", "GE_ABORT",
+    "GE_ADJUST_PRICE", "GE_BUY", "GE_CANCEL", "GE_CLICK_BUY", "GE_CLICK_SELL",
+    "GE_COLLECT", "GE_CONFIRM", "GE_INPUT_PRICE", "GE_INPUT_QUANTITY",
+    "GE_OPEN", "GE_SEARCH", "GE_SELECT_ITEM", "GE_SELL", "GE_SELL_ITEM",
+    "GE_SET_QUANTITY", "GE_SLOW_BUY", "GET_GAME_STATE", "GET_LOCATIONS",
+    "GET_QUEST_STATUS", "GOTO", "IMP_HUNT", "INTERACT_NPC", "INTERACT_OBJECT",
+    "KEY_PRESS", "KILL", "KILL_COW", "KILL_COW_GET_HIDES", "KILL_LOOP",
+    "KILL_LOOP_CONFIG", "LIGHT_FIRE", "LIST_COMMANDS", "LIST_OBJECTS", "LOGIN",
+    "LOOT_GRAVE", "MINE_ORE", "MOUSE_CLICK", "MOUSE_MOVE", "PAUSE",
+    "PICK_UP_ITEM", "PING", "POWER_CHOP", "POWER_MINE", "QUERY_EQUIPMENT",
+    "QUERY_GROUND_ITEMS", "QUERY_INVENTORY", "QUERY_NPCS", "QUERY_PLAYERS",
+    "QUERY_TRANSITIONS", "RANDOMIZE_CHARACTER", "RESUME", "SAVE_LOCATION",
+    "SCAN_BANK", "SCAN_OBJECTS", "SCAN_TILEOBJECTS", "SCAN_WIDGETS",
+    "SET_CONFIG", "SHOP_BUY", "SMELT_BAR", "SMELT_BRONZE", "SMELT_BRONZE_BARS",
+    "START_PROCESSOR", "STOP", "STOP_PROCESSOR", "SWITCH_COMBAT_STYLE",
+    "TAB_OPEN", "TALK_NPC", "TELEGRAB_WINE_LOOP", "TELEPORT", "TELEPORT_HOME",
+    "TILE", "TILE_CLEAR", "TILE_CLEAR_ALL", "TILE_EXPORT", "TILE_LIST",
+    "USE_ITEM_ON_ITEM", "USE_ITEM_ON_NPC", "USE_ITEM_ON_OBJECT", "VIZ_PATH",
+    "VIZ_REGION", "WAIT", "WIKI_QUERY", "ZOOM",
+})
+
 # Grammar-2 atoms recognized by routine.check_stop_condition (ROUTINE_SCHEMA.md
 # (c)). Used only to WARN when a loop condition is NOT one of these (it would
 # silently never trigger). We do not re-implement evaluation -- that stays in
@@ -249,14 +298,14 @@ class DryRunInterpreter:
         """Mutate the model for ``action``; return ``(note, modeled)``.
 
         ``modeled`` is True for commands whose concrete effect we simulate
-        (GOTO, staircase climbs, BANK_*, KILL_LOOP*, dialogue-advance). Their
-        awaits are then checked STRICTLY against that effect -- the source of
-        the real detections (a GOTO whose await can't be reached, a single
-        CLICK_CONTINUE that can't satisfy a has_item await, etc.).
+        (GOTO, BANK_*, KILL_LOOP*, gather-fill). Their awaits are then checked
+        STRICTLY against that effect -- the source of the real detections (a
+        GOTO whose await can't be reached, etc.).
 
         ``modeled`` is False for commands whose effect we do NOT simulate
-        (INTERACT_NPC/OBJECT gathering, CAST_SPELL, EQUIP, TAB_OPEN, unknown
-        verbs...). These are assumed to SUCCEED at their own declared
+        (INTERACT_NPC/OBJECT gathering, dialogue-advance content, ladder
+        climbs, CAST_SPELL, EQUIP, TAB_OPEN, unknown verbs...). These are
+        assumed to SUCCEED at their own declared
         ``await_condition`` postcondition (see ``_apply_await_postcondition``),
         because dry-run cannot know that e.g. "milk a cow" yields a bucket --
         the honest default is to trust the author's stated postcondition rather
@@ -287,6 +336,19 @@ class DryRunInterpreter:
         if a == "INTERACT_OBJECT" and ("Climb-down" in args or "Climb down" in args):
             self.model.plane = max(0, self.model.plane - 1)
             return f"climbed down (~plane {self.model.plane}, await-corrected)", False
+        # Dedicated ladder verbs behave like the Climb INTERACT_OBJECT: a soft
+        # +/-1 plane guess, marked unmodeled so a declared ``plane:N`` await
+        # corrects it (undergrounds are often plane-0-with-a-Y-offset).
+        if a == "CLIMB_LADDER_UP":
+            self.model.plane += 1
+            return f"climbed ladder up (~plane {self.model.plane}, await-corrected)", False
+        if a == "CLIMB_LADDER_DOWN":
+            self.model.plane = max(0, self.model.plane - 1)
+            return f"climbed ladder down (~plane {self.model.plane}, await-corrected)", False
+        if a in GATHER_FILL_COMMANDS:
+            res = args.split()[0].capitalize() if args.split() else "Resource"
+            self.model.fill_inventory(res)
+            return f"gathered {res} until inventory full (blocking)", True
         if a == "BANK_OPEN":
             self.model.bank_open = True
             return "bank opened", True
@@ -299,13 +361,29 @@ class DryRunInterpreter:
         if a in KILL_LOOP_COMMANDS:
             return self._apply_kill_loop(a, args), True
         if a in ("CLICK_CONTINUE", "CLICK_DIALOGUE", "CLICK_TEXT", "KEY_PRESS"):
-            self.model.dialogue_open = False  # a drain step closes dialogue
-            return "dialogue advanced/closed", True
+            # We model the ONE effect we can know -- closing/advancing the
+            # dialogue -- but mark the step UNMODELED (False): the CONTENT a
+            # dialogue delivers (a quest reward item, a skill grant) is exactly
+            # as unknowable as what an NPC gather yields, so an item/skill await
+            # falls back to the honest assume-declared-postcondition default
+            # (e.g. Father Urhney handing over the Ghostspeak amulet across a
+            # CLICK_CONTINUE). A ``dialogue``/``no_dialogue`` await is still
+            # satisfied strictly by the modeled close.
+            self.model.dialogue_open = False
+            return "dialogue advanced/closed", False
         if a in ("SWITCH_COMBAT_STYLE", "TAB_OPEN", "WAIT", "INTERACT_NPC",
                  "INTERACT_OBJECT", "EQUIP_ITEM", "CAST_SPELL_NPC",
                  "CAST_SPELL_ON_INVENTORY_ITEM", "PICK_UP_ITEM"):
             return "ok (assumed success at declared await, if any)", False
-        # Default effect for unknown commands.
+        # A real plugin command we simply don't simulate: generic success at its
+        # declared await (honest unmodeled default), no false "unknown" alarm.
+        if action and a in KNOWN_COMMANDS:
+            return "ok (assumed success at declared await, if any)", False
+        # No ``action:`` at all -> an mcp_tool/no-op step reaching here via the
+        # repeat_until path; not an "unknown command", just nothing to model.
+        if not action:
+            return "ok (no action; mcp_tool/no-op step)", False
+        # Default effect for genuinely unknown commands (typo / not in plugin).
         self.warnings.append(
             f"Unknown command '{action}' -- modeled as generic success after "
             f"min duration (assumed success at its declared await). Verify it "
