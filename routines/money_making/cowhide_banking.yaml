@@ -20,30 +20,29 @@
 # Desk-side check only (no live account, no diort commands) against the OSRS
 # wiki + this repo's own validated corpus. Per-question results:
 #   1. WAYPOINTS: cow field + bank booth CONFIRMED against external sources
-#      (see below). Bridge hops (3247,3235 / 3247,3228 / 3244,3227 / 3239,3228)
+#      (see below). Bridge hops (3247,3235 / 3247,3226 / 3244,3226 / 3239,3226)
 #      and courtyard (3221,3218) have NO independent coordinate source (OSRS
 #      wiki has no dedicated bridge-tile page/template) -- only internal
 #      geometric consistency (monotonic x from field->courtyard, castle-ground
 #      polygon contains the courtyard tile). STILL LIVE-GATED: confirm the
 #      bridge hops actually settle and the on-bridge tile is walkable.
-#   2. STAIRCASE GEOMETRY: CONFIRMED. oldschool.runescape.wiki/w/Staircase_
-#      (Lumbridge_Castle) raw wikitext gives per-floor {{Map}} pins for the
-#      SOUTH staircase (the one this routine uses, near the bank):
-#        bottom (plane0) pin (3204,3208), actions "Climb-up, Top-floor"
-#        middle (plane1) pin (3204,3208), actions "Climb, Climb-up, Climb-down"
-#        top    (plane2) pin (3205,3208), actions "Climb-down, Bottom-floor"
-#      i.e. it IS the same stacked-column tile (x/y within 1) on all 3 planes,
-#      confirming two Climb-up/Climb-down hops (0->1->2) with per-floor
-#      GOTO+plane-await is structurally correct. ALL THREE floor waypoints
-#      below corrected from 3205,3209 -> 3205,3208 to match the wiki pin AND
-#      routines/common_actions.yaml's validated "3205 3208 0" ground-floor
-#      stair approach (repeated 3x in that file). The 2nd-floor (top) waypoint
-#      at step 16 was ALSO corrected 3205,3209 -> 3205,3208 (audit finding 5)
-#      for consistency with the ground/1st-floor correction and the wiki's top
-#      pin (3205,3208) -- it previously kept 3209 with a "within 1 tile"
-#      justification, an overlooked correction in the same desk pass. The old
-#      value was functionally harmless (location: await tolerates a 3-tile
-#      Chebyshev radius) but the coordinate is now uniform across all 3 floors.
+#   2. STAIRCASE GEOMETRY: two Climb-up/Climb-down hops (0->1->2) with per-floor
+#      GOTO+plane-await is structurally correct -- the SOUTH staircase (the one
+#      this routine uses, near the bank) is a stacked column occupying the same
+#      x/y on all 3 planes. BUT the exact stair-BASE tile the routine stands on
+#      to Climb has been re-verified against the vendored collision map by the
+#      offline route-lint harness (manny pathfinder/RouteLintVerify.java): the
+#      tile 3205,3208 is BLOCKED on planes 0/1/2 (it is the stair-column tile
+#      itself, not walkable), and the walkable stair threshold is 3205,3209
+#      (confirmed by the harness's nearest-walkable output on every floor;
+#      3206,3208 is the alternate). ALL THREE floor waypoints below (steps 8/10
+#      ground+1st, step 16 top) are therefore pinned at 3205,3209.
+#      HISTORY / CORRECTION: an earlier 2026-07-18 desk pass moved these from
+#      3205,3209 -> 3205,3208 to match an OSRS-wiki {{Map}} pin and a
+#      common_actions.yaml "3205 3208 0" approach -- that "correction" was WRONG:
+#      it aligned the waypoints onto the blocked stair-column tile. The wiki
+#      {{Map}} pin marks the OBJECT, not a walkable stand tile; the collision
+#      map is authoritative. Reverted to 3205,3209 (the pre-desk-pass value).
 #   3. BANK BOOTH: CONFIRMED. oldschool.runescape.wiki/w/Lumbridge_Castle_bank
 #      raw wikitext: {{Map|...|x=3209|y=3219|plane=2|r=5|...}} -- within 1
 #      tile of this routine's 3208,3220,2. ALSO cross-validated by 5 other
@@ -64,7 +63,7 @@
 #
 # STILL LIVE-GATED (desk verification could not resolve these):
 #   * Bridge hop coordinates + on-bridge walkability (no external source).
-#   * DOOR RISK on the courtyard(3221,3218) <-> south-staircase(3205,3208)
+#   * DOOR RISK on the courtyard(3221,3218) <-> south-staircase(3205,3209)
 #     leg -- applies to BOTH directions (audit finding 4): journals/navigation/
 #     indoor_navigation_lessons_2025-01-04.md documents a "side room door" at
 #     (3218,3217) in this same wing of the castle (flagged there as a trap for
@@ -149,20 +148,23 @@
 #   cow field (east of river) ...... 3253,3266 plane 0   [CONFIRMED -- within
 #     1 tile of a real Cow spawn point (3254,3267) per oldschool.runescape.
 #     wiki/w/Cow raw {{Map}} pin data for the Lumbridge east farm cluster]
-#   bridge east end ................ 3247,3228 plane 0   [UNVERIFIED -- see
-#     "STILL LIVE-GATED" above, no external bridge-tile source found]
-#   on-bridge waypoint ............. 3244,3227 plane 0  (anti corner-cut)
-#     [UNVERIFIED, same as above -- walkability NOT confirmed]
-#   bridge west end ................ 3239,3228 plane 0   [UNVERIFIED]
+#   bridge east end ................ 3247,3226 plane 0   [collision-verified --
+#     was 3247,3228 (in the River Lum); RouteLintVerify nearest-walkable moved
+#     it 2 tiles S onto the walkable bridge-deck land strip (y<=3226)]
+#   on-bridge waypoint ............. 3244,3226 plane 0  (anti corner-cut)
+#     [collision-verified -- was 3244,3227 (in river); moved 1 tile S to y=3226]
+#   bridge west end ................ 3239,3226 plane 0   [collision-verified --
+#     was 3239,3228 (in river); moved 2 tiles S to y=3226]
 #   castle courtyard ............... 3221,3218 plane 0   [PLAUSIBLE, not
 #     pin-verified -- falls inside the Lumbridge Castle grounds polygon per
 #     oldschool.runescape.wiki/w/Lumbridge_Castle raw wikitext, but no
 #     dedicated courtyard coordinate pin exists to pin it precisely; see the
 #     DOOR RISK note above for the courtyard->stair leg specifically]
-#   ground-floor staircase base .... 3205,3208 plane 0   [CONFIRMED -- see
-#     DESK-VERIFICATION PASS #2 above; corrected from 3205,3209]
-#   1st-floor staircase ............ 3205,3208 plane 1   [CONFIRMED, same
-#     source; corrected from 3205,3209]
+#   ground-floor staircase base .... 3205,3209 plane 0   [collision-verified --
+#     see DESK-VERIFICATION PASS #2 above; 3205,3208 is BLOCKED, reverted the
+#     bad desk-pass edit back to the walkable threshold 3205,3209]
+#   1st-floor staircase ............ 3205,3209 plane 1   [collision-verified,
+#     same source; 2nd-floor top waypoint (step 16) likewise 3205,3209 plane 2]
 #   2nd-floor bank booth ........... 3208,3220 plane 2   [CONFIRMED -- see
 #     DESK-VERIFICATION PASS #3 above]
 
@@ -211,25 +213,25 @@ steps:
   - id: 4
     phase: "travel_to_bank"
     action: GOTO
-    args: "3247 3228 0"
+    args: "3247 3226 0"
     description: "Bridge east end"
-    await_condition: "location:3247,3228"
+    await_condition: "location:3247,3226"
     timeout_ms: 60000
 
   - id: 5
     phase: "travel_to_bank"
     action: GOTO
-    args: "3244 3227 0"
+    args: "3244 3226 0"
     description: "On-bridge waypoint (anti corner-cut across the River Lum)"
-    await_condition: "location:3244,3227"
+    await_condition: "location:3244,3226"
     timeout_ms: 60000
 
   - id: 6
     phase: "travel_to_bank"
     action: GOTO
-    args: "3239 3228 0"
+    args: "3239 3226 0"
     description: "Bridge west end"
-    await_condition: "location:3239,3228"
+    await_condition: "location:3239,3226"
     timeout_ms: 60000
 
   - id: 7
@@ -243,9 +245,9 @@ steps:
   - id: 8
     phase: "travel_to_bank"
     action: GOTO
-    args: "3205 3208 0"
+    args: "3205 3209 0"
     description: "Ground-floor staircase base inside the castle"
-    await_condition: "location:3205,3208"
+    await_condition: "location:3205,3209"
     timeout_ms: 60000
 
   - id: 9
@@ -259,9 +261,9 @@ steps:
   - id: 10
     phase: "travel_to_bank"
     action: GOTO
-    args: "3205 3208 1"
+    args: "3205 3209 1"
     description: "Reposition at the 1st-floor staircase"
-    await_condition: "location:3205,3208"
+    await_condition: "location:3205,3209"
     timeout_ms: 60000
 
   - id: 11
@@ -321,9 +323,9 @@ steps:
   - id: 16
     phase: "travel_to_field"
     action: GOTO
-    args: "3205 3208 2"
+    args: "3205 3209 2"
     description: "Reposition at the 2nd-floor staircase"
-    await_condition: "location:3205,3208"
+    await_condition: "location:3205,3209"
     timeout_ms: 60000
 
   - id: 17
@@ -337,9 +339,9 @@ steps:
   - id: 18
     phase: "travel_to_field"
     action: GOTO
-    args: "3205 3208 1"
+    args: "3205 3209 1"
     description: "Reposition at the 1st-floor staircase"
-    await_condition: "location:3205,3208"
+    await_condition: "location:3205,3209"
     timeout_ms: 60000
 
   - id: 19
@@ -361,25 +363,25 @@ steps:
   - id: 21
     phase: "travel_to_field"
     action: GOTO
-    args: "3239 3228 0"
+    args: "3239 3226 0"
     description: "Bridge west end"
-    await_condition: "location:3239,3228"
+    await_condition: "location:3239,3226"
     timeout_ms: 60000
 
   - id: 22
     phase: "travel_to_field"
     action: GOTO
-    args: "3244 3227 0"
+    args: "3244 3226 0"
     description: "On-bridge waypoint (anti corner-cut)"
-    await_condition: "location:3244,3227"
+    await_condition: "location:3244,3226"
     timeout_ms: 60000
 
   - id: 23
     phase: "travel_to_field"
     action: GOTO
-    args: "3247 3228 0"
+    args: "3247 3226 0"
     description: "Bridge east end"
-    await_condition: "location:3247,3228"
+    await_condition: "location:3247,3226"
     timeout_ms: 60000
 
   # Mirror of outbound step 3 (audit finding 3): split the bridge-east-end ->
