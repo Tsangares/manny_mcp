@@ -387,6 +387,36 @@ Real validated example: `routines/tutorial_island/08_combat.yaml:109`
 `account_id` is auto-injected into `mcp_args` if not already present
 (routine.py:1616-1617), so you don't need to set it yourself.
 
+### `equip_item` semantics (DEFECT-29 fix, commit ba8efd3)
+
+`mcp_tool: equip_item` is now self-contained and outcome-verified:
+
+- **Opens the inventory tab itself** (`TAB_OPEN inventory`) before scanning, so
+  the item widget always has valid absolute screen bounds. This also absorbs the
+  post-equip side-panel reset (equipping flips the panel to the worn-equipment
+  view). **You no longer need manual "re-click the inventory tab" steps between
+  consecutive equips** — those `CLICK_WIDGET 35913795` steps are now redundant
+  (harmless if left in place).
+- **Guards bounds**: only clicks widget bounds that fall inside the game-canvas
+  envelope. Off-canvas / interface-relative bounds are rejected — the tool fails
+  honestly instead of CLICK_AT-ing into the 3D world (the old bug walked the
+  player and still reported success).
+- **Verifies the outcome** against the live state file: it returns
+  `success: true` **only** if the item actually left the inventory (or an
+  equipment slot appeared). If it clicked but the equip cannot be confirmed —
+  e.g. a tutorial gate ("You'll be told how to equip items later") or a stale
+  UI — it returns `success: false` with `verified: false`. **There is no more
+  silent false success**, so a routine step that depends on the equip will now
+  surface the failure instead of marching on into a broken state.
+- `currentTab` from the state file is **not** a reliable "inventory is open"
+  signal (`detectCurrentTab` returns the first non-hidden content panel; the
+  Combat panel stays non-hidden on Tutorial Island), so equip_item does not gate
+  on it — it relies on the bounds guard + outcome verification instead.
+
+The same canvas-bounds guard + inventory-tab-reopen now also protects
+`click_widget`'s search path when the matched widget is an inventory item
+(group 149) with off-canvas bounds.
+
 ---
 
 ## (h) `KILL_LOOP` / `KILL_LOOP_CONFIG` — the food-arg trap and loot config
