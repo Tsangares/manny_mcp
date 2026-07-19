@@ -142,3 +142,40 @@ hosts:
     viewer_host: 100.123.10.30       # Tailscale (works off-LAN)
     viewer_port: 8787
     notes: "Debian 13 VPS. Runs the user's production Docker (couchdb for Obsidian LiveSync, jellyseerr) — do NOT touch those containers/ports. Client is a guest: stop when idle. Provisioned 2026-07-19."
+
+# ---- proxy_lanes: account -> dataimpulse gateway PORT (port-per-lane sticky) --
+#
+# dataimpulse stickiness is PER GATEWAY PORT: gw.dataimpulse.com ports 10000,
+# 10001, 10002, ... are each an INDEPENDENT sticky session with its own stable
+# residential exit IP. Proven empirically 2026-07-19 (4 curls/port over ~2 min):
+#   10000 -> 73.184.107.212 (Atlanta GA, Comcast)   [default lane, sessid token]
+#   10001 -> 184.58.105.38  (Columbus OH, Charter)
+#   10002 -> 82.40.87.121   (Birmingham GB)  <-- see GEO CAVEAT
+# Stable within a port, distinct across ports. This is simpler than the sessid
+# token (no ~30-min TTL to re-issue) and lets every concurrent client have its
+# OWN stable residential IP — just give each account a different gateway port.
+#
+# MODEL: an account listed here egresses via upstream gw.dataimpulse.com:<port>.
+# mannyctl sets MANNY_SOCKS_PORT=<port> (local loopback relay listen + JVM
+# -DsocksProxyPort) AND MANNY_UPSTREAM_PORT=<port> when launching that account
+# with proxy on; proxy_relay.sh then runs the relay with --upstream-port <port>
+# --no-session (the PORT provides stickiness; the cr.us geo pin is kept). The
+# local port == the upstream port for 1:1 clarity, so two lanes on one host
+# never collide on 127.0.0.1. Accounts NOT listed use the shared default lane
+# (local :1080 -> upstream :10000, which keeps its sessid token) — unchanged.
+#
+# GEO CAVEAT: the cr.us US pin is honored on a FRESH port session, but a sticky
+# port REUSES whatever exit it already holds until its ~30-min TTL lapses — so a
+# port that was previously claimed with a non-US session can egress non-US for a
+# while (that is why 10002 shows GB above). `proxy status` prints the exit
+# COUNTRY and warns if it is not US; if a lane egresses non-US at launch time,
+# reassign it to a fresh (higher, unclaimed) port here, or wait out the TTL.
+#
+# TTL: within the ~5-min test window every port's IP held steady; provider docs
+# put the sticky TTL at ~30 min. A new session (port first-claim, or TTL lapse)
+# re-rolls to a different residential IP — so the IP is stable WITHIN a play
+# session, best-effort across days. Fine for concurrency isolation (the goal).
+proxy_lanes:
+  # account_alias: gateway_port   # keep unique; assign sequentially from 10001
+  punitpun: 10001                 # tutorial-island launch lane
+  blast: 10002                    # lane-2 spare (verify US at launch — see caveat)

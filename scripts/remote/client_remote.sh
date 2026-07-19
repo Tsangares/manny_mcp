@@ -267,7 +267,12 @@ print(a['jx_character_id'], a['jx_session_id'])
   local socks_props=""
   if [ -n "$PROXY_ENABLED" ]; then
     echo "proxy: ensuring SOCKS5 relay on 127.0.0.1:${MANNY_SOCKS_PORT} before launch ..."
-    if ! MANNY_SOCKS_PORT="$MANNY_SOCKS_PORT" REPO_DIR="$REPO_DIR" "$SCRIPT_DIR/proxy_relay.sh" start; then
+    # Forward the port-per-lane upstream port + opt-in game-443 rewrite to the
+    # relay (unset => default lane / no rewrite, unchanged behavior).
+    if ! MANNY_SOCKS_PORT="$MANNY_SOCKS_PORT" \
+         MANNY_UPSTREAM_PORT="${MANNY_UPSTREAM_PORT:-}" \
+         MANNY_GAME_443="${MANNY_GAME_443:-}" \
+         REPO_DIR="$REPO_DIR" "$SCRIPT_DIR/proxy_relay.sh" start; then
       echo "ERROR: proxy relay failed to start — refusing to launch (would leak home IP)." >&2
       return 1
     fi

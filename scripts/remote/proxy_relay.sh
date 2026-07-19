@@ -48,6 +48,16 @@ PORT="${MANNY_SOCKS_PORT:-1080}"
 # credentials.yaml). Set MANNY_CREDS to force a specific file.
 CREDS="${MANNY_CREDS:-}"
 
+# Port-per-lane sticky: MANNY_UPSTREAM_PORT pins the dataimpulse GATEWAY port
+# (each port = an independent stable residential exit IP). When set, the relay
+# uses --upstream-port <N> --no-session (the PORT provides stickiness; the cr.us
+# geo pin is kept). Unset => the default lane (upstream :10000 w/ sessid token).
+UPSTREAM_PORT="${MANNY_UPSTREAM_PORT:-}"
+# Opt-in: rewrite the raw game socket CONNECT :43594 -> :443 so it traverses the
+# proxy (dataimpulse blocks 43594, allows 443; same TLS game service on both).
+# OFF unless MANNY_GAME_443=1. Verify with a throwaway login before real use.
+GAME_443="${MANNY_GAME_443:-}"
+
 PIDFILE="/tmp/manny_socks_relay_${PORT}.pid"
 LOG="/tmp/manny_socks_relay_${PORT}.log"
 
@@ -81,14 +91,20 @@ cmd_start() {
     return 0
   fi
 
-  echo "starting SOCKS5 relay on 127.0.0.1:${PORT} -> dataimpulse (secret not shown) ..."
+  echo "starting SOCKS5 relay on 127.0.0.1:${PORT} -> dataimpulse${UPSTREAM_PORT:+ :$UPSTREAM_PORT (port-lane)}${GAME_443:+ [game-443]} (secret not shown) ..."
   : >"$LOG" 2>/dev/null || true
   # setsid + </dev/null + >log sever the tty so an ssh disconnect can't SIGHUP it.
   # socks_relay.py reads the upstream user/pass from the creds file ITSELF (never
   # argv/stdout/log) and forwards the dataimpulse session/geo token verbatim.
   # -u keeps its connection logging unbuffered. CREDS empty => relay's own chain.
-  setsid "$PYBIN" -u "$SCRIPT_DIR/socks_relay.py" \
-      --listen-host 127.0.0.1 --port "$PORT" ${CREDS:+--creds "$CREDS"} \
+  # Assemble the relay args. --upstream-port + --no-session enable port-per-lane
+  # sticky (the port pins the exit IP); --game-port-443 is opt-in. Default path
+  # (no env) => plain default-lane relay, byte-for-byte the old behavior.
+  local relay_args=(--listen-host 127.0.0.1 --port "$PORT")
+  [ -n "$CREDS" ] && relay_args+=(--creds "$CREDS")
+  [ -n "$UPSTREAM_PORT" ] && relay_args+=(--upstream-port "$UPSTREAM_PORT" --no-session)
+  [ "$GAME_443" = "1" ] && relay_args+=(--game-port-443)
+  setsid "$PYBIN" -u "$SCRIPT_DIR/socks_relay.py" "${relay_args[@]}" \
       >"$LOG" 2>&1 </dev/null &
   local relay_started=$!
   disown
@@ -138,15 +154,26 @@ cmd_status() {
     echo "relay: DOWN on 127.0.0.1:${PORT}"
     return 0
   fi
-  # Egress check: the exit IP as seen through the relay. Should be the residential
-  # dataimpulse exit (~82.x / 74.x), NOT the home IP 96.39.231.108.
-  echo -n "egress IP via relay: "
-  local ip
-  ip="$(curl -s --max-time 20 -x "socks5h://127.0.0.1:${PORT}" https://api.ipify.org 2>/dev/null)"
+  # Egress check: the exit IP + COUNTRY through the relay. Should be a residential
+  # dataimpulse exit, NOT the home IP 96.39.231.108, and (port-per-lane geo pin)
+  # should be US — a sticky port can inherit a stale non-US session until its TTL
+  # lapses (see hosts.yaml proxy_lanes GEO CAVEAT), so warn if not US.
+  echo -n "egress via relay: "
+  local resp ip country
+  resp="$(curl -s --max-time 20 -x "socks5h://127.0.0.1:${PORT}" https://ipinfo.io/json 2>/dev/null)"
+  ip="$(printf '%s' "$resp" | "$PYBIN" -c 'import sys,json;
+try: print(json.load(sys.stdin).get("ip",""))
+except Exception: pass' 2>/dev/null)"
+  country="$(printf '%s' "$resp" | "$PYBIN" -c 'import sys,json;
+try: print(json.load(sys.stdin).get("country",""))
+except Exception: pass' 2>/dev/null)"
   if [ -n "$ip" ]; then
-    echo "$ip"
+    echo "$ip (${country:-?})"
     if [ "$ip" = "96.39.231.108" ]; then
       echo "  WARNING: egress is the HOME IP — relay is NOT changing the exit IP!"
+    elif [ -n "$country" ] && [ "$country" != "US" ]; then
+      echo "  WARNING: exit country is ${country}, not US — this sticky port holds a"
+      echo "  stale non-US session. Reassign the lane to a fresh port or wait out the TTL."
     fi
   else
     echo "(egress check failed — relay may be starting, upstream unreachable, or no curl)"

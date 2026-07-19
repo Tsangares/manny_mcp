@@ -35,9 +35,45 @@ DEFAULT_CREDS = [
 ]
 
 
-def load_upstream(explicit):
+def _apply_token_overrides(user, session, drop_session):
+    """Rewrite the dataimpulse username token params in `user`.
+
+    The username is `<login>__<param>;<param>;...` where each param is
+    `key.value` (e.g. `cr.us`, `sessid.osrs-tut-01`). The geo pin (`cr.*`) is
+    ALWAYS preserved. `session` sets/replaces the `sessid` param; `drop_session`
+    removes it (used by the port-per-lane model, where the gateway PORT — not a
+    sessid token — pins the sticky exit IP). If neither is given, the token is
+    returned unchanged. Never prints the secret (login is untouched, passed
+    through)."""
+    login, sep, tokenstr = user.partition("__")
+    params = [p for p in tokenstr.split(";") if p] if sep else []
+
+    def setparam(key, value):
+        out, found = [], False
+        for p in params:
+            if p.split(".", 1)[0] == key:
+                found = True
+                if value is not None:
+                    out.append("%s.%s" % (key, value))
+            else:
+                out.append(p)
+        if value is not None and not found:
+            out.append("%s.%s" % (key, value))
+        return out
+
+    if drop_session:
+        params = setparam("sessid", None)
+    elif session is not None:
+        params = setparam("sessid", session)
+    return "%s__%s" % (login, ";".join(params)) if params else login
+
+
+def load_upstream(explicit, upstream_port=None, session=None, drop_session=False):
     """Return (host, port, user, pass) from the first creds file that has
-    proxies.dataimpulse.socks5. Never prints the secret."""
+    proxies.dataimpulse.socks5. Never prints the secret.
+
+    upstream_port overrides the gateway port (port-per-lane sticky model).
+    session / drop_session rewrite the sessid token via _apply_token_overrides."""
     import yaml
     candidates = []
     if explicit:
@@ -65,6 +101,9 @@ def load_upstream(explicit):
             sys.stderr.write(
                 "socks_relay: malformed socks5 value in %s\n" % path)
             sys.exit(4)
+        user = _apply_token_overrides(user, session, drop_session)
+        if upstream_port is not None:
+            port = upstream_port
         return host, int(port), user, pw
     sys.stderr.write(
         "socks_relay: proxies.dataimpulse.socks5 not found in any of: %s\n"
@@ -118,11 +157,19 @@ async def _pipe(src, dst):
 
 
 class Relay:
-    def __init__(self, up_host, up_port, up_user, up_pass):
+    def __init__(self, up_host, up_port, up_user, up_pass, game_443=False):
         self.up_host = up_host
         self.up_port = up_port
         self.up_user = up_user.encode()
         self.up_pass = up_pass.encode()
+        # game_443: rewrite an outbound CONNECT to the raw OSRS game port 43594
+        # into port 443. dataimpulse BLOCKS 43594 (SOCKS REP!=0) but allows 443,
+        # and the OSRS world host serves the SAME *.runescape.com TLS game
+        # service on both ports (proven 2026-07-19: full TLS to :443 traverses
+        # the exit; :43594 is refused). Lets the game socket ride the proxy over
+        # 443 with NO client/Java change. OFF by default; opt-in + verify with a
+        # throwaway login before any real session.
+        self.game_443 = game_443
 
     async def handle(self, c_reader, c_writer):
         peer = c_writer.get_extra_info("peername")
@@ -140,6 +187,11 @@ class Relay:
                 c_writer.write(b"\x05\x07\x00\x01\x00\x00\x00\x00\x00\x00")
                 await c_writer.drain(); c_writer.close(); return
             addr_raw, label = await _read_addr(c_reader)
+            # opt-in game-port rewrite: 43594 -> 443 (proxy blocks 43594, allows
+            # 443; same TLS game service on both). Only the trailing port bytes.
+            if self.game_443 and addr_raw[-2:] == (43594).to_bytes(2, "big"):
+                addr_raw = addr_raw[:-2] + (443).to_bytes(2, "big")
+                label = "%s->443(game-rewrite)" % label
         except (asyncio.IncompleteReadError, ConnectionError, ValueError, OSError) as e:
             sys.stderr.write("relay: client parse error from %s: %r\n" % (peer, e))
             try:
@@ -193,8 +245,10 @@ class Relay:
 
 
 async def _amain(args):
-    host, port, user, pw = load_upstream(args.creds)
-    relay = Relay(host, port, user, pw)
+    host, port, user, pw = load_upstream(
+        args.creds, upstream_port=args.upstream_port,
+        session=args.session, drop_session=args.no_session)
+    relay = Relay(host, port, user, pw, game_443=args.game_port_443)
     server = await asyncio.start_server(relay.handle, args.listen_host, args.port)
     sys.stderr.write("relay: listening no-auth SOCKS5 on %s:%d -> %s:%d "
                      "(secret hidden)\n" % (args.listen_host, args.port,
@@ -209,6 +263,19 @@ def main():
     ap.add_argument("--port", type=int, default=1080)
     ap.add_argument("--creds", default=None,
                     help="creds file (default: ~/.manny/proxies.yaml then credentials.yaml)")
+    ap.add_argument("--upstream-port", type=int, default=None,
+                    help="override the dataimpulse gateway port (port-per-lane "
+                         "sticky model: each port = an independent stable exit IP)")
+    ap.add_argument("--session", default=None,
+                    help="set/replace the sessid token param (sticky-by-token model)")
+    ap.add_argument("--no-session", action="store_true",
+                    help="strip the sessid token param (rely on gateway PORT for "
+                         "stickiness; keeps the geo pin). Ignored if --session given.")
+    ap.add_argument("--game-port-443", action="store_true",
+                    help="rewrite outbound CONNECT :43594 -> :443 (dataimpulse "
+                         "blocks 43594 but allows 443; the OSRS world serves the "
+                         "same TLS game service on both). OFF by default; verify "
+                         "with a throwaway login before any real session.")
     args = ap.parse_args()
     try:
         asyncio.run(_amain(args))

@@ -80,6 +80,22 @@ print(v if v is not None else "")
 PY
 }
 
+# lane_port <account> — the account's assigned dataimpulse gateway port from
+# hosts.yaml top-level `proxy_lanes.<account>` (port-per-lane sticky model).
+# Empty if the account has no lane (=> shared default lane :10000). Global, not
+# per-host: an account gets the same residential lane on whatever host runs it.
+lane_port() {
+  "$PYBIN" - "$HOSTS_YAML" "$1" <<'PY'
+import sys, yaml
+path, acct = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    data = yaml.safe_load(f) or {}
+m = data.get("proxy_lanes") or {}
+v = m.get(acct, "")
+print(v if v is not None else "")
+PY
+}
+
 # resolve_display <account> — the account's mapped display, else the host
 # default ($H_DISPLAY). Requires load_host to have run.
 resolve_display() {
@@ -161,7 +177,13 @@ client_env_prefix() {
   # status/stop/temp (which never set PROXY_FLAG) are untouched.
   if [ -n "${PROXY_FLAG:-}" ]; then
     printf ' MANNY_PROXY=1'
-    [ -n "${PROXY_PORT:-}" ] && printf ' MANNY_SOCKS_PORT=%q' "$PROXY_PORT"
+    # Port-per-lane: LANE_UPSTREAM_PORT (set by do_start/do_run from proxy_lanes)
+    # pins BOTH the local relay/JVM port and the upstream gateway port to the
+    # account's assigned lane, so concurrent clients get distinct stable exits.
+    # Falls back to PROXY_PORT (MANNY_SOCKS_PORT override) or the default lane.
+    local sp="${LANE_UPSTREAM_PORT:-${PROXY_PORT:-}}"
+    [ -n "$sp" ] && printf ' MANNY_SOCKS_PORT=%q' "$sp"
+    [ -n "${LANE_UPSTREAM_PORT:-}" ] && printf ' MANNY_UPSTREAM_PORT=%q' "$LANE_UPSTREAM_PORT"
   fi
 }
 
@@ -194,6 +216,7 @@ do_start() {
   done
   [ -n "$acct" ] || die "start needs an account"
   d="$(resolve_display "$acct")"
+  LANE_UPSTREAM_PORT="$(lane_port "$acct")"
   run_on_host "$(client_remote_cmd "$d" start "$acct")"
 }
 do_restart() { local d; d="$(resolve_display "$1")"; run_on_host "$(client_remote_cmd "$d" restart "$1")"; }
@@ -251,10 +274,6 @@ do_run() {
     esac
   done
   if [ "${#filtered[@]}" -gt 0 ]; then set -- "${filtered[@]}"; else set --; fi
-  if [ -n "${PROXY_FLAG:-}" ]; then
-    proxy_env="MANNY_PROXY=1"
-    [ -n "${PROXY_PORT:-}" ] && proxy_env="$proxy_env MANNY_SOCKS_PORT=$(printf %q "$PROXY_PORT")"
-  fi
 
   [ $# -ge 1 ] || die "run needs a routine path, e.g.: mannyctl $HOST run routines/combat/x.yaml --account new"
 
@@ -266,6 +285,19 @@ do_run() {
     [ "$prev" = "--account" ] && { acct="$tok"; break; }
     prev="$tok"
   done
+
+  # Proxy env (built AFTER acct is known so port-per-lane can resolve the lane).
+  if [ -n "${PROXY_FLAG:-}" ]; then
+    proxy_env="MANNY_PROXY=1"
+    local lane=""
+    [ -n "$acct" ] && lane="$(lane_port "$acct")"
+    if [ -n "$lane" ]; then
+      # port-per-lane: pin local relay/JVM port AND upstream gateway port.
+      proxy_env="$proxy_env MANNY_SOCKS_PORT=$(printf %q "$lane") MANNY_UPSTREAM_PORT=$(printf %q "$lane")"
+    elif [ -n "${PROXY_PORT:-}" ]; then
+      proxy_env="$proxy_env MANNY_SOCKS_PORT=$(printf %q "$PROXY_PORT")"
+    fi
+  fi
   local logname
   if [ -n "$acct" ]; then
     logname="manny_run_${acct}"
