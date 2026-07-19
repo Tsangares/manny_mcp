@@ -1,10 +1,20 @@
 # Tutorial Island - Part 5: Cooking Exit to Quest Guide
-# STATUS: REPAIRED 2026-07-18 (Track E phase-1b)
+# STATUS: REPAIRED 2026-07-19 (LANE-2, DEFECT-23 exact-arrival bridge fix)
 #
 # This routine handles the navigation from the Cooking section to Quest Guide building.
 # CRITICAL: The path from cooking exit requires going WEST (onto the door tile) first,
 # then NORTH along the western edge in short hops. Direct north paths are blocked by
 # invisible fences and NAV-DIRECT cannot dogleg west-through-door-then-north.
+#
+# BRIDGE FIX (2026-07-19): every navigation GOTO on the cooking->corridor->north
+# leg now uses DEFECT-23 `exact` mode (append " exact" to args). Root cause of the
+# prior structural stall: a plain `GOTO 3072 3090` seated the player ~2 tiles EAST
+# of the west corridor (DEFECT-7 declares success within 3 tiles), so it never got
+# onto x=3072. From an off-corridor tile every northward A* hop routes through the
+# invisible-fence/uncached area and fails immediately. Exact mode disables the
+# 3-tile short-circuit and refines onto the precise tile via bounded minimap
+# stepping (NAV-EXACT), so the player is actually SEATED on x=3072 before each
+# north hop. Same primitive that cracked the chapel exit in 10_prayer_magic.yaml.
 #
 # Previous section: 04_woodcutting_firemaking.yaml (ends with baking bread)
 # Next section: 06_quest_guide.yaml (now merged into this file)
@@ -37,9 +47,9 @@ widgets:
 steps:
   # CRITICAL: settle IN FRONT of door before trying to open it
   - id: 1
-    description: "Walk to cooking exit door and settle"
+    description: "Walk to cooking exit door and settle (exact-arrival)"
     action: GOTO
-    args: "3073 3090 0"
+    args: "3073 3090 0 exact"
     await_condition: "location:3073,3090"
     timeout_ms: 60000
     delay_after_ms: 1500
@@ -57,50 +67,54 @@ steps:
     delay_after_ms: 1000
 
   - id: 3
-    description: "Step ONTO the door tile (west) once it is open"
+    description: "Step ONTO the door tile (west corridor) once it is open (exact-arrival)"
     action: GOTO
-    args: "3072 3090 0"
+    args: "3072 3090 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3090"
     timeout_ms: 60000
-    notes: "Must go WEST onto the door tile first; NAV-DIRECT cannot dogleg through the door then north."
+    notes: |
+      THE CRITICAL SEAT. Must land EXACTLY on x=3072 (the west corridor) before any
+      north hop. exact mode (DEFECT-23) disables the DEFECT-7 3-tile short-circuit
+      that previously left the player ~2 tiles east and wall-blocked every hop north.
+      Must go WEST onto the door tile first; NAV-DIRECT cannot dogleg through the door.
 
   - id: 4
-    description: "North hop 1 along west edge (<=10 tiles)"
+    description: "North hop 1 along west edge (exact-arrival, stays on x=3072)"
     action: GOTO
-    args: "3072 3096 0"
+    args: "3072 3096 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3096"
     timeout_ms: 60000
 
   - id: 5
-    description: "North hop 2 along west edge"
+    description: "North hop 2 along west edge (exact-arrival)"
     action: GOTO
-    args: "3072 3106 0"
+    args: "3072 3106 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3106"
     timeout_ms: 60000
 
   - id: 6
-    description: "North hop 3 along west edge"
+    description: "North hop 3 along west edge (exact-arrival)"
     action: GOTO
-    args: "3072 3112 0"
+    args: "3072 3112 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3112"
     timeout_ms: 60000
 
   - id: 7
-    description: "Walk toward Quest Guide building"
+    description: "Walk toward Quest Guide building (exact-arrival)"
     action: GOTO
-    args: "3080 3120 0"
+    args: "3080 3120 0 exact"
     delay_before_ms: 500
     await_condition: "location:3080,3120"
     timeout_ms: 60000
 
   - id: 8
-    description: "Walk to Quest Guide door"
+    description: "Walk to Quest Guide door (exact-arrival for door interact)"
     action: GOTO
-    args: "3086 3125 0"
+    args: "3086 3125 0 exact"
     delay_before_ms: 500
     await_condition: "location:3086,3125"
     timeout_ms: 60000
@@ -161,8 +175,13 @@ steps:
 #    (arrival must settle -- add delay_after_ms; an un-settled arrival misses the Open click)
 # 2. After opening the door, step ONTO the door tile (3072, 3090) BEFORE heading north.
 #    NAV-DIRECT cannot dogleg west-through-door-then-north; use explicit waypoints.
+#    USE `exact` MODE (DEFECT-23) on this seat + every north hop: a plain GOTO here
+#    declared success ~2 tiles EAST of x=3072 (DEFECT-7 3-tile short-circuit) and
+#    from off-corridor every north A* hop failed immediately ("path goes through
+#    uncached/blocked area"). exact mode refines onto the precise tile (NAV-EXACT
+#    bounded minimap stepping), guaranteeing the player is seated on x=3072.
 # 3. Direct north paths from cooking are blocked by invisible fences -- hug the west edge (x=3072)
-# 4. Navigate north in short (<=10-tile) hops, each with a location await
+# 4. Navigate north in short (<=10-tile) hops, each with a location await, each in exact mode
 # 5. Quest Guide dialogue has multiple "Click here to continue" screens
 # 6. Ladder gate (Track E phase-1b, live): the ladder unlocks only after the guide's
 #    monologue is FULLY exhausted (CLICK_CONTINUE repeat_until no_dialogue, step 11)
