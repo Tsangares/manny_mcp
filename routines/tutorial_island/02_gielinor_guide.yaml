@@ -95,7 +95,7 @@ steps:
   - id: 11
     description: "Walk to tile in front of door"
     action: GOTO
-    args: "3097 3107 0 exact"
+    args: "3097 3107 0"
     delay_before_ms: 1000
     await_condition: "location:3097,3107"
     timeout_ms: 60000

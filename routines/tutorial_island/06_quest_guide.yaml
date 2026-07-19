@@ -24,13 +24,13 @@ steps:
   - id: 1
     description: "Walk to Quest Guide building area"
     action: GOTO
-    args: "3086 3110 0 exact"
-    notes: "From cooking exit (3072, 3090), walk toward Quest Guide"
+    args: "3086 3110 0"
+    notes: "From cooking exit (3072, 3090), walk toward Quest Guide. PLAIN mode (reverted from `exact` 2026-07-19, parity with 05_cooking_to_quest_guide): exact hard-fails on partial arrival and seals the player; plain self-corrects."
 
   - id: 2
     description: "Walk to Quest Guide building door"
     action: GOTO
-    args: "3086 3126 0 exact"
+    args: "3086 3126 0"
     delay_before_ms: 3000
 
   - id: 3

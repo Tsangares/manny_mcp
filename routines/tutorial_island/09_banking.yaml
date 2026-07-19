@@ -145,7 +145,7 @@ steps:
   - id: 9
     description: "Walk to door in front of Account Guide room"
     action: GOTO
-    args: "3124 3124 0 exact"
+    args: "3124 3124 0"
     await_condition: "location:3124,3124"
     timeout_ms: 60000
     delay_before_ms: 500
