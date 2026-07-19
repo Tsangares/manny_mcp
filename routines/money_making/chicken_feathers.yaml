@@ -48,6 +48,14 @@ steps:
     await_condition: "location:3235,3295"
     timeout_ms: 120000
 
+  - id: 1b
+    phase: "setup"
+    action: TAB_OPEN
+    args: "Combat"
+    description: "Open Combat tab first so SWITCH_COMBAT_STYLE's group-593 stance scan reliably finds the buttons. LIVE 2026-07-19: SWITCH_COMBAT_STYLE's own tab-open is flaky as a first action (it registered a world-click and reported 'style not found'); an explicit TAB_OPEN makes the subsequent switch deterministic."
+    delay_before_ms: 500
+    timeout_ms: 8000
+
   - id: 2
     phase: "setup"
     action: SWITCH_COMBAT_STYLE
