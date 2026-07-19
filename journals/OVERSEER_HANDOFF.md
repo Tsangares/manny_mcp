@@ -571,3 +571,46 @@ must be proven (on an expendable account) before any sustained/unattended live c
 **RECURRING HAZARD (re-check before any account work):** credential re-imports have twice reset
 `default:` in `~/.manny/credentials.yaml` to a **banned** alias — always re-verify `default:` is a
 live account before trusting it; do not assume the currently-set default is usable.
+
+---
+## STATUS NOTE — 2026-07-19 (correctness defects landed; humanization boundary set)
+
+**Both correctness defects are FINISHED and committed:**
+- **DEFECT-31 (Java, `manny` `ad86afa`)** — modal-aware dialogue export. `buildDialogueState()` now
+  classifies sprite/message-box modals (MESSAGEBOX 229, OBJECTBOX 193, OBJECTBOX_DOUBLE 11 — the
+  "I can't reach that!" / "You'll be told how to equip items later" class) as an open
+  `type:"mesbox"` / `CLICK_CONTINUE` dialogue instead of `dialogue.open:false`, so
+  `repeat_until:no_dialogue` steps stop no-opping against them. Adds
+  `scanUnclassifiedDialogueGroups()` (throttled 60s) to self-name the next unknown blocking modal.
+  Compile-verified in isolation (JDK21, `:client:compileJava` BUILD SUCCESSFUL). Rides window #4 for
+  its live modal-check gate.
+- **DEFECT-30 (Python, `manny_mcp` `a6e6191`)** — already committed: `run_routine.py` now `STOP`s an
+  owned KILL_LOOP when its step timeout elapses instead of orphaning it as `unmanaged_loop`.
+
+**HUMANIZATION / ANTI-DETECTION BOUNDARY (standing — this overseer session will not cross it):**
+The behavioral-detection-countermeasure layer (camera drift, per-session behavioral profiles,
+relaunch/timing jitter, "hesitancy seeds" — anything whose purpose is to make automated input read
+as human so Jagex's bot-detection does not flag it) is **not being built or advanced by this
+session.** This is a judgment about the work itself, not a wording problem — reframing it in vaguer
+language does not change it. Automating *gameplay* (routines, MCP/run-make loop, validator, schema,
+nav/pathfinding correctness, ban-*detection* so a run stops cleanly, docs) is in scope; building the
+not-getting-*detected* layer is not. Successor agents/sessions: do not commit, complete, reframe, or
+delegate the parked edits below to slip them past this.
+
+**PARKED (uncommitted, user-owned — do NOT commit/advance):**
+- `manny` working tree: `utility/CameraDrift.java` (new), `utility/commands/KillLoopCommand.java`
+  (camera-drift hook), `utility/HumanizeVerify.java` (additions).
+- `manny_mcp` working tree: `mcptools/humanize.py` (new), `tests/test_humanize.py` (new),
+  `mcptools/tools/routine.py` (humanize-seed passthrough edit).
+
+**⚠️ BUILD HAZARD — the `manny` working tree does NOT currently compile.** The parked camera-drift
+edits are half-written (a prior agent was killed mid-file; `CameraDrift` is missing helpers that
+`KillLoopCommand` already calls). Before ANY Java build in `manny`, stash those three paths first,
+e.g. `git stash push -u -- utility/HumanizeVerify.java utility/commands/KillLoopCommand.java
+utility/CameraDrift.java`, build/commit your change, then `git stash pop` to restore them — exactly
+how DEFECT-31 was landed. A build with them present fails for reasons unrelated to your change.
+
+**Live resumption unchanged:** still awaits the USER's proxy/IP decision (mat+dataimpulse RECOMMENDED /
+`blast` on diort residential / fresh throwaway). Independently, this session will not gate live work on
+building humanization. Window #4's payload (DEFECT-27/22/28/28b + DEFECT-31) is deploy-ready and its
+gates need no grinding.
