@@ -21,6 +21,7 @@
 #   TEMP_REFUSE_C   refuse launch at/above (C)    (default: 88)
 #   TEMP_WARN_C     warn at/above (C)             (default: 80)
 #   REPO_DIR        manny_mcp repo (for venv creds) (default: script's ../..)
+#   NAV_BACKEND     Stage-2 nav flag (-Dmanny.navBackend) (default: "shadow")
 #
 # Subcommands: status | stop | start <account> | restart <account>
 
@@ -32,6 +33,11 @@ REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 RUNELITE_LIBS="${RUNELITE_LIBS:-/home/wil/Desktop/runelite/runelite-client/build/libs}"
 JAVA_BIN="${JAVA_BIN:-/usr/lib/jvm/java-21-openjdk/bin/java}"
 [ -x "$JAVA_BIN" ] || JAVA_BIN="java"
+
+# NAV_BACKEND: Stage-2 navigation feature flag (JVM -Dmanny.navBackend). Default
+# 'shadow' = legacy follower still drives, plus log-only graph comparison
+# ([NAV-SHADOW]); zero behaviour change. 'legacy' disables; 'graph' cuts over.
+NAV_BACKEND="${NAV_BACKEND:-shadow}"
 
 XVFB_DISPLAY="${XVFB_DISPLAY:-:2}"
 XVFB_SOCKET="/tmp/.X11-unix/X${XVFB_DISPLAY#:}"
@@ -202,13 +208,13 @@ print(a['jx_character_id'], a['jx_session_id'])
   [ -n "$jar" ] || { echo "ERROR: no *shaded.jar under $RUNELITE_LIBS" >&2; return 1; }
   local log; [ "$acct" = "new" ] && log="/tmp/runelite.log" || log="/tmp/runelite_${acct}.log"
   : >"$log" 2>/dev/null || true
-  echo "launching account='$acct' jar=$jar display=$XVFB_DISPLAY log=$log"
+  echo "launching account='$acct' jar=$jar display=$XVFB_DISPLAY log=$log navBackend=$NAV_BACKEND"
   DISPLAY="$XVFB_DISPLAY" \
     _JAVA_OPTIONS="-Xmx1536m -XX:MaxMetaspaceSize=192m" \
     MANNY_ACCOUNT_ID="$acct" \
     JX_CHARACTER_ID="$char_id" \
     JX_SESSION_ID="$sess_id" \
-    setsid "$JAVA_BIN" -jar "$jar" >"$log" 2>&1 </dev/null &
+    setsid "$JAVA_BIN" -Dmanny.navBackend="$NAV_BACKEND" -jar "$jar" >"$log" 2>&1 </dev/null &
   local java_pid=$!; disown
   unset creds char_id sess_id
 
