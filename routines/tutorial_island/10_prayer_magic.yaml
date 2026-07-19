@@ -440,8 +440,14 @@ steps:
 # - Account Management / Prayer / Magic tabs: CLICK_WIDGET <id> (not in TAB_OPEN's list)
 # - Dialogue advancement: KEY_PRESS space + repeat_until: no_dialogue
 # - Door interaction: GOTO to door position, then INTERACT_OBJECT Door Open
-# - Dialogue options: CLICK_DIALOGUE "<option text>" (works even when state-file options[] is empty)
-# - Spell casting on NPC: CAST_SPELL_NPC Wind_Strike Chicken (walk close first)
+# - Dialogue options: on THIS jar's mainland/ironman panes, CLICK_DIALOGUE bounds-
+#   clicks land in the 3D viewport (walk-away); use CLICK_CHILD_WIDGET per the
+#   fix at steps ~:321-324 (M-15 corrected 2026-07-19 -- the old "works even when
+#   options[] is empty" claim contradicted that fix and invited a regression).
+# - Spell casting on NPC: CAST_SPELL_NPC Wind_Strike is BROKEN on this jar's
+#   Magic-Instructor chicken (pitfall #6, steps 25a-25c) -- use manual
+#   CLICK_WIDGET 14286859 + CLICK_NPC instead (M-15 corrected 2026-07-19; the old
+#   CAST_SPELL_NPC recommendation contradicted that pitfall).
 # - Home Teleport (mainland exit): CLICK_WIDGET 14286854 -- NOT CAST_SPELL Home_Teleport
 
 # FINAL DESTINATION:

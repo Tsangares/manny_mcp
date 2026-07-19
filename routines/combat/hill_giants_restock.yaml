@@ -84,42 +84,53 @@ steps:
     action: BANK_WITHDRAW
     args: "Law_rune 10"
     description: "Withdraw 10 law runes"
-    delay_after_ms: 300
+    delay_after_ms: 4000
 
   - id: 6
     phase: "banking"
     action: BANK_WITHDRAW
     args: "Fire_rune 10"
     description: "Withdraw 10 fire runes"
-    delay_after_ms: 300
+    delay_after_ms: 4000
 
   - id: 7
     phase: "banking"
     action: BANK_WITHDRAW
     args: "Water_rune 10"
     description: "Withdraw 10 water runes"
-    delay_after_ms: 300
+    delay_after_ms: 4000
 
   - id: 8
     phase: "banking"
     action: BANK_WITHDRAW
     args: "Air_rune 25"
     description: "Withdraw 25 air runes"
-    delay_after_ms: 300
+    delay_after_ms: 4000
 
   - id: 9
     phase: "banking"
     action: BANK_WITHDRAW
     args: "Brass_key 1"
     description: "Withdraw brass key"
-    delay_after_ms: 300
+    await_condition: "has_item:Brass key"
+    timeout_ms: 10000
+    delay_after_ms: 4000
+    notes: "has_item await added 2026-07-19 (M-4): the Brass key gates dungeon entry."
 
   - id: 10
     phase: "banking"
     action: BANK_WITHDRAW
     args: "Swordfish 21"
     description: "Withdraw 21 swordfish (leave 1 slot for bones)"
-    delay_after_ms: 300
+    await_condition: "has_item:Swordfish"
+    timeout_ms: 10000
+    delay_after_ms: 4000
+    notes: "M-4 FIX (2026-07-19): all six withdraw delays bumped 300ms->4000ms to
+      match the proven hill_giants_resupply.yaml pacing (its :75 note: 'Each
+      withdraw needs ~4 second delay for reliability'). Quantities 25 (step 8)
+      and 21 here route through the Withdraw-X typed dialog, which cannot
+      round-trip in 300ms -- a short delay silently produced a wrong loadout.
+      has_item await added to confirm food is present."
 
   # Step 11: Close bank
   - id: 11

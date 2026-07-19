@@ -34,7 +34,7 @@ validation/run history, not aspiration.
 
 | Routine | Purpose | Status |
 |---|---|---|
-| `woodcutting_lumbridge.yaml` | Chop trees near Lumbridge (single pass) | ✅ Complete |
+| `woodcutting_lumbridge.yaml` | Chop trees near Lumbridge, flat loop until wc lvl 30 (H-2) | ✅ Complete |
 | `fishing_draynor.yaml` | Fish shrimp at Draynor, bank Lumbridge | ✅ Validated |
 | `fishing_karamja_lobster.yaml` | Lobster cage Musa Point (50-loop) | ✅ Complete — flat `loop:` (note: `start_step`/`max_iterations` keys in this file are dead, see `ROUTINE_SCHEMA.md` §f) |
 | `fishing_karamja_harpoon.yaml` | Harpoon tuna/swordfish Musa Point | ✅ Complete — same dead-key caveat as above |
@@ -54,7 +54,7 @@ validation/run history, not aspiration.
 | `cow_killer_training.yaml` | Bank→`EQUIP_BEST_MELEE`→cow pen→kill | ✅ Validated |
 | `hill_giants_travel.yaml` | Travel GE→Hill Giants (brass-key shortcut) | ✅ Complete |
 | `hill_giants_resupply.yaml` | Bank at GE, restock food/runes | ✅ Complete |
-| `hill_giants_loot.yaml` | Attack + loot + bury, 100-loop | ✅ Complete — `loop.max_iterations` key in this file is dead (§f) |
+| `hill_giants_loot.yaml` | KILL_LOOP_CONFIG + loot-config JSON, flat loop to inventory_full (H-6) | ✅ Complete |
 | `hill_giants_restock.yaml` | Bank loot mid-trip, restock, return | ✅ Complete |
 
 > **Removed 2026-07-18:** `cow_killer_no_bones.yaml` and `hill_giants.yaml`

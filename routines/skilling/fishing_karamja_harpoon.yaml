@@ -159,7 +159,11 @@ steps:
     action: INTERACT_OBJECT
     args: "Bank_deposit_box Deposit"
     description: "Open deposit box interface"
-    delay_after_ms: 2500
+    delay_after_ms: 5000
+    notes: "M-16 FIX (2026-07-19): delay bumped 2500->5000ms. No Grammar-1 await
+      atom exists for 'deposit interface open', so this open is timed, not
+      verified -- a slow UI open made step 13's BANK_DEPOSIT_ITEM time out with
+      the root cause misattributed. 5s gives the interface headroom to render."
 
   - id: 13
     phase: "deposit"

@@ -16,8 +16,10 @@ steps:
   # jumped straight to KILL_LOOP with no travel step, so an unattended run
   # only works if the character already happens to be standing at the coop.
   # The `lumbridge_chicken_coop` location above was already defined but never
-  # referenced by any step. Reuses the identical GOTO used by the sibling
-  # routine chicken_killer_training.yaml step 1 (same coordinates).
+  # referenced by any step. NOTE (L-1 corrected 2026-07-19): this coop is at
+  # (3180,3288) -- a DIFFERENT chicken farm from the sibling
+  # chicken_killer_training.yaml step 1 (3235,3295); an earlier comment here
+  # wrongly claimed identical coordinates. Both farms work.
   - id: 1
     phase: "travel"
     action: GOTO

@@ -67,9 +67,14 @@ steps:
     action: INTERACT_OBJECT
     args: "Hopper controls Operate"
     description: "Operate hopper controls to grind grain"
-    await_condition: "idle"
+    delay_after_ms: 4000
     expected_chatbox: "You operate the hopper. The grain slides down the chute."
-    notes: "After this, flour is in the bin on ground floor"
+    notes: "M-13 FIX (2026-07-19): await was `idle`, but the player is already
+      stationary at the controls, so idle passed INSTANTLY without the operate
+      animation having run -- nothing verified the grind before climbing down.
+      No inventory signal exists (flour lands in the bin, not the inventory), so
+      a calibrated delay is the honest wait here. After this, flour is in the
+      bin on ground floor."
 
   # ========== PHASE 3: COLLECT FLOUR ==========
   - id: 5

@@ -47,11 +47,17 @@ steps:
     action: KILL_LOOP
     args: "Chicken none 200"
     description: "Kill 200 chickens for combat XP"
-    timeout_ms: 3600000
+    timeout_ms: 7200000
     notes: |
       Chickens are level 1 - safe for any account.
       Drops: Feathers (5-15, ~3gp each), Raw chicken, Bones
       200 kills = ~2400 combat XP spread across attack/strength/defence
+
+      timeout_ms RAISED to 2h 2026-07-19 (M-2): a 100-kill batch is already
+      "many minutes to over an hour" (ROUTINE_SCHEMA.md (e)), so a 200-kill
+      batch can plausibly exceed the old 1h ceiling -- at which point the runner
+      abandons a still-grinding loop (the DEFECT-26 unmanaged-grind failure the
+      timeout exists to prevent). 2h scales with the doubled kill count.
 
       timeout_ms explicit (fixed 2026-07-18): KILL_LOOP blocks synchronously
       in the plugin until max_kills or interrupt (KillLoopCommand.java) --

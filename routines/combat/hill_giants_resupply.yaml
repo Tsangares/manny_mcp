@@ -23,6 +23,16 @@ steps:
     description: "Open GE bank"
     delay_after_ms: 3000
 
+  # M-6 FIX (2026-07-19): deposit whatever the previous trip left BEFORE
+  # withdrawing. The routine assumed an empty inventory; a part-full inventory
+  # silently overflowed mid-withdraw and the loadout came out wrong. Equipment
+  # is untouched (BankingSupport DEPOSIT_INVENTORY_BUTTON only targets the
+  # inventory panel).
+  - id: "1b"
+    action: BANK_DEPOSIT_ALL
+    description: "Clear inventory so the restock lands in known-empty slots"
+    delay_after_ms: 2000
+
   - id: 2
     action: BANK_WITHDRAW
     args: "Law_rune 10"
@@ -45,13 +55,20 @@ steps:
     action: BANK_WITHDRAW
     args: "Brass_key 1"
     description: "Withdraw brass key"
+    await_condition: "has_item:Brass key"
+    timeout_ms: 10000
     delay_after_ms: 4000
+    notes: "has_item await added 2026-07-19 (M-6): the Brass key is the trip's
+      hard requirement (dungeon entry) -- verify it actually came out."
 
   - id: 6
     action: BANK_WITHDRAW
     args: "Swordfish 10"
     description: "Withdraw swordfish batch 1"
+    await_condition: "has_item:Swordfish"
+    timeout_ms: 10000
     delay_after_ms: 4000
+    notes: "has_item await added 2026-07-19 (M-6) to confirm food is present."
 
   - id: 7
     action: BANK_WITHDRAW

@@ -17,8 +17,11 @@ skill: "cooking"
 # ============================================================
 config:
   raw_food: "Raw swordfish"      # What to withdraw (use spaces for items)
-  cooked_food: "Swordfish"       # Expected cooked result
   quantity: 28                   # Full inventory
+  # L-5 (2026-07-19): the former `cooked_food` config key was removed -- it was
+  # never referenced by any ${...} interpolation (the cook-complete check uses
+  # no_item:${raw_food}, not has_item on the cooked result). The raw/cooked
+  # pairings are still documented in the comment block above for operators.
 
 requirements:
   items:
