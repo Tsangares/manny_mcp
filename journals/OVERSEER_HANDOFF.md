@@ -1,7 +1,9 @@
 # OVERSEER HANDOFF — manny (multi-project) — READ THIS FIRST
 
-**Updated:** 2026-07-19 (post mystery-run resolution, Java defect bundle coded-not-deployed, E2 desk-verify,
-Nav Stage-2 plan). Author: Claude (overseer). This is
+**Updated:** 2026-07-19 refresh (deployment window #2 DONE — nav stack deployed shadow-mode, gates mostly
+PASS; Tutorial Island COMPLETE on newbakshesh → mainland; E1 grind exposed DEFECT-26 (coded, deploying in
+window #3); two-lane world plumbing landed (`blast` = lane 2); deployment window #3 IN FLIGHT at write
+time). Author: Claude (overseer). This is
 the top-level entry point after compaction. It indexes the now-several parallel projects and how to resume
 each. For deep detail on any one, open the doc named in its row.
 
@@ -86,6 +88,36 @@ that being the north star.
   `BANK_DEPOSIT_ALL` self-heal added. **Live-gate remainders:** the 3 bridge-hop tiles (no independent
   coordinate source — wiki has no bridge-tile page, only internal geometric consistency) and a possible
   door at `3218,3217` on the courtyard→stair line — scan both before trusting this unattended.
+- `36d5443` — **Tutorial Island COMPLETE on newbakshesh → mainland Lumbridge.** Tutorial 10 fixes
+  live-validated: Wind Strike widget `14286859`, `CAST_SPELL_NPC` broken/stale-map workaround, dialogue
+  options driven via `CLICK_CHILD_WIDGET 14352385` group 219, Home Teleport gating. Live lane is now fully
+  off Tutorial Island.
+- E1 ran live: feather smoke test **PASS**, then a sustained grind reached **830+ feathers banked** — but
+  the sustained run exposed **DEFECT-26** (see manny bullets below): `run_routine.py` wasn't actually
+  blocking on `KILL_LOOP`.
+- `88757aa` — DEFECT-26 Python fix: `_await_active_loop_finish` makes `run_routine.py` genuinely block on
+  an active KILL_LOOP instead of racing an early rid-correlated sub-response; `kill_loop_active` pre-launch
+  guard (+ `--force` override) stops relaunch from spawning a twin loop; watchdog gains an
+  `unmanaged_loop` ledger status for a loop the launcher lost track of; validator now warns on non-terminal
+  `KILL_LOOP` usage.
+- `af08fc8` — DEFECT-26 follow-up: validator warning refined + `ROUTINE_SCHEMA.md` gained section documenting
+  the blocking-KILL_LOOP semantics (why `STOP` couldn't previously halt a loop, why `SWITCH_COMBAT_STYLE`'s
+  old F1-keybind path was a no-op).
+- `5d75dbe` — **Two-lane world, lane-2 plumbing:** account-scoped client lifecycle (`mannyctl diort
+  start/stop/status <account>`, `stop --all` as an explicit sweep, a bare `stop` now errors instead of
+  guessing), `hosts.yaml` gained `account_displays` (`newbakshesh`→`:2`, `blast`→`:3`). Feasibility probe
+  came back **GO** on diort: two-client thermal probed at 72-77°C, estimated 80-85°C with both active,
+  refuse threshold stays 88°C; IPC/watchdog/MCP tooling was already per-account so no rework needed there.
+  Account `blast` (display name `iGottaBlast`) is lane 2, parked at tutorial start. `credentials.yaml`
+  default fixed to point at `newbakshesh`; the `new` account entry carries an explicit BANNED comment.
+- `a199172` — journal `journals/2026-07-19_close_the_loop_stage2.md`: covers the ~5h span above. Names
+  "the live client is the only oracle" as the standing bottleneck — now partly mitigated by the two-lane
+  setup (lane 2 can regress/validate corpus while lane 1 grinds).
+- `64dd739` — `chicken_feathers.yaml` batch size raised 100→1000 kills (sustained-grind config, feeds the
+  E1 stat-training run above).
+- **Nav Stage-2 status:** WP1-4 (the shadow-mode nav engine) are all merged + deployed — see the manny
+  `235ecb6` bullet below. WP5 (retire the legacy pathfinder) is gated on a longer shadow-mode soak review;
+  WP6 (transport/collision data-refresh tooling) is not started.
 
 **manny** (`cd /home/wil/Desktop/manny && git log --oneline`):
 - `a6da377` — DEFECT-20: thread-safe collision/tile reads in GameEngine (off-thread wrap).
@@ -107,13 +139,34 @@ that being the north star.
   options) now classify as `type:"continue"` / hint `CLICK_CONTINUE`, not `type:"options"` /
   `CLICK_DIALOGUE "<speaker>"` (a no-op — the "speaker" child is a header, not a clickable option).
   `TabOpenCommand` javadoc corrected (widget-click, not F-key, despite the stale doc's claim).
+- `235ecb6` — **nav stack merged to manny `master`.** Includes the Nav Stage-2 WP1-4 shadow-mode pathfinder
+  package behind the `manny.navBackend` flag.
+- `806e7da` / `291aadc` — DEFECT-26 Java-side fixes (companion to the Python fixes above): single-loop
+  `AtomicBoolean` guard on `KillLoopCommand` so a second launch can't spawn a twin, `active_loop` exported
+  in plugin state so the ledger/watchdog can see it, per-iteration interrupt checks so `STOP` actually halts
+  a running loop, and `SWITCH_COMBAT_STYLE` reimplemented as a combat-tab **widget click** (the old F1
+  keybind approach was a silent no-op).
 
-**Java defect bundle is CODED, compile-green, pushed to manny `master` — NOT DEPLOYED.** A deployment
-freeze holds while the live lane finishes the tutorial chain (one client instance, one owner, at a time —
-see coordination rule below). Deployment window = **one rebuild + provision** when the tutorial lane frees,
-then **three live gates** in sequence: DEFECT-22b (banned `new` account login), DEFECT-23 (exact-arrival
-GOTO on a known-tight spot), DEFECT-24 (a multi-page monologue). DEFECT-21/22 (jar `6566fe9`) remain
-live-gate-pending as before, riding the same rebuild.
+**Deployment window #2 — DONE.** The nav stack (`235ecb6`) merged and was DEPLOYED to diort with
+`-Dmanny.navBackend=shadow` (wired via `NAV_BACKEND` env in `scripts/remote/client_remote.sh`, manny_mcp
+`7e53271`). Gate results:
+- **DEFECT-25 PASS** — canonical live-hull NPC click; pacing NPCs are now clickable.
+- **DEFECT-24 PASS** — monologues report `type:"continue"` correctly.
+- **shadow-mode PASS** — `[NAV-SHADOW]` log lines confirm zero behavior change vs. the legacy pathfinder;
+  the shadow engine loads in ~5MB/168ms.
+- **DEFECT-22c PARTIAL** — the unconditional `[LOGIN]` failure-check diagnostic works, but the ban text is
+  NOT present in any scannable client `String` field on the current auth-layer path (`loginIndex` moved
+  10→14 since DEFECT-22b was coded). Ban detection needs a different signal than the reflection approach;
+  **deprioritized**, not blocking.
+
+**Deployment window #3 — IN FLIGHT at write time.** Scope: deploy DEFECT-26 + lane-2 plumbing, run the
+4-gate DEFECT-26 check (loop-launch blocking, `STOP` halts a running loop, dual-launch is rejected, combat
+style switch works), relaunch the lane-1 stat grind as a **managed** run (Strength stance), bring `blast`
+up on display `:3` and run the tutorial `00_master` corpus regression on it, and hold a two-active thermal
+watch while both lanes run. mjpeg viewers: lane 1 (`:2`) → `http://diort:8787` (running); lane 2 (`:3`) →
+`http://diort:8788` (being brought up).
+
+DEFECT-21/22 (jar `6566fe9`) remain live-gate-pending as before, riding the same deployment lineage.
 
 ### ACCOUNT STATUS (critical — read before touching any account)
 - **`new` (GrimmsFairly): BANNED 2026-07-18** — "serious rule breaking" per Jagex, behavioral detection.
@@ -121,8 +174,12 @@ live-gate-pending as before, riding the same rebuild.
   account except as the deliberate DEFECT-22 fail-fast test case.
 - **`main` is the user's REAL account — NEVER use it for bot/automation work.** This is a hard rule, not a
   preference.
-- **Live working account now: `newbakshesh`.** Needs a full fresh Tutorial Island run before any grind
-  routine can start on it.
+- **Live working account (lane 1): `newbakshesh`.** Tutorial Island is now COMPLETE, arrived at mainland
+  Lumbridge; E1 feather grind ran on it (830+ feathers banked, exposed DEFECT-26).
+- **Lane 2 account: `blast`** (display name `iGottaBlast`), display `:3`. Parked at tutorial start; window
+  #3 brings it up and runs the tutorial `00_master` corpus regression on it. `credentials.yaml` default is
+  now `newbakshesh`; the `new` entry carries an explicit BANNED comment so it can't be picked up by
+  accident.
 - **User posture:** accept ban risk on expendable accounts, iterate — do not let ban risk block progress,
   just don't burn `main`.
 - `dataimpulse` residential proxy is stored in `~/.manny/credentials.yaml` (`proxies.dataimpulse`) as an
@@ -130,29 +187,39 @@ live-gate-pending as before, riding the same rebuild.
   shows IP alone isn't a full defense against behavioral detection — proxy remains a fallback, not a fix).
 
 ### Live lane status (at this writing)
-`phase-1b` is the SOLE owner of the `newbakshesh` client (see mystery-run resolution above — verify any
-predecessor task is DEAD before assuming otherwise). Position in the sequence: tutorial 07 (smithing,
-fixed) → 08 → 09 → 10 → mainland arrival → E1 feather smoke → E1 bounded stat-training grind
-(att/str/def → ~20). Nothing downstream of E1 has started live yet.
+Two lanes now exist (see two-lane plumbing above). **Lane 1 (`newbakshesh`)** finished Tutorial Island
+(`36d5443`) and reached mainland Lumbridge; E1 feather smoke + sustained grind ran (830+ feathers), which
+exposed DEFECT-26 — now coded (`806e7da`/`291aadc` Java, `88757aa`/`af08fc8` Python) and deploying in window
+#3. Once window #3's 4-gate DEFECT-26 check passes, lane 1 relaunches the stat-training grind as a
+**managed** run (Strength stance) toward att/str/def ~20 — that grind was not clean under the un-fixed
+DEFECT-26 loop-blocking bug, so treat the earlier 830-feather number as throughput evidence, not a
+completed stat-training pass. **Lane 2 (`blast`)** is being brought up on display `:3` in window #3 to run
+the tutorial `00_master` corpus regression. Verify any predecessor task is DEAD before assuming lane
+ownership (see mystery-run resolution above) — this now applies per-lane, not just globally.
 
 ### Sequence (in order, do not skip ahead)
-1. **Live lane (in progress):** finish Tutorial Island (07→10) → mainland verification → E1 feather
-   `KILL_LOOP_CONFIG` smoke pass → E1 stat-training grind to att/str/def ~20.
-2. **Deployment window** (once the tutorial lane frees the client — one rebuild + provision, see Java
-   defect bundle above): push jar with DEFECT-20/21/22/22b/23/24 to diort → run the **three live gates**
-   (DEFECT-22b via banned `new` login, DEFECT-23 exact-arrival GOTO, DEFECT-24 monologue) → also finally
-   live-gates DEFECT-21 (bridge crossing) which E2 depends on.
-3. **E2 — cowhide banking routine** (`routines/money_making/cowhide_banking.yaml`, desk-verified `9f6b6e8`,
+1. **Live lane — Tutorial Island: DONE.** (07→10 fixed, mainland verified, `36d5443`.)
+2. **E1 feather smoke: DONE (PASS).** **E1 sustained stat-training grind: RUN BUT NOT YET CLEAN** — the
+   830-feather run exposed DEFECT-26 (loop-blocking/relaunch/STOP bugs); redo as a managed run once window
+   #3 lands, to actually reach att/str/def ~20 under a fix that's verified working.
+3. **Deployment window #2: DONE.** Nav stack (`235ecb6`) deployed shadow-mode; DEFECT-25/24/shadow-mode
+   PASS, DEFECT-22c PARTIAL (deprioritized, not blocking). See "Deployment window #2 — DONE" above.
+4. **Deployment window #3: IN FLIGHT.** DEFECT-26 + lane-2 plumbing deploy, 4-gate DEFECT-26 check, lane-1
+   managed grind relaunch, lane-2 (`blast`) bring-up + corpus regression, two-active thermal watch. See
+   "Deployment window #3 — IN FLIGHT" above. DEFECT-21 (bridge crossing) still awaits its live gate,
+   riding this deployment.
+5. **E2 — cowhide banking routine** (`routines/money_making/cowhide_banking.yaml`, desk-verified `9f6b6e8`,
    see above): inner loop kills cows + loots hides, outer loop crosses the Lumbridge bridge to bank and
-   deposits, repeats. Gated on the deployment window's DEFECT-21 live crossing verification. Attended
-   full-cycle gate (kill→fill→bank→return) ≥2 consecutive loops, **including both bridge-crossing
-   directions**, before it's trusted unattended — this live gate also satisfies DEFECT-21's (`b40838a`)
-   outstanding requirement.
-4. **Track G — the milestone proof:** a *fresh* LLM session, given only `ROUTINE_SCHEMA.md` + the upgraded
+   deposits, repeats. Gated on DEFECT-21's live crossing verification. Attended full-cycle gate
+   (kill→fill→bank→return) ≥2 consecutive loops, **including both bridge-crossing directions**, before it's
+   trusted unattended — this live gate also satisfies DEFECT-21's (`b40838a`) outstanding requirement.
+6. **Track G — the milestone proof:** a *fresh* LLM session, given only `ROUTINE_SCHEMA.md` + the upgraded
    validator + the `manny-diort` MCP endpoint, authors/refines a routine variant and runs a 4+ hour
-   unattended cowhide grind on diort. Watchdog ledger must show clean completion or correct intervention.
-   Journal the result. Runnable protocol: `journals/TRACK_G_PROTOCOL.md`. This is the last item — do not
-   start it before E1+E2 are proven attended and the deployment window has landed.
+   unattended cowhide grind on diort, **on lane 1 (`newbakshesh`) only** — lane 2 may still be
+   tutorial-regressing concurrently, and the fresh session must be told it owns only lane 1. Watchdog
+   ledger must show clean completion or correct intervention. Journal the result. Runnable protocol:
+   `journals/TRACK_G_PROTOCOL.md`. This is the last item — do not start it before E1+E2 are proven attended,
+   DEFECT-26 is deployed+4-gate-passed, and window #3 has landed.
 
 ---
 
@@ -250,12 +317,14 @@ Loop milestone section at the top of this file — read that instead.** Kept for
 lines**; prefix every git cmd with explicit `cd /home/wil/Desktop/<repo> &&`. Repo-root `CLAUDE.md` is
 **untracked + gitignored** in manny_mcp (fixed mid-milestone — it used to be tracked, which violated the
 global rule; don't re-add it).
-Current HEADs (as of this handoff refresh): manny_mcp=`9f6b6e8` (E2 desk-verify, on top of Nav Stage-2 plan
-`01ff1a3`, schema traps `2d1d8d3`, mystery-run resolution `ea371e0`, tutorial-07 fix `91f84c5`, and the
-earlier Close the Loop Track A/B/C/E-prep/F/H landings), manny=`4152392` (DEFECT-24, on top of DEFECT-23
-`8739648`, DEFECT-22b `a8a1020`, DEFECT-22/21/20). Both pushed to origin. **manny's DEFECT-22b/23/24 bundle
-is coded + compile-green but NOT deployed** (deployment freeze — see Java defect bundle section above);
-check `git status` before assuming these are the only local diffs.
+Current HEADs (as of this handoff refresh): manny_mcp=`64dd739` (feather batch 100→1000, on top of journal
+`a199172`, lane-2 plumbing `5d75dbe`, DEFECT-26 Python `af08fc8`/`88757aa`, tutorial-10-complete `36d5443`,
+E2 desk-verify `9f6b6e8`, Nav Stage-2 plan `01ff1a3`, schema traps `2d1d8d3`, mystery-run resolution
+`ea371e0`), manny=`291aadc` (DEFECT-26 Java, on top of `806e7da` DEFECT-26, nav-merge `235ecb6`, DEFECT-24
+`4152392`, DEFECT-23 `8739648`, DEFECT-22b `a8a1020`, DEFECT-22/21/20). Both pushed to origin. **manny's nav
+stack + DEFECT-24/25/shadow-mode are DEPLOYED (window #2, done); DEFECT-26 is coded + compile-green and
+deploying now in window #3 (in flight at write time)** — check `git status` and the deployment window
+sections above before assuming what's live on diort vs. only on `master`.
 
 **Close the Loop rules (current milestone, in addition to the pre-existing ones below):**
 - **`ROUTINE_SCHEMA.md` + the upgraded `validate_routine_deep` are the authoring on-ramp** for every new or

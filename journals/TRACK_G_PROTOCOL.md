@@ -1,8 +1,14 @@
 # Track G Protocol — the "Close the Loop" milestone final exam
 
-**Status:** NOT YET RUN. Gated on: live lane (tutorial→E1 stat grind) done, Java deployment window
-landed + 3 live gates passed, E2 attended gate passed. See `journals/OVERSEER_HANDOFF.md` → "Sequence"
-for exact ordering. Do not start Track G before all three are checked off.
+**Status:** NOT YET RUN. Gated on: live lane (tutorial→E1 stat grind) done, DEFECT-26 deployed + 4-gate
+passed, Java deployment window landed + live gates passed, E2 attended gate passed. See
+`journals/OVERSEER_HANDOFF.md` → "Sequence" for exact ordering. Do not start Track G before all of these
+are checked off.
+
+**Two-lane note:** as of the 2026-07-19 refresh, Track G runs on **lane 1 (`newbakshesh`) only**. Lane 2
+(`blast`) may be mid tutorial-regression concurrently on a separate display — that is expected and does
+not block Track G. The fresh session's starting prompt must make explicit that it owns ONLY the
+`newbakshesh` account/lane; it must not touch `blast`.
 
 ## Purpose
 
@@ -25,18 +31,32 @@ needs something outside the on-ramp is itself a finding — see "Observation rul
 Check ALL of these before launching the fresh session. If any box is unchecked, Track G is not ready —
 go finish that item first, do not proceed "just to see."
 
-- [ ] Tutorial Island complete on `newbakshesh` (07→10→mainland verified)
-- [ ] E1 stat-training grind complete: att/str/def ≈ 20/20/20
-- [ ] Java deployment window landed: jar rebuilt with DEFECT-20/21/22/22b/23/24, provisioned to diort
-- [ ] 3 deployment live gates passed: DEFECT-22b (banned `new` login), DEFECT-23 (exact-arrival GOTO),
-      DEFECT-24 (multi-page monologue)
+- [x] Tutorial Island complete on `newbakshesh` (07→10→mainland verified, `36d5443`)
+- [ ] E1 stat-training grind complete: att/str/def ≈ 20/20/20 via combat-style rotation
+      (`SWITCH_COMBAT_STYLE` now works via a combat-tab widget click, per the DEFECT-26 Java fix — the old
+      F1-keybind approach was a silent no-op, so a pre-DEFECT-26 grind may have trained only one stat). The
+      830-feather run exposed DEFECT-26 before the stat target was reached cleanly — redo as a managed run
+      once DEFECT-26 is deployed, rotating style each pass so all three of att/str/def actually advance
+- [ ] **DEFECT-26 deployed + 4-gate passed** (blocking, `STOP` halts a running loop, dual-launch is
+      rejected, combat style switch works via widget click) — this is a **blocking** precondition, not
+      optional; Track G's own monitor-not-executor doctrine depends on `STOP`/loop-blocking actually working
+- [ ] Java deployment window landed: jar with DEFECT-20/21/22/22b/23/24/25/26 provisioned to diort
+      (nav-stack + 24/25/shadow-mode deployed in window #2; DEFECT-26 deploying in window #3)
+- [ ] Deployment live gates passed: DEFECT-25 (live-hull NPC click), DEFECT-24 (multi-page monologue),
+      shadow-mode (zero behavior change) — all PASS as of window #2; DEFECT-22c is PARTIAL/deprioritized,
+      not a Track G blocker
 - [ ] E2 attended gate passed: `cowhide_banking.yaml` run attended, ≥2 consecutive kill→bank cycles,
       **including both directions of the bridge crossing** (this also closes out DEFECT-21's live gate)
-- [ ] Account confirmed: `newbakshesh` (never `main`, never the banned `new`)
-- [ ] No other driver session holds the client — verify ALL THREE:
+- [ ] **Watchdog ledger shows `running` for the full batch duration on a test run** — i.e. before trusting
+      Track G's own multi-hour ledger, confirm on a short attended run that the ledger doesn't report
+      `completed` early (the old 60s-completed lie was itself a DEFECT-26 symptom)
+- [ ] Account confirmed: `newbakshesh` (never `main`, never the banned `new`; never `blast` — that's lane 2)
+- [ ] No other driver session holds the `newbakshesh` client — verify ALL THREE (lane 2 / `blast` activity
+      on its own display is fine and does not need to be checked here):
   - [ ] `/tasks` (Claude Code tool) — no other agent/task shown running or recently-active against this repo
   - [ ] `mannyctl diort runs` — no ledger entry with `status: running` for `newbakshesh`
-  - [ ] `pgrep -f run_routine.py` on diort (`ssh diort 'pgrep -f run_routine.py'`) — empty
+  - [ ] `pgrep -f run_routine.py` on diort (`ssh diort 'pgrep -f run_routine.py'`) — empty, or only a
+        `blast`-scoped process
 
 If the `pgrep`/`/tasks`/`runs` checks disagree (e.g. a process is running but no ledger, or a ledger says
 running but no process) — STOP. That mismatch is exactly the dual-driver failure mode from the mystery
@@ -90,7 +110,12 @@ Your task:
 
 Evidence to produce at the end:
 - the run_id
-- the final watchdog ledger JSON (status, events, temp history)
+- the final watchdog ledger JSON (status, events, temp history) — the ledger's `running`→`completed`
+  transition must match the actual grind duration (elapsed time close to the real multi-hour run); a
+  ledger reporting `completed` after ~60s while the routine kept running live is a FAIL signal (this was
+  the exact DEFECT-26 symptom, now fixed — treat a recurrence as a regression, not a quirk)
+- `active_loop` visibly advancing across successive `get_game_state`/state-snapshot polls during the run
+  (confirms the loop-blocking fix is actually in effect for this run, not just deployed)
 - XP and gold-piece deltas over the run
 - count of cowhides banked
 - any interventions you made, and your reasoning for each
