@@ -350,8 +350,20 @@ sections above before assuming what's live on diort vs. only on `master`.
 84°C, and note 90°C recurs after ~2 min. This is WHY we move to diort. Detect the client via `pgrep -x java`
 + check `/proc/<pid>/environ` for `MANNY_ACCOUNT_ID` — NEVER `pgrep -f 'java -jar.*shaded.jar'` (self-matches).
 
-**Build gate (JDK21):** `cd /home/wil/Desktop/runelite && ./gradlew :client:compileJava [:client:shadowJar]
--x checkstyleMain -x pmdMain --console=plain`. JDK 21 pinned via ~/.gradle (JDK 26 breaks gradle 8.8).
+**Build gate (JDK21):** if the pathfinder resources (`manny/pathfinder/collision-map.zip`,
+`manny/pathfinder/transports/transports.tsv`) are new or changed since the last shade, run
+`manny/scripts/install_pathfinder_resources.sh` FIRST — it copies them into
+`runelite-client/src/main/resources/net/runelite/client/plugins/manny/pathfinder/` so `ShortestPathEngine`'s
+`getResourceAsStream()` finds them on the shaded jar's classpath; skipping this step silently ships a jar
+with stale (or missing) nav data because gradle has no dependency edge from those resources to the jar
+task. It's idempotent (no-ops if the destination already matches) so running it every time is cheap
+insurance, not just a "when changed" step. Then: `cd /home/wil/Desktop/runelite && ./gradlew
+:client:compileJava [:client:shadowJar] -x checkstyleMain -x pmdMain --console=plain`. JDK 21 pinned via
+~/.gradle (JDK 26 breaks gradle 8.8).
+**GUARD:** this two-step sequence (install resources, then shade) is currently doc-only — no script
+enforces the order. If you're about to script this build flow, encode the resource-install step BEFORE
+the gradlew invocation, not as a separate optional step; see the header comment in
+`install_pathfinder_resources.sh` for exactly what it does and why the destination path matters.
 
 **IPC (file-based, on the machine where the client runs):** `/tmp/manny_<acct>_command.txt` (write
 `CMD ARGS --rid=<id>`), poll `/tmp/manny_<acct>_response.json` for matching request_id, state at
@@ -376,6 +388,13 @@ defects, never wrap those.
 
 **Delegation:** heavy work goes to subagents to protect overseer context; author self-contained prompts
 (subagents don't share context). Model tiers: opus=deep Java/design, sonnet=well-specified, haiku=mechanical.
+**Tree ownership (advisory, retrospective item 1):** before committing to a shared git tree (`manny` or
+`manny_mcp`), claim it with `scripts/tree_lock.sh claim <tree> <agent-name>`; release with `scripts/tree_lock.sh
+release <tree> <agent-name>` when done; `scripts/tree_lock.sh check <tree>` shows the current holder. This is
+convention-checked, not enforced by tooling — it exists to make the one-tree-one-agent /
+verify-predecessor-dead rules mechanical instead of memory-dependent (the branch-collision and
+dual-driver-ghost incidents both cost real cleanup time before these rules existed). Check before you
+claim; a stale lock older than a few hours from a dead agent is safe to steal but note it in your report.
 
 ---
 ## COMPACTION NOTE — 2026-07-19 ~07:00Z (read this if resuming mid-window-3)
