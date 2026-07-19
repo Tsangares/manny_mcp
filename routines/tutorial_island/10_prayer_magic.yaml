@@ -118,6 +118,19 @@ steps:
     notes: "Many space presses through explanation"
 
   # ===================== Phase 2: Exit to Chapel =====================
+  # KNOWN CHOKEPOINT (Track E phase-1b, live 2026-07-18): this GOTO to the east
+  # door (3129,3124) is a NAV-DIRECT indoor-navigation WALL. From inside the
+  # account-guide building (player parked ~3120-3125,3111-3120) NAV-DIRECT
+  # repeatedly fails ("[NAV-DIRECT] Failed to reach target" / "stuck or timeout",
+  # smartMinimapClick fallback) and the player OSCILLATES between 3124,3113 /
+  # 3125,3120 / 3120,3111 without ever reaching EITHER exit door (east 3130,3124
+  # or north 3122,3102). Same failure whether targeting 3129,3124, 3128,3110, or
+  # 3122,3103 directly. This is the documented indoor-nav weakness: NAV-DIRECT
+  # cannot solve the account-guide interior maze. MANUAL CLEAR REQUIRED: drive
+  # short (<=6-tile, force >3 to beat DEFECT-7) incremental GOTOs to walk the
+  # player onto the door tile, INTERACT_OBJECT Door Open, then step OUTSIDE
+  # before heading to 3128,3110. Until an indoor waypoint chain is validated
+  # live, expect to hand-walk this transition.
   - id: 8
     description: "Walk to east door"
     action: GOTO
