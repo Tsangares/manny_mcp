@@ -45,10 +45,17 @@ throwaway. This is a **USER** decision — the overseer must not pick.
 
 ### B2 — DEFECT-21 bridge-crossing live gate  *(PENDING — task #25)*
 The `b40838a` fix (`validateAgainstLocalCollision` in the nav follower) is landed but never
-live-crossed the Lumbridge river. `cowhide_banking.yaml`'s own header (lines 5-28, 65-83)
-flags the three bridge-hop tiles (`3247,3228` / `3244,3227` / `3239,3228`) and a possible
-door near `(3218,3217)` on the courtyard→stair line as UNVERIFIED — no external coordinate
-source exists for bridge tiles.
+live-crossed the Lumbridge river.
+**UPDATE (later 2026-07-19): the waypoint-coordinate risk is now RESOLVED offline.** The new
+route-lint harness (manny `pathfinder/RouteLintVerify.java`, commits `5590802`/`4536b91`)
+proved against the vendored collision map that the ORIGINAL bridge pins (`3247,3228` /
+`3244,3227` / `3239,3228`) sat in the River Lum and the staircase pin `3205,3208` was
+blocked on all planes. Both were CORRECTED in `cowhide_banking.yaml` (`786c52e`): bridge
+deck pins now `3247,3226` / `3244,3226` / `3239,3226`, staircase `3205,3209` — every hop in
+the route is now harness-verified walkable and graph-connected in BOTH directions
+(RouteLintVerify 71/71, zero skips). What remains live-only: the FOLLOWER's real click
+behavior on those verified waypoints (the original DEFECT-21 failure mode) and the possible
+door near `(3218,3217)` on the courtyard→stair line.
 - **Verify:** a round-trip cow-field⇄bank crossing on diort in BOTH directions, per E2 (B5).
   The E2 attended gate *is* DEFECT-21's live gate (`OVERSEER_HANDOFF.md` Sequence step 5).
 
