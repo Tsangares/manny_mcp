@@ -659,33 +659,45 @@ async def handle_click_widget(arguments: dict) -> dict:
         return {"success": False,
                 "error": "Provide one of: text, action, widget_id, dialogue_option, continue_dialogue"}
 
+    from . import commands as _cmds
+
     scan_term = text or action
+
+    def _select(widget_list):
+        if text:
+            # Text search: first match (server-side filtering already applied)
+            for w in widget_list:
+                if container_id is not None and w.get("id") != container_id:
+                    continue
+                return w
+            return None
+        # Action search: match on widget actions
+        for w in widget_list:
+            for widget_action in w.get("actions", []) or []:
+                if widget_action and (action in widget_action or action == widget_action):
+                    if container_id is not None and w.get("id") != container_id:
+                        continue
+                    return w
+        return None
+
     response = await send_command_with_response(f"SCAN_WIDGETS {scan_term}", timeout_ms, account_id)
     if response.get("status") != "success":
         return {"success": False,
                 "error": response.get("error", "Failed to scan widgets")}
 
     widgets = response.get("result", {}).get("widgets", [])
+    match = _select(widgets)
 
-    match = None
-    if text:
-        # Text search: first match (server-side filtering already applied)
-        for w in widgets:
-            if container_id is not None and w.get("id") != container_id:
-                continue
-            match = w
-            break
-    else:
-        # Action search: match on widget actions
-        for w in widgets:
-            for widget_action in w.get("actions", []) or []:
-                if widget_action and (action in widget_action or action == widget_action):
-                    if container_id is not None and w.get("id") != container_id:
-                        continue
-                    match = w
-                    break
-            if match:
-                break
+    # DEFECT-29: an inventory item (group 149) scanned while its tab is closed
+    # carries interface-relative bounds; a CLICK_AT on them walks the player.
+    # If the match is such an item and its bounds aren't clearly on-canvas, open
+    # the inventory tab and re-scan once for fresh absolute bounds.
+    if (match and match.get("group") == 149
+            and not _cmds._bounds_look_clickable(match.get("bounds"))):
+        await _cmds._ensure_inventory_tab_open(account_id, timeout_ms)
+        response = await send_command_with_response(f"SCAN_WIDGETS {scan_term}", timeout_ms, account_id)
+        widgets = response.get("result", {}).get("widgets", [])
+        match = _select(widgets) or match
 
     if not match:
         return {"success": False,
@@ -698,9 +710,10 @@ async def handle_click_widget(arguments: dict) -> dict:
     matched_actions = match.get("actions", [])
     matched_bounds = match.get("bounds", {})
 
-    has_valid_bounds = (matched_bounds
-                        and all(k in matched_bounds for k in ("x", "y", "width", "height"))
-                        and matched_bounds.get("x", -1) >= 0)
+    # DEFECT-29: only CLICK_AT bounds that are plausibly absolute on-canvas coords.
+    # Off-canvas/relative bounds fall through to the CLICK_WIDGET-by-id path
+    # (Java resolves bounds itself) instead of silently clicking the 3D world.
+    has_valid_bounds = _cmds._bounds_look_clickable(matched_bounds)
 
     if has_valid_bounds:
         # Atomic CLICK_AT at fresh bounds center - the canonical, race-free path.

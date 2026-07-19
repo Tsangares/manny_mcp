@@ -55,6 +55,100 @@ def set_dependencies(send_command_func, server_config):
     _extract_relevant_state = monitoring._extract_relevant_state
 
 
+# ---------------------------------------------------------------------------
+# DEFECT-29 helpers: safe inventory-item interaction.
+#
+# The fixed-mode game canvas is 765x503 (confirmed from LoginHandlers'
+# "Canvas size" log). A scanned widget whose bounds fall outside this envelope
+# -- or an inventory item scanned while its tab is CLOSED -- carries
+# interface-relative / stale bounds. CLICK_AT on such bounds lands in the 3D
+# world (the player walks) while the tool still reports success. These helpers
+# let the click paths (a) guarantee the inventory tab is open so bounds are
+# absolute, (b) reject off-canvas bounds instead of world-clicking, and
+# (c) verify an equip actually happened against the live state file.
+# ---------------------------------------------------------------------------
+_CANVAS_W = 765
+_CANVAS_H = 503
+_CANVAS_MARGIN = 40  # cushion; also tolerates minor resizable-mode overrun
+
+
+def _read_player_snapshot(account_id):
+    """Read {names, equipment, current_tab} from the live state file.
+
+    ``names`` is the list of lowercased inventory item names (duplicates
+    preserved). Returns None if the state file cannot be read/parsed.
+    """
+    try:
+        state_file = config.get_state_file(account_id)
+        if not state_file or not os.path.exists(state_file):
+            return None
+        with open(state_file) as f:
+            raw = json.load(f)
+    except (json.JSONDecodeError, IOError, OSError, TypeError):
+        return None
+    state = raw.get("state", raw) if isinstance(raw, dict) else raw
+    player = state.get("player", {}) if isinstance(state, dict) else {}
+    if not isinstance(player, dict):
+        return None
+    inv = player.get("inventory") if isinstance(player.get("inventory"), dict) else {}
+    items = inv.get("items") or []
+    names = [str(it.get("name", "")).lower() for it in items if isinstance(it, dict)]
+    equipment = player.get("equipment")
+    return {
+        "names": names,
+        "equipment": equipment if isinstance(equipment, dict) else {},
+        "current_tab": player.get("currentTab"),
+    }
+
+
+def _bounds_look_clickable(bounds):
+    """True if a scanned widget's bounds are plausibly absolute screen coords
+    that we can safely CLICK_AT.
+
+    Rejects degenerate/negative bounds and centers outside the game-canvas
+    envelope (DEFECT-29: relative/stale bounds -> world misclick).
+    """
+    if not isinstance(bounds, dict):
+        return False
+    try:
+        x = bounds["x"]
+        y = bounds["y"]
+        w = bounds["width"]
+        h = bounds["height"]
+    except (KeyError, TypeError):
+        return False
+    if not all(isinstance(v, (int, float)) for v in (x, y, w, h)):
+        return False
+    if w <= 0 or h <= 0 or x < 0 or y < 0:
+        return False
+    cx = x + w / 2
+    cy = y + h / 2
+    return (-_CANVAS_MARGIN <= cx <= _CANVAS_W + _CANVAS_MARGIN
+            and -_CANVAS_MARGIN <= cy <= _CANVAS_H + _CANVAS_MARGIN)
+
+
+async def _ensure_inventory_tab_open(account_id, timeout_ms=3000):
+    """Best-effort: open the inventory tab so inventory item widgets carry valid
+    absolute screen bounds.
+
+    Uses ``TAB_OPEN inventory`` -- the canonical Java tab click (reads the tab
+    icon's absolute bounds on the client thread; F-key-free). Returns True if the
+    command dispatched successfully.
+
+    IMPORTANT: the state file's ``currentTab`` is NOT a reliable confirmation
+    that the inventory tab is open. ``detectCurrentTab`` returns the first
+    non-hidden content panel, and the Combat panel can stay non-hidden on
+    Tutorial Island, so ``currentTab`` reads "Combat" even after the inventory
+    tab is successfully opened (verified live). Callers must therefore confirm
+    success by checking that the target item's scanned bounds are on-canvas
+    (``_bounds_look_clickable``) and/or by verifying the action's outcome --
+    never by reading ``currentTab``.
+    """
+    resp = await send_command_with_response("TAB_OPEN inventory", timeout_ms, account_id)
+    await asyncio.sleep(0.35)
+    return isinstance(resp, dict) and resp.get("status") == "success"
+
+
 @registry.register({
     "name": "send_command",
     "description": """[Commands] Send a command to the manny plugin via /tmp/manny_command.txt
@@ -486,7 +580,24 @@ async def handle_send_and_await(arguments: dict) -> dict:
 # click_widget(text=..., action="Wear"/"Wield") path). The handler is kept
 # because routine YAML steps (mcp_tool: equip_item) still call it directly.
 async def handle_equip_item(arguments: dict) -> dict:
-    """Equip an item from inventory by name."""
+    """Equip an item from inventory by name.
+
+    DEFECT-29 fix. The previous implementation scanned for the item widget and
+    CLICK_AT its scanned bounds. When the inventory tab was closed those bounds
+    were interface-relative/stale, so the click landed in the 3D world (the
+    player walked) while the tool still reported success -- silently breaking
+    tutorial section 08 (dagger never equipped). No Java command equips an
+    arbitrary inventory item by name (only EQUIP_BEST_MELEE exists) and an
+    inventory item's widget id is its shared container id, so CLICK_WIDGET
+    cannot target a specific slot. The canonical Python fix therefore:
+      1. Guarantees the inventory tab is open (TAB_OPEN inventory -> Java tab
+         click) so the item widget has valid absolute screen bounds.
+      2. Only CLICK_AT bounds that pass the canvas-envelope sanity guard;
+         otherwise fails honestly instead of world-clicking.
+      3. VERIFIES the outcome against the live state file (the item leaves the
+         inventory / equipment changes) before reporting success -- no silent
+         false success.
+    """
     item_name = arguments.get("item_name", "")
     action_override = arguments.get("action")
     timeout_ms = arguments.get("timeout_ms", 3000)
@@ -495,90 +606,143 @@ async def handle_equip_item(arguments: dict) -> dict:
     if not item_name:
         return {"success": False, "error": "item_name is required"}
 
-    # Step 1: Find the item widget in inventory
-    # Use SCAN_WIDGETS with item name filter
-    scan_command = f"SCAN_WIDGETS {item_name}"
-    response = await send_command_with_response(scan_command, timeout_ms, account_id)
+    target = item_name.strip().lower()
 
+    def _count(names):
+        return None if names is None else sum(1 for n in names if n == target)
+
+    def _select_item_widget(widgets):
+        """Pick a real inventory item (group 149) with an equip action and
+        clickable absolute bounds. Falls back to any equip-actioned match with
+        clickable bounds. Returns (widget, equip_action, any_match)."""
+        any_match = None
+        for w in widgets:
+            if str(w.get("itemName", "")).lower() != target:
+                continue
+            acts = [a for a in (w.get("actions") or []) if a in ("Wear", "Wield", "Equip")]
+            if not acts:
+                continue
+            if any_match is None:
+                any_match = w
+            if w.get("group") == 149 and _bounds_look_clickable(w.get("bounds")):
+                return w, (action_override or acts[0]), any_match
+        for w in widgets:
+            if str(w.get("itemName", "")).lower() != target:
+                continue
+            acts = [a for a in (w.get("actions") or []) if a in ("Wear", "Wield", "Equip")]
+            if acts and _bounds_look_clickable(w.get("bounds")):
+                return w, (action_override or acts[0]), any_match
+        return None, action_override, any_match
+
+    # Step 0: open the inventory tab (root cause of DEFECT-29 world-clicks --
+    # equipping also flips the side panel to the worn-equipment view, so this
+    # must run before every equip, not just the first). Success is NOT gated on
+    # this call: the on-canvas bounds guard below and the outcome verification
+    # are the real safety nets, and currentTab is an unreliable confirmation.
+    await _ensure_inventory_tab_open(account_id, timeout_ms)
+
+    # Snapshot pre-equip inventory/equipment for outcome verification.
+    pre_snap = _read_player_snapshot(account_id)
+    pre_count = _count(pre_snap["names"]) if pre_snap else None
+    pre_equip_slots = len(pre_snap["equipment"]) if pre_snap else None
+
+    # Step 1: scan the inventory for the item widget.
+    response = await send_command_with_response(f"SCAN_WIDGETS {item_name}", timeout_ms, account_id)
     if response.get("status") != "success":
         return {
             "success": False,
             "error": f"Failed to scan widgets: {response.get('error', 'Unknown error')}",
-            "item_name": item_name
+            "item_name": item_name,
         }
 
     widgets = response.get("result", {}).get("widgets", [])
+    inventory_widget, equip_action, any_match = _select_item_widget(widgets)
 
-    # Find the inventory item widget (look for item with matching name and equip actions)
-    inventory_widget = None
-    equip_action = action_override
-
-    for widget in widgets:
-        widget_item_name = widget.get("itemName", "")
-        actions = widget.get("actions", [])
-
-        # Check if this is our item (case-insensitive match)
-        if widget_item_name.lower() == item_name.lower():
-            # Check if it has equip actions
-            available_actions = [a for a in actions if a and a in ("Wear", "Wield", "Equip")]
-            if available_actions:
-                inventory_widget = widget
-                # Auto-detect action if not specified
-                if not equip_action:
-                    equip_action = available_actions[0]  # Use first available equip action
-                break
-
-    if not inventory_widget:
+    if inventory_widget is None:
+        if any_match is not None:
+            return {
+                "success": False,
+                "item_name": item_name,
+                "error": "Item found but its widget bounds are not on-canvas "
+                         "(interface-relative/stale); refusing to click to avoid a world misclick",
+                "bounds": any_match.get("bounds"),
+            }
         return {
             "success": False,
             "error": f"Item '{item_name}' not found in inventory or has no equip action",
             "item_name": item_name,
-            "widgets_scanned": len(widgets)
+            "widgets_scanned": len(widgets),
         }
 
-    widget_id = inventory_widget.get("id")
-    if not widget_id:
-        return {
-            "success": False,
-            "error": f"Item '{item_name}' found but has no widget ID",
-            "item_name": item_name
-        }
-
-    # Step 2: Click at the item's bounds using CLICK_AT command (Java-side atomic click)
-    # (CLICK_WIDGET with action re-searches and finds wrong item)
     bounds = inventory_widget.get("bounds", {})
-    if not bounds or bounds.get("x", -1) < 0:
+    widget_id = inventory_widget.get("id")
+
+    # Step 2: click, then VERIFY the equip against live state (one retry).
+    verified = False
+    state_readable = pre_snap is not None
+    last_click_ok = False
+    for attempt in range(2):
+        click_x = bounds["x"] + bounds["width"] // 2
+        click_y = bounds["y"] + bounds["height"] // 2
+        click_response = await send_command_with_response(
+            f"CLICK_AT {click_x} {click_y}", timeout_ms, account_id)
+        last_click_ok = click_response.get("status") == "success"
+
+        # Verify: the equipped item should leave the inventory (primary signal),
+        # or the equipment slot count should grow (secondary).
+        for _ in range(5):
+            await asyncio.sleep(0.35)
+            post = _read_player_snapshot(account_id)
+            if post is None:
+                break
+            state_readable = True
+            post_count = _count(post["names"])
+            if pre_count is not None and post_count is not None and post_count < pre_count:
+                verified = True
+                break
+            if pre_equip_slots is not None and len(post["equipment"]) > pre_equip_slots:
+                verified = True
+                break
+        if verified or attempt == 1:
+            break
+
+        # Retry: re-open the inventory tab and re-scan for fresh absolute bounds.
+        await _ensure_inventory_tab_open(account_id, timeout_ms)
+        rescan = await send_command_with_response(f"SCAN_WIDGETS {item_name}", timeout_ms, account_id)
+        rewidget, _act, _any = _select_item_widget(rescan.get("result", {}).get("widgets", []))
+        if rewidget is not None:
+            bounds = rewidget.get("bounds", bounds)
+
+    if verified:
         return {
-            "success": False,
-            "error": f"Item '{item_name}' found but has invalid bounds",
+            "success": True,
             "item_name": item_name,
-            "bounds": bounds
+            "widget_id": widget_id,
+            "action": equip_action,
+            "verified": True,
+            "clicked_at": {
+                "x": bounds["x"] + bounds["width"] // 2,
+                "y": bounds["y"] + bounds["height"] // 2,
+            },
         }
 
-    click_x = bounds["x"] + bounds["width"] // 2
-    click_y = bounds["y"] + bounds["height"] // 2
-
-    # Use CLICK_AT command - atomic move+click handled by the Java plugin
-    # This avoids xdotool display connection issues with gamescope
-    click_command = f"CLICK_AT {click_x} {click_y}"
-    click_response = await send_command_with_response(click_command, timeout_ms, account_id)
-
-    if click_response.get("status") != "success":
+    # Never report a silent success (that IS the DEFECT-29 failure). If state
+    # was simply unreadable, say so; otherwise report the equip was not confirmed.
+    if not state_readable:
         return {
             "success": False,
-            "error": f"Click failed: {click_response.get('error', 'Unknown error')}",
-            "item_name": item_name
+            "item_name": item_name,
+            "verified": False,
+            "click_dispatched": last_click_ok,
+            "error": "Equip could not be verified (state file unreadable); refusing to report success",
         }
-
-    # Give the game a moment to process
-    await asyncio.sleep(0.3)
-
     return {
-        "success": True,
+        "success": False,
         "item_name": item_name,
-        "widget_id": widget_id,
-        "action": equip_action,
-        "clicked_at": {"x": click_x, "y": click_y}
+        "verified": False,
+        "click_dispatched": last_click_ok,
+        "error": f"Clicked but '{item_name}' did not leave inventory and equipment "
+                 f"was unchanged -- equip not confirmed",
     }
 
 
