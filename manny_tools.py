@@ -2640,6 +2640,34 @@ def _nearest_key(unknown: str, valid_keys) -> str:
     return f" (did you mean '{match[0]}'?)" if match else ""
 
 
+def _is_nested_inner_loop_body(routine: dict, step: dict, i: int) -> bool:
+    """True if `step` is the single-step body of a nested `inner` loop with a
+    real exit path -- i.e. `inner.start_step == inner.end_step == this step`,
+    plus `exit_conditions` and an `on_exit` target.
+
+    Used to suppress the "KILL_LOOP is not the last step" warning for the
+    documented nested inner/outer pattern (ROUTINE_SCHEMA.md (d), worked example
+    superheat_mining_guild.yaml / cowhide_banking.yaml), where the kill loop is
+    correctly non-terminal because the loop machinery jumps away via `on_exit`
+    after it. Genuinely non-terminal cases (flat loops, or a nested loop without
+    a proper exit) are NOT exempted, so the warning still fires for them."""
+    loop_cfg = routine.get('loop')
+    if not isinstance(loop_cfg, dict):
+        return False
+    inner = loop_cfg.get('inner')
+    if not isinstance(inner, dict) or not inner.get('enabled', False):
+        return False
+    start = inner.get('start_step')
+    end = inner.get('end_step')
+    if start is None or end is None or str(start) != str(end):
+        return False
+    # This step must BE that single inner-loop body (match by id, else 1-based index).
+    if str(start) != str(step.get('id', i)):
+        return False
+    # And it must have a genuine exit path, else it really is non-terminal.
+    return bool(inner.get('exit_conditions')) and bool(inner.get('on_exit'))
+
+
 def _condition_atom(condition: str) -> str:
     """Reduce a condition string to its vocabulary atom for cross-use checks.
 
@@ -3035,7 +3063,8 @@ def validate_routine_deep(
             # entire grind first. That's fine for a flat-loop tail (the loop is
             # the LAST step and repeats), but a mid-routine follow-up step is
             # almost always an authoring mistake under the new semantics.
-            if action in ("KILL_LOOP", "KILL_LOOP_CONFIG") and i < len(routine_steps):
+            if (action in ("KILL_LOOP", "KILL_LOOP_CONFIG") and i < len(routine_steps)
+                    and not _is_nested_inner_loop_body(routine, step, i)):
                 warnings.append(
                     f"Step {i}: '{action}' is a blocking kill loop but is NOT the "
                     f"last step. run_routine.py (DEFECT-26) now blocks on the "

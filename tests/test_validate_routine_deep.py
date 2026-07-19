@@ -365,6 +365,61 @@ class TestCorpusChickenKiller:
                    for e in res["errors"]), _errs(res)
         assert any("max_iterations" in w for w in res["warnings"]), _warns(res)
 
+    def test_nested_inner_loop_kill_body_not_flagged(self, tmp_path):
+        # Finding 9: a KILL_LOOP that is the single-step body of a nested inner
+        # loop with a proper exit (start_step==end_step, exit_conditions + on_exit)
+        # is correctly non-terminal -- the loop jumps away via on_exit. It must
+        # NOT trip the "not the last step" warning (cowhide_banking.yaml shape).
+        path = _write_yaml(tmp_path, "nested_ok.yaml", {
+            "name": "Nested Kill/Bank",
+            "type": "money_making",
+            "skill": "combat",
+            "steps": [
+                {"id": 1, "phase": "travel", "action": "GOTO", "args": "1 2 0",
+                 "description": "walk", "await_condition": "location:1,2",
+                 "timeout_ms": 20000},
+                {"id": 2, "phase": "combat", "action": "KILL_LOOP_CONFIG",
+                 "args": "cfg.json", "description": "kill batch",
+                 "timeout_ms": 3600000},
+                {"id": 3, "phase": "banking", "action": "BANK_OPEN",
+                 "description": "bank"},
+            ],
+            "loop": {
+                "inner": {"enabled": True, "start_step": 2, "end_step": 2,
+                          "exit_conditions": ["inventory_full"],
+                          "on_exit": "goto_step:3"},
+                "outer": {"enabled": True, "start_step": 1, "end_step": 3,
+                          "exit_conditions": []},
+            },
+        })
+        res = _validate(path)
+        assert not any("not the last step" in w.lower() or "NOT the" in w
+                       for w in res["warnings"]), _warns(res)
+
+    def test_nested_inner_loop_without_exit_still_flagged(self, tmp_path):
+        # A nested inner loop MISSING a real exit (no on_exit) is genuinely
+        # non-terminal -> the warning must still fire.
+        path = _write_yaml(tmp_path, "nested_bad.yaml", {
+            "name": "Nested No Exit",
+            "type": "money_making",
+            "skill": "combat",
+            "steps": [
+                {"id": 1, "phase": "combat", "action": "KILL_LOOP",
+                 "args": "Cow none 100", "description": "kill",
+                 "timeout_ms": 3600000},
+                {"id": 2, "phase": "banking", "action": "BANK_OPEN",
+                 "description": "bank"},
+            ],
+            "loop": {
+                "inner": {"enabled": True, "start_step": 1, "end_step": 1,
+                          "exit_conditions": ["inventory_full"]},
+                "outer": {"enabled": True, "start_step": 1, "end_step": 2,
+                          "exit_conditions": []},
+            },
+        })
+        res = _validate(path)
+        assert any("not the last" in w.lower() for w in res["warnings"]), _warns(res)
+
     def test_live_chicken_killer_loop_now_clean(self):
         # Corpus-health check: the real routine, post-fix (commit 0d600ee),
         # must validate with zero errors.
