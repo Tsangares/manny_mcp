@@ -24,11 +24,11 @@ validation/run history, not aspiration.
 
 | Routine | Purpose | Status |
 |---|---|---|
-| `cooks_assistant.yaml` | Cook's Assistant | ✅ Validated |
-| `sheep_shearer.yaml` | Sheep Shearer (shear 20 wool, spin, deliver) | ✅ Complete |
-| `restless_ghost.yaml` | The Restless Ghost | ✅ Complete |
-| `imp_catcher.yaml` | Imp Catcher (4 beads → Wizard Mizgog) | ✅ Complete |
-| `romeo_and_juliet.yaml` | Romeo & Juliet | ✅ Complete |
+| `cooks_assistant.yaml` | Cook's Assistant | ✅ Complete — dialogue-drain fix: monologues use fixed-count repeat + `await:dialogue`, not `repeat_until:no_dialogue` (86ac7b4) |
+| `sheep_shearer.yaml` | Sheep Shearer (shear 20 wool, spin, deliver) | ✅ Complete — dialogue-drain fix + `inventory_count` off-by-one corrected (shears occupy a slot → `>=21`) (86ac7b4) |
+| `restless_ghost.yaml` | The Restless Ghost | ✅ Complete — dialogue-drain fix (86ac7b4) |
+| `imp_catcher.yaml` | Imp Catcher (4 beads → Wizard Mizgog) | ✅ Complete — dialogue-drain fix (86ac7b4) |
+| `romeo_and_juliet.yaml` | Romeo & Juliet | ✅ Complete — dialogue-drain fix (86ac7b4) |
 
 ### Skilling (`routines/skilling/`)
 
@@ -36,26 +36,26 @@ validation/run history, not aspiration.
 |---|---|---|
 | `woodcutting_lumbridge.yaml` | Chop trees near Lumbridge, flat loop until wc lvl 30 (H-2) | ✅ Complete |
 | `fishing_draynor.yaml` | Fish shrimp at Draynor, bank Lumbridge | ✅ Validated |
-| `fishing_karamja_lobster.yaml` | Lobster cage Musa Point (50-loop) | ✅ Complete — flat `loop:` (note: `start_step`/`max_iterations` keys in this file are dead, see `ROUTINE_SCHEMA.md` §f) |
-| `fishing_karamja_harpoon.yaml` | Harpoon tuna/swordfish Musa Point | ✅ Complete — same dead-key caveat as above |
-| `cooking_lumbridge.yaml` | Cook raw fish at Lumbridge range (loop) | ✅ Complete |
-| `flour_milling.yaml` | Mill grain→flour at Lumbridge windmill | ✅ Complete |
-| `mining_falador_iron.yaml` | POWER_MINE iron, Falador Dwarven Mine (loop) | ✅ Complete |
+| `fishing_karamja_lobster.yaml` | Lobster cage Musa Point (50-loop) | ✅ Complete — flat `loop:` (note: `start_step`/`max_iterations` keys in this file are dead, see `ROUTINE_SCHEMA.md` §f); deposit-box open delay bumped 2500ms→5000ms, no await atom exists for that interface (a113495) |
+| `fishing_karamja_harpoon.yaml` | Harpoon tuna/swordfish Musa Point | ✅ Complete — same dead-key caveat as above; same deposit-box delay fix (a113495) |
+| `cooking_lumbridge.yaml` | Cook raw fish at Lumbridge range (loop) | ✅ Complete — removed dead, never-interpolated `cooked_food` key (a113495) |
+| `flour_milling.yaml` | Mill grain→flour at Lumbridge windmill | ✅ Complete — replaced always-instant `await:idle` on a stationary Operate with a calibrated `delay_after_ms` (a113495) |
+| `mining_falador_iron.yaml` | POWER_MINE iron, Falador Dwarven Mine (loop) | ✅ Complete — replaced always-true `plane:0` staircase await with an await verifying the actual underground landing (86ac7b4) |
 | `mine_iron_ore.yaml` | Mine iron in Mining Guild, bank (mining 60) | ✅ Complete |
-| `superheat_mining_guild.yaml` | Mine iron + Superheat → iron bars (nested inner/outer loop) | ✅ Complete — reference example for `ROUTINE_SCHEMA.md` §i.3 |
+| `superheat_mining_guild.yaml` | Mine iron + Superheat → iron bars (nested inner/outer loop) | ✅ Complete — reference example for `ROUTINE_SCHEMA.md` §i.3; iron rocks retargeted to the reachable (3029,9739) cluster, `no_item:Iron ore` await added on the superheat cast, landing await added on the guild ladder (86ac7b4) |
 | `superheat_steel_bars.yaml` | Mine coal+iron + Superheat → steel bars (loop) | ✅ Complete |
 
 ### Combat (`routines/combat/`)
 
 | Routine | Purpose | Status |
 |---|---|---|
-| `chicken_killer_training.yaml` | GOTO coop → `KILL_LOOP Chicken 200` | ✅ Complete |
-| `chicken_killer_loop.yaml` | `KILL_LOOP Chicken`, 50× auto-loop | ✅ Complete — reference example for `ROUTINE_SCHEMA.md` §i.2; `loop.max_iterations`/`delay_between_loops_ms` keys in this file are dead (§f) |
-| `cow_killer_training.yaml` | Bank→`EQUIP_BEST_MELEE`→cow pen→kill | ✅ Validated |
+| `chicken_killer_training.yaml` | GOTO coop → `KILL_LOOP Chicken 200` | ✅ Complete — `KILL_LOOP` timeout raised 1h→2h so the runner doesn't abandon a still-grinding 200-kill batch (a113495) |
+| `chicken_killer_loop.yaml` | `KILL_LOOP Chicken`, 50× auto-loop | ✅ Complete — reference example for `ROUTINE_SCHEMA.md` §i.2; `loop.max_iterations`/`delay_between_loops_ms` keys in this file are dead (§f); comment falsely claiming identical coords to the sibling routine corrected (a113495) |
+| `cow_killer_training.yaml` | Bank→`EQUIP_BEST_MELEE`→cow pen→kill | ✅ Complete — removed the uncapped/unmanaged `KILL_COW_GET_HIDES` step, made the bounded `KILL_LOOP` terminal, added flat-loop coverage (86ac7b4) |
 | `hill_giants_travel.yaml` | Travel GE→Hill Giants (brass-key shortcut) | ✅ Complete |
-| `hill_giants_resupply.yaml` | Bank at GE, restock food/runes | ✅ Complete |
+| `hill_giants_resupply.yaml` | Bank at GE, restock food/runes | ✅ Complete — added `BANK_DEPOSIT_ALL` before restock (a part-full inventory could corrupt the loadout) + `has_item` awaits on key items (a113495) |
 | `hill_giants_loot.yaml` | KILL_LOOP_CONFIG + loot-config JSON, flat loop to inventory_full (H-6) | ✅ Complete |
-| `hill_giants_restock.yaml` | Bank loot mid-trip, restock, return | ✅ Complete |
+| `hill_giants_restock.yaml` | Bank loot mid-trip, restock, return | ✅ Complete — replaced always-true `plane:0` ladder await with a landing-verify await (86ac7b4); withdraw delays bumped 300ms→4000ms (25/21-qty withdraws can't round-trip in 300ms) + `has_item` awaits on Brass key/Swordfish (a113495) |
 
 > **Removed 2026-07-18:** `cow_killer_no_bones.yaml` and `hill_giants.yaml`
 > were `execute_combat_routine`-dialect config sidecars (`npc:`/`kills:`/
@@ -72,7 +72,7 @@ validation/run history, not aspiration.
 
 | Routine | Purpose | Status |
 |---|---|---|
-| `death_escape.yaml` | Escape Death's Domain after first death | ✅ Complete |
+| `death_escape.yaml` | Escape Death's Domain after first death | ✅ Complete — previously mislabeled non-executable by a validator bug that exempted any file with a `manual_steps:` block; the validator now only exempts `manual_steps`-only files (no coexisting `steps:`), and this file's 12 real steps are correctly recognized as executable (V-2, 8a8d3e9) |
 | `gravestone_retrieval.yaml` | Retrieve items from gravestone (`manual_steps:`) | ⚠️ Stub (runbook, not machine-run) |
 
 ### Tutorial Island (`routines/tutorial_island/`)
@@ -88,7 +88,15 @@ file and `00_*`-prefixed files automatically, `run_routine.py:53`),
 in the repo — `08_combat.yaml` is the reference example for `mcp_tool:`
 usage in `ROUTINE_SCHEMA.md` §g. Note: `08_combat` and `10_prayer_magic`
 pre-adopt an `await_condition: dialogue` atom (Grammar 1, narrow tutorial-only
-predicate — see `ROUTINE_SCHEMA.md` §c).
+predicate — see `ROUTINE_SCHEMA.md` §c). `05_cooking_to_quest_guide.yaml` was
+a false-positive validator failure on the legal trailing `exact` token on
+`GOTO` — `validate_routine_deep` now accepts `x y plane` and
+`x y plane exact` (V-1, 8a8d3e9). `10_prayer_magic.yaml` had its STATUS
+header corrected to state the actual Brother Brace blocker (steps unchanged,
+H-13) and two trailer "WORKING PATTERNS" comments corrected — they had
+recommended patterns (`CLICK_DIALOGUE` on empty options, `CAST_SPELL_NPC
+Wind_Strike`) the file's own fixes forbid (comments only, M-15) (86ac7b4,
+a113495).
 
 ### Library / test / generated
 

@@ -5,7 +5,9 @@ passed, Java deployment window landed + live gates passed, E2 attended gate pass
 `journals/OVERSEER_HANDOFF.md` → "Sequence" for exact ordering. Do not start Track G before all of these
 are checked off.
 
-**Two-lane note:** as of the 2026-07-19 refresh, Track G runs on **lane 1 (`newbakshesh`) only**. Lane 2
+**Two-lane note:** as of the 2026-07-19 refresh, Track G runs on **lane 1 (`newbakshesh`) only**.
+**⚠️ `newbakshesh` banned 2026-07-19 — account undecided pending user.** Do not start Track G on
+`newbakshesh` until a replacement account is chosen. Lane 2
 (`blast`) may be mid tutorial-regression concurrently on a separate display — that is expected and does
 not block Track G. The fresh session's starting prompt must make explicit that it owns ONLY the
 `newbakshesh` account/lane; it must not touch `blast`.
