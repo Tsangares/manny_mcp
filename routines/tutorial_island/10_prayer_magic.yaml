@@ -118,19 +118,37 @@ steps:
     notes: "Many space presses through explanation"
 
   # ===================== Phase 2: Exit to Chapel =====================
-  # KNOWN CHOKEPOINT (Track E phase-1b, live 2026-07-18): this GOTO to the east
-  # door (3129,3124) is a NAV-DIRECT indoor-navigation WALL. From inside the
-  # account-guide building (player parked ~3120-3125,3111-3120) NAV-DIRECT
-  # repeatedly fails ("[NAV-DIRECT] Failed to reach target" / "stuck or timeout",
-  # smartMinimapClick fallback) and the player OSCILLATES between 3124,3113 /
-  # 3125,3120 / 3120,3111 without ever reaching EITHER exit door (east 3130,3124
-  # or north 3122,3102). Same failure whether targeting 3129,3124, 3128,3110, or
-  # 3122,3103 directly. This is the documented indoor-nav weakness: NAV-DIRECT
-  # cannot solve the account-guide interior maze. MANUAL CLEAR REQUIRED: drive
-  # short (<=6-tile, force >3 to beat DEFECT-7) incremental GOTOs to walk the
-  # player onto the door tile, INTERACT_OBJECT Door Open, then step OUTSIDE
-  # before heading to 3128,3110. Until an indoor waypoint chain is validated
-  # live, expect to hand-walk this transition.
+  # CHOKEPOINT — RECIPE VALIDATED LIVE 2026-07-19 (Track live-lane, DEFECT-23 jar).
+  # History (Track E phase-1b, 2026-07-18): from the south account-guide antechamber
+  # (player parked ~3123-3124,3111-3113) NAV-DIRECT oscillates and reports
+  # "[NAV-DIRECT] Stuck at (x,y), N tiles from target" for EVERY direct target
+  # (chapel 3126,3107; outdoor 3128,3110). Root cause found live 2026-07-19: the
+  # antechamber is a walled box whose ONLY forward exit is a CLOSED interior Door
+  # at (3125,3124). The prior oscillation was the follower failing against that
+  # closed door + the DEFECT-7 short-hop no-op, NOT a general maze.
+  #
+  # VALIDATED WALK-THROUGH RECIPE (each GOTO uses DEFECT-23 `exact` mode, which
+  # landed ON-tile every time — hop 0/1: e.g. "[NAV-EXACT] On target tile
+  # (3129,3124,0) after 0 hop(s)"):
+  #   a. GOTO 3124 3124 0 exact           # settle onto the tile W of the interior door
+  #   b. INTERACT_OBJECT Door Open        # opens Door (3125,3124); player steps through,
+  #                                       #   door auto-closes behind (TI quirk)
+  #   c. GOTO 3129 3124 0 exact           # east-door approach — clean arrival
+  #   d. INTERACT_OBJECT Door Open        # opens east exit Door (3130,3124) -> OUTSIDE
+  #   e. GOTO 3128 3110 0 exact           # outdoor waypoint (validated on-tile)
+  #   f. GOTO 3130 3107 0 exact           # chapel EAST approach (validated)
+  # This clears the documented chapel-exit blocker end-to-end (player reaches the
+  # chapel interior, adjacent to Brother Brace).
+  #
+  # ⚠️ OPEN BLOCKER (NEW, found live 2026-07-19, downstream of the above):
+  # Brother Brace (id 3319, ~3125,3106) PACES a 2-3 tile wander radius. Every
+  # INTERACT_NPC/CLICK_NPC from an orthogonally-adjacent tile (tried W 3124,3106;
+  # E 3126,3106; diag 3126,3105/3126,3107) returns the game message "I can't reach
+  # that!" — the resolve→mouse-move→click latency (remote/diort IPC) lands on his
+  # vacated tile. ~10 attempts across INTERACT_NPC + CLICK_NPC all failed. The
+  # prayer section past step 12 is NOT re-validated on this jar; needs a
+  # pacing-NPC-aware interact (retry that re-resolves the NPC's live tile per
+  # attempt) before it can run unattended.
   - id: 8
     description: "Walk to east door"
     action: GOTO
