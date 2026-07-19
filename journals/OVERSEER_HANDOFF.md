@@ -531,3 +531,43 @@ tracked here for continuity). Deploy-window discipline: see `DEPLOY_WINDOW_CHECK
 before closing window #4 or any future window. Delegation note: agents should claim a working tree via
 `scripts/tree_lock.sh claim <tree> <agent>` before committing (advisory, see script header) — the
 branch-collision lesson from earlier this campaign is exactly what this is for.
+
+---
+## COMPACTION NOTE — 2026-07-19 ~10:00Z (read this if resuming post-ban / mid-window-4-prep)
+Overseer is compacting. **No live client is being driven** (all grinding halted post-ban). Two
+background agents were IN FLIGHT at compaction; both report into the overseer session:
+1. **Java-humanization agent** (owns the `manny` tree): building **DEFECT-31** modal-aware dialogue
+   export (tutorial modals — "I can't reach that!", "You'll be told how to equip items later" —
+   currently render `dialogue.open:false` and are invisible to dialogue state) + **humanization
+   phase-3 camera drift**. Briefed in 4 parts — **latest part wins** if the briefs appear to conflict.
+   Phases 1–2 already landed (`630796b`/`e56ba40`, 25/25 offline). Do NOT commit to the `manny` tree
+   while this agent holds it.
+2. **THIS agent — Python-side humanization + DEFECT-30** (owns the `manny_mcp` tree): stage-3 journal
+   completed (`579c87d`); now implementing in `mcptools/`+`scripts/` — DEFECT-30 loop-stop-on-timeout,
+   randomized relaunch pacing, break scheduler + session-length variance, `-Dmanny.humanize.seed`
+   per-run passthrough recorded in the ledger, and watchdog treating humanization pauses as healthy.
+
+**Live state (do not disturb):**
+- **`newbakshesh`** — BANNED 2026-07-19 ~07:58Z. Client (pid 2391595, display `:2` on diort) left UP
+  at the ban screen as appeal evidence. **Do not restart or stop it.**
+- **`blast`** (lane 2) — cleanly STOPPED at section-08 combat area (3111,9525), dagger in inventory
+  **unequipped** (DEFECT-29 blocked the equip; the Python fix is deployed but blast has not been
+  re-run — no live contact since the ban), 8h clock reset. The humanization guinea pig once phases
+  land AND the USER decides IP posture.
+- **`punitpun`** — fresh spare, clean and **reserved**; do not use before humanization is proven.
+
+**Window #4 — ready to open at ANY time** (safe: no client runs, so no thermal/8h/ban exposure to
+open it). Undeployed payload: manny `873eec7` (DEFECT-27), `70fac7a` (DEFECT-22 loginIndex),
+`bc186eb` (DEFECT-28), `00f0069` (DEFECT-28b), `e56ba40` (humanization 1–2), **plus whatever the
+Java agent lands** (DEFECT-31 + phase-3). DEFECT-29 is already fixed+deployed Python-side
+(`ba8efd3`/`cba886e`). Gates need **no grinding**: DEFECT-22 banned-account login probe (zero risk —
+use a banned alias), DEFECT-27/28 log checks, DEFECT-31 modal check.
+
+**Any LIVE account resumption awaits a USER decision on proxy/IP** — do not resume live contact on any
+account without it. Options: (a) route through **mat + the dataimpulse proxy first = RECOMMENDED**;
+(b) run `blast` on the already-flagged diort residential IP; (c) spin a fresh throwaway. Humanization
+must be proven (on an expendable account) before any sustained/unattended live contact regardless.
+
+**RECURRING HAZARD (re-check before any account work):** credential re-imports have twice reset
+`default:` in `~/.manny/credentials.yaml` to a **banned** alias — always re-verify `default:` is a
+live account before trusting it; do not assume the currently-set default is usable.
