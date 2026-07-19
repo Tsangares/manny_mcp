@@ -208,6 +208,101 @@ class TestControlFlow:
         assert res["steps_simulated"] == 2
         assert any("MARCH ON" in e["detail"] for e in res["trace"])
 
+    async def test_inner_loop_failure_restarts_then_exits_via_on_exit(self, tmp_path):
+        """A step INSIDE the inner loop's [start_step, end_step] bounds that
+        fails with on_failure:continue must NOT just march on -- live
+        (routine.py execute_routine) increments inner_consecutive_failures and
+        restarts the inner loop from start_step. The fixture model never
+        changes across restarts, so the failure repeats identically until
+        max_inner_consecutive_failures (3) is hit, at which point the counter
+        resets and the loop exits via on_exit."""
+        doc = {
+            "name": "inner-restart",
+            "steps": [
+                {"id": 1, "action": "GOTO", "args": "1 2 0",
+                 "await_condition": "has_item:Nope", "on_failure": "continue"},
+                {"id": 2, "action": "GOTO", "args": "3 4 0",
+                 "await_condition": "location:3,4"},
+            ],
+            "loop": {"inner": {"enabled": True, "start_step": 1, "end_step": 1,
+                               "exit_conditions": [], "on_exit": "goto_step:2"}},
+        }
+        res = await dryrun.dry_run_routine(_write(tmp_path, doc), max_loops=1)
+        assert res["success"] is False
+        # Step 1 executed 3 times (restart x2 + the 3rd that trips the
+        # threshold), then step 2 runs once after the on_exit jump.
+        step1_traces = [e for e in res["trace"] if e["step_id"] == 1]
+        step2_traces = [e for e in res["trace"] if e["step_id"] == 2]
+        assert len(step1_traces) == 3
+        assert len(step2_traces) == 1
+        assert all(e["status"] == "FAIL" for e in step1_traces)
+        assert step2_traces[0]["status"] == "OK"
+        # No march-on wording for an inner-loop-bounded failure -- it restarts.
+        assert not any("MARCH ON" in e["detail"] for e in step1_traces)
+        assert "1/3" in step1_traces[0]["detail"]
+        assert "2/3" in step1_traces[1]["detail"]
+        assert "3/3" in step1_traces[2]["detail"]
+        assert "threshold reached" in step1_traces[2]["detail"]
+        assert res["steps_simulated"] == 4
+        assert res["loops_completed"] == 1
+
+    async def test_inner_loop_failure_threshold_falls_through_without_on_exit(self, tmp_path):
+        """Threshold-exhaustion with no ``on_exit`` key falls through to the
+        step-execution flow instead of jumping anywhere, mirroring live's
+        fallthrough when there's no (or an unresolvable) goto_step target.
+        The inventory is pre-filled full in the fixture so the loop's own
+        (real) exit_conditions -- not the threshold logic itself -- is what
+        actually ends the run after the fallthrough, exactly as it would live:
+        the threshold only stops the restart-spam, it doesn't force an exit."""
+        doc = {
+            "name": "inner-restart-no-on-exit",
+            "steps": [
+                {"id": 1, "action": "GOTO", "args": "1 2 0",
+                 "await_condition": "has_item:Nope", "on_failure": "continue"},
+                {"id": 2, "action": "GOTO", "args": "3 4 0",
+                 "await_condition": "location:3,4"},
+            ],
+            "loop": {"inner": {"enabled": True, "start_step": 1, "end_step": 1,
+                               "exit_conditions": ["inventory_full"]}},
+        }
+        full_inventory = [{"name": "Junk", "qty": 1}] * 28
+        model = dryrun.StateModel(inventory=full_inventory)
+        res = await dryrun.dry_run_routine(_write(tmp_path, doc), max_loops=1, model=model)
+        assert res["success"] is False
+        step1_traces = [e for e in res["trace"] if e["step_id"] == 1]
+        step2_traces = [e for e in res["trace"] if e["step_id"] == 2]
+        # 3 failed attempts trip the threshold; the ensuing fallthrough (no
+        # on_exit) hits the normal end-step check, which now sees the
+        # already-full inventory and exits -- so step 1 runs exactly 3 times,
+        # not indefinitely.
+        assert len(step1_traces) == 3
+        assert len(step2_traces) == 1
+        assert res["steps_simulated"] == 4
+        assert "threshold reached" in step1_traces[2]["detail"]
+
+    async def test_failure_outside_inner_bounds_still_marches_on(self, tmp_path):
+        """A failing step OUTSIDE the inner loop's [start_step, end_step]
+        bounds is unaffected by the restart logic -- it still marches on,
+        exactly like the no-loop-config case (behavior outside loops
+        unchanged)."""
+        doc = {
+            "name": "outside-inner",
+            "steps": [
+                {"id": 1, "action": "GOTO", "args": "1 2 0",
+                 "await_condition": "has_item:Nope", "on_failure": "continue"},
+                {"id": 2, "action": "MINE_ORE", "args": "iron 1", "timeout_ms": 45000},
+                {"id": 3, "action": "BANK_DEPOSIT_ALL"},
+            ],
+            "loop": {"inner": {"enabled": True, "start_step": 2, "end_step": 2,
+                               "exit_conditions": ["inventory_full"],
+                               "on_exit": "goto_step:3"}},
+        }
+        res = await dryrun.dry_run_routine(_write(tmp_path, doc), max_loops=1)
+        assert res["success"] is False
+        step1_traces = [e for e in res["trace"] if e["step_id"] == 1]
+        assert len(step1_traces) == 1
+        assert any("MARCH ON" in e["detail"] for e in step1_traces)
+
     async def test_on_failure_abort_stops(self, tmp_path):
         doc = {
             "name": "abort",

@@ -662,6 +662,15 @@ class DryRunInterpreter:
         has_inner_outer = inner.get("enabled", False) or outer.get("enabled", False)
         inner_start_idx = (routine._resolve_step_idx(inner.get("start_step", 1), step_id_to_idx, None)
                            if inner.get("enabled") else None)
+        inner_end_idx = (routine._resolve_step_idx(inner.get("end_step", ""), step_id_to_idx, None)
+                         if inner.get("enabled") else None)
+        # Mirrors execute_routine's inner-loop failure bookkeeping (routine.py):
+        # a failing step *inside* the inner loop bounds restarts the inner loop
+        # rather than marching on; after this many consecutive restarts in a row
+        # it exits via on_exit instead. Keep both constants in lockstep with
+        # routine.py's inner_consecutive_failures / max_inner_consecutive_failures.
+        inner_consecutive_failures = 0
+        max_inner_consecutive_failures = 3
 
         outer_count = 0
         loop_pass = 1
@@ -701,12 +710,50 @@ class DryRunInterpreter:
                     # continue (default): mark the run failed but keep going --
                     # this is the "silently marches on" class made visible.
                     result["success"] = False
-                    self.trace[-1]["detail"] += (
-                        " | on_failure=continue: LIVE runner would MARCH ON past this failure")
+
+                    # A failure on a step *inside* the inner loop's [start_step,
+                    # end_step] bounds is NOT a march-on in the live engine: it
+                    # increments inner_consecutive_failures and RESTARTS the inner
+                    # loop from start_step, and after max_inner_consecutive_failures
+                    # (3) in a row it resets the counter and exits via on_exit
+                    # (falling through to the next step if on_exit is absent/invalid
+                    # -- exactly like routine.py's execute_routine).
+                    in_inner_bounds = (
+                        has_inner_outer and inner.get("enabled", False)
+                        and inner_start_idx is not None and inner_end_idx is not None
+                        and inner_start_idx <= idx <= inner_end_idx)
+                    if in_inner_bounds:
+                        inner_consecutive_failures += 1
+                        self.trace[-1]["detail"] += (
+                            f" | on_failure=continue (inner loop): LIVE runner RESTARTS the "
+                            f"inner loop from step {inner.get('start_step', 1)} "
+                            f"({inner_consecutive_failures}/{max_inner_consecutive_failures} "
+                            f"consecutive failures)")
+                        if inner_consecutive_failures >= max_inner_consecutive_failures:
+                            self.trace[-1]["detail"] += (
+                                " -- threshold reached, LIVE runner exits the inner loop via on_exit")
+                            inner_consecutive_failures = 0
+                            on_exit = inner.get("on_exit", "")
+                            if on_exit.startswith("goto_step:"):
+                                j = routine._resolve_step_idx(on_exit.split(":", 1)[1], step_id_to_idx, None)
+                                if j is not None:
+                                    idx = j
+                                    continue
+                            # No/invalid on_exit target: fall through to the next
+                            # step, same as live (see the end-step check below).
+                        else:
+                            idx = inner_start_idx
+                            continue
+                    else:
+                        self.trace[-1]["detail"] += (
+                            " | on_failure=continue: LIVE runner would MARCH ON past this failure")
 
                 # Inner loop: reached inner.end_step?
                 if has_inner_outer and inner.get("enabled", False):
                     if str(step_id) == str(inner.get("end_step", "")):
+                        # Live resets the consecutive-failure counter on reaching
+                        # end_step regardless of whether the loop exits or repeats.
+                        inner_consecutive_failures = 0
                         exit_c = await self._loop_should_stop(inner.get("exit_conditions", []))
                         if exit_c:
                             on_exit = inner.get("on_exit", "")
