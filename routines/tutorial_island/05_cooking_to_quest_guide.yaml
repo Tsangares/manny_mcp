@@ -117,80 +117,44 @@ steps:
     action: INTERACT_NPC
     args: "Quest_Guide Talk-to"
     delay_before_ms: 2000
+    delay_after_ms: 1200
 
   - id: 11
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 2000
+    description: "Advance the Quest Guide's dialogue to the very end"
+    action: CLICK_CONTINUE
+    repeat_until: "no_dialogue"
+    repeat_until_timeout_ms: 3000
+    max_iterations: 15
+    delay_before_ms: 1000
+    notes: |
+      VALIDATED RECIPE (Track E phase-1b live): the ladder is gated on the
+      guide's post-talk monologue being FULLY exhausted -- not on any option
+      select. There is NO selectable "Quest Guide" option: widget 15138820 is
+      the speaker-name header (DEFECT-24: the dialogue state writer misreports
+      that monologue as options[], which is why an earlier CLICK_DIALOGUE
+      "Quest Guide" / CLICK_WIDGET 15138820 step looked plausible but is a
+      no-op trap). CLICK_CONTINUE with repeat_until no_dialogue clicks through
+      every page and stops cleanly (check-first) when the dialogue closes.
 
   - id: 12
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
+    description: "Open the Quest Journal tab (tutorial: 'click the flashing icon')"
+    action: TAB_OPEN
+    args: "quests"
     delay_before_ms: 1000
+    delay_after_ms: 1000
+    notes: "TAB_OPEN quests replaces the brittle CLICK_WIDGET 35913794 tab click."
 
   - id: 13
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 14
-    description: "Open Quest Journal tab"
-    action: CLICK_WIDGET
-    args: "35913794"
-    delay_before_ms: 1000
-    notes: "Tutorial says 'Click on the flashing icon to the left of your inventory'"
-
-  - id: 15
-    description: "Select the 'Quest Guide' dialogue option (validated ladder gate)"
-    action: CLICK_DIALOGUE
-    args: "Quest Guide"
-    delay_before_ms: 2000
-    notes: |
-      REPAIRED 2026-07-18: was CLICK_WIDGET 15138820, which fails live
-      ("not found or hidden"). After the Quest Journal tab opens (step 14) a
-      dialogue with options ['Quest Guide','Click here to continue'] appears.
-      Selecting the "Quest Guide" option (by text, matches the plugin-side
-      whitelist even when state-file options[] is empty) is what gates the
-      ladder: the ladder does NOT become usable until this dialogue completes.
-
-  - id: 16
-    description: "Continue dialogue to the very end"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 2000
-
-  - id: 17
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 18
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 19
-    description: "Continue dialogue"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 20
-    description: "Continue dialogue (exhaust the Quest Guide's post-tab pages)"
-    action: KEY_PRESS
-    args: "Space"
-    delay_before_ms: 1000
-
-  - id: 21
-    description: "Climb down ladder to mining section"
+    description: "Climb down ladder to mining section (gate now open)"
     action: INTERACT_OBJECT
     args: "Ladder Climb-down"
     delay_before_ms: 1500
+    delay_after_ms: 2000
+    notes: |
+      Descends to the underground mining area (~3088, 9520 -- still plane 0,
+      detect descent by the y-coordinate jump, NOT a plane change). Gate is
+      open only after step 11 exhausts the guide's dialogue and step 12 opens
+      the quest journal.
 
 # PITFALLS DISCOVERED (2026-01-25, updated 2026-07-18):
 # 1. MUST settle IN FRONT of cooking exit door at (3073, 3090) before INTERACT_OBJECT works
@@ -200,8 +164,12 @@ steps:
 # 3. Direct north paths from cooking are blocked by invisible fences -- hug the west edge (x=3072)
 # 4. Navigate north in short (<=10-tile) hops, each with a location await
 # 5. Quest Guide dialogue has multiple "Click here to continue" screens
-# 6. Ladder gate: must select "Quest Guide" dialogue option (step 15) AND exhaust the
-#    guide's post-tab dialogue before the ladder becomes usable (see Part 2 live findings).
+# 6. Ladder gate (Track E phase-1b, live): the ladder unlocks only after the guide's
+#    monologue is FULLY exhausted (CLICK_CONTINUE repeat_until no_dialogue, step 11)
+#    then the quest journal tab is opened (TAB_OPEN quests, step 12). There is NO
+#    "Quest Guide" dialogue OPTION to select -- widget 15138820 is the speaker-name
+#    header, misreported as an option by the state writer (DEFECT-24). Do NOT add a
+#    CLICK_DIALOGUE "Quest Guide" / CLICK_WIDGET 15138820 step: it is a silent no-op.
 #
 # After this routine:
 # Player is underground in mining area at approximately (3088, 9520)
