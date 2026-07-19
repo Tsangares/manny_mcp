@@ -1,0 +1,5 @@
+{
+  "npc": "Chicken",
+  "kills": 100,
+  "loot_items": ["Feather"]
+}

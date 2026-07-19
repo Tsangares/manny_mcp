@@ -1,0 +1,73 @@
+# Chicken Feathers - feather farming + early combat training (Track E1)
+#
+# Grinds Lumbridge chickens with KILL_LOOP_CONFIG so dropped Feathers are
+# looted (a bare KILL_LOOP only loots runes -- see ROUTINE_SCHEMA.md (h)).
+# Bones are auto-buried every kill (free Prayer XP) and food is forced to
+# "none" by KILL_LOOP_CONFIG, so the loop applies the 50%-HP safety stop --
+# harmless here because chickens max-hit 1.
+#
+# COMBAT STYLE ROTATION (config ${style}):
+#   Per-batch rotation inside one flat loop is not expressible (every pass
+#   re-runs the same steps), so the attack stance is parameterised. Rotate
+#   training by editing config.style and doing three bounded runs:
+#     Chop  -> Attack XP      (accurate stance)
+#     Slash -> Strength XP    (aggressive stance)   <-- default
+#     Block -> Defence XP     (defensive stance)
+#   These are the bronze-SWORD stance button names (combat interface group
+#   593). CONFIRM the live button labels against newbakshesh's actual equipped
+#   weapon at smoke time -- unarmed/dagger use different labels. A wrong label
+#   is non-fatal: SWITCH_COMBAT_STYLE just logs a failure and the grind
+#   continues (routine.py logs step errors but does not abort the flat loop).
+#
+# COOP COORDINATE: 3235,3295 is the proven-grind pen NE of Lumbridge (Fred the
+# Farmer's). Old template used 3180,3288; if the GOTO cannot settle at
+# 3235,3295 on the live world, fall back to 3180,3288 and update step 1 + the
+# await. VERIFY LIVE at smoke time.
+
+name: "Chicken Feathers - Feather Farming + Combat Training"
+type: combat
+skill: combat
+
+config:
+  style: "Slash"   # aggressive stance -> Strength XP (bronze sword); see header for rotation
+
+# Documentation-only (engine reads coords from step args, not this block).
+locations:
+  lumbridge_chicken_coop:
+    x: 3235
+    y: 3295
+    plane: 0
+
+steps:
+  - id: 1
+    phase: "travel"
+    action: GOTO
+    args: "3235 3295 0"
+    description: "Walk to the chicken pen NE of Lumbridge"
+    await_condition: "location:3235,3295"
+    timeout_ms: 120000
+
+  - id: 2
+    phase: "setup"
+    action: SWITCH_COMBAT_STYLE
+    args: "${style}"
+    description: "Set the attack stance for this training batch (rotate via config.style)"
+    delay_before_ms: 800
+    timeout_ms: 15000
+
+  - id: 3
+    phase: "combat"
+    action: KILL_LOOP_CONFIG
+    args: "/home/wil/Desktop/manny_mcp/routines/money_making/configs/chicken_feathers.json"
+    description: "Kill 100 chickens, loot Feathers; bones auto-buried, food forced none (50% HP safety stop)"
+    timeout_ms: 3600000   # blocking command (see ROUTINE_SCHEMA.md (e)); no await_condition
+
+# Flat loop: after each 100-kill batch, jump back to step 1 and go again.
+# Stops when Defence hits 20 (Grammar 2 <skill>_level:N). Batches are also
+# bounded by the CLI backstop: ./run_routine.py <this file> --loops N
+# (loop.max_iterations is a dead key -- ROUTINE_SCHEMA.md (d)/(f)).
+loop:
+  enabled: true
+  repeat_from_step: 1
+  stop_conditions:
+    - "defence_level:20"
