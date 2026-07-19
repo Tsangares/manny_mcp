@@ -63,7 +63,9 @@ Ran end-to-end via `scripts/remote/mannyctl`: `push-creds` (creds shipped, chmod
 `provision` (jar→runelite_libs reconciled, venv, perf-config already GPU-off) → `start new` (login in 26s)
 → `cmd new "GOTO 3235 3295 0"` (Pathfinder API reachable on diort → 7ms path, arrived) → `cmd new
 "KILL_LOOP Chicken"` (sustained kills, HP 10/10). **Thermal: 68–74°C plateau over 30+ kills/13+ min vs
-laptop 90°C/2min-crash → THE thermal crash is solved.** Full writeup: journals/2026-07-18_diort_bringup_parallel.md.
+laptop 90°C/2min-crash → THE thermal crash is solved.** Full writeup + orchestration lessons (fork-vs-general-purpose,
+two-session collision, fish remote-exec, auto-play misdiagnosis): journals/2026-07-18_parallel_stage_and_orchestration_lessons.md
+(mechanics detail in _diort_bringup_parallel.md).
 
 **Operational notes learned:** (a) diort login shell is FISH — mannyctl now wraps remote cmds in
 `bash -lc $(printf %q ...)` (commit 16b410e); inline `ssh diort '<bash>'` still breaks on `for/do/done`

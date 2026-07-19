@@ -1,5 +1,11 @@
 # 2026-07-18 — diort bring-up + 4-track parallel stage (the thermal fix, proven)
 
+> **See also `2026-07-18_parallel_stage_and_orchestration_lessons.md`** — the authoritative consolidated
+> account. It completes this entry (GameEngine DEFECT-20, do_run detach, auto-play resolution) and CORRECTS
+> two things below: (1) the "two grinds" collision was two *sessions on one account*, not a user fork vs me;
+> (2) the "competing auto-play scenario" was a misdiagnosis — the scenario is a no-op; the stray commands
+> were normal grind byproducts (level-up auto-equip + KILL_LOOP bone-bury).
+
 **Session role:** overseer driving a deliberately-parallel stage. One critical path held locally
 (the diort bring-up, because it touches credentials) + three forked/delegated tracks running
 concurrently. This entry is blog-ready: what was built, the exact commands, the issues hit, and how
