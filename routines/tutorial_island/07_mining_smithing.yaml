@@ -71,7 +71,7 @@ steps:
   - id: 1
     description: "Walk to Mining Instructor"
     action: GOTO
-    args: "3080 9504 0"
+    args: "3080 9504 0 exact"
     delay_before_ms: 500
     await_condition: "location:3080,9504"
     timeout_ms: 60000
@@ -104,7 +104,7 @@ steps:
   - id: 4
     description: "Walk to the TIN outcrop"
     action: GOTO
-    args: "3076 9504 0"
+    args: "3076 9504 0 exact"
     delay_before_ms: 500
     await_condition: "location:3076,9504"
     timeout_ms: 60000
@@ -132,7 +132,7 @@ steps:
   - id: 7
     description: "Walk to the COPPER outcrop"
     action: GOTO
-    args: "3085 9502 0"
+    args: "3085 9502 0 exact"
     delay_before_ms: 500
     await_condition: "location:3085,9502"
     timeout_ms: 60000
@@ -158,7 +158,7 @@ steps:
   - id: 10
     description: "Walk to the Furnace"
     action: GOTO
-    args: "3079 9496 0"
+    args: "3079 9496 0 exact"
     delay_before_ms: 500
     await_condition: "location:3079,9496"
     timeout_ms: 60000
@@ -199,7 +199,7 @@ steps:
   - id: 13
     description: "Walk to the Mining Instructor's cardinal-south tile"
     action: GOTO
-    args: "3081 9503 0"
+    args: "3081 9503 0 exact"
     delay_before_ms: 500
     await_condition: "location:3081,9503"
     timeout_ms: 60000
@@ -222,7 +222,7 @@ steps:
   - id: 16
     description: "Walk to the Anvil"
     action: GOTO
-    args: "3083 9499 0"
+    args: "3083 9499 0 exact"
     delay_before_ms: 500
     await_condition: "location:3083,9499"
     timeout_ms: 60000
@@ -285,7 +285,7 @@ steps:
   - id: 20
     description: "Walk to the gate's west-adjacent tile"
     action: GOTO
-    args: "3093 9502 0"
+    args: "3093 9502 0 exact"
     delay_before_ms: 500
     await_condition: "location:3093,9502"
     timeout_ms: 60000

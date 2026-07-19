@@ -134,6 +134,23 @@ steps:
     delay_before_ms: 1000
     delay_after_ms: 1000
 
+  # ── QUEST-GUIDE COMPLETION SEQUENCE (varp-281 audit, 2026-07-19) ──────────────
+  # OSRS wiki (RuneScape:Varplayer/281) confirms the EXACT varp-281 stage ladder
+  # for the Quest-Guide segment, and the steps below implement it in order:
+  #   200  Enter Quest Guide's house        <- steps 8-9 (open north door + enter)
+  #   220  Talk to Quest Guide              <- step 10 (+ exhaust intro, step 11)
+  #   230  Open the Quests tab              <- step 12  (TAB_OPEN quests)  ** THE GATE **
+  #   240  Talk to Quest Guide AGAIN        <- step 12b (+ exhaust monologue, 12c)
+  #   250  Take the ladder to mining area   <- steps 12d/12e/13
+  # AUDIT RESULT: the routine is NOT missing the tab-open — opening the Quests tab
+  # (230) then RE-talking the guide (240) is exactly what arms the ladder per the
+  # wiki, and steps 12/12b already do both in the correct order. attempt #2's
+  # ladder desync was NOT a missing step; it was (a) a resume from step 12b on an
+  # already-desynced parked account and (b) the ladder-pin geometry bug now fixed
+  # in 12d/12e. On a FRESH account run from step 1 this sequence advances 281
+  # cleanly to 250. (This maps to 00_master's progress_gate: 250 for this section,
+  # which is correct — the section is complete once 281 reaches 250.)
+  # ──────────────────────────────────────────────────────────────────────────────
   - id: 10
     description: "Talk to Quest Guide (intro)"
     action: INTERACT_NPC
@@ -192,19 +209,43 @@ steps:
       monologue is the actual tutorial gate for the ladder; once it is fully
       cleared the Climb-down descends.
 
-  # POSITION-PIN before the ladder (finding #2a): the ladder INTERACT is
-  # range-based. Steps 10-12c leave the player next to the Quest Guide (~3084,
-  # 3121), and clicking the Climb-down from too far gave "I can't reach that!"
-  # (attempt #1 resume runs, silent SUCCESS). Seat EXACTLY on the ladder's
-  # surface tile first so the Climb-down is issued adjacent. exact mode disables
-  # the DEFECT-7 3-tile short-circuit so we actually reach x=3088.
+  # POSITION-PIN before the ladder (LADDER RE-PIN 2026-07-19, attempt #2 fix):
+  # the ladder INTERACT is range-based. Attempt #2's pin `GOTO 3088 3119 exact`
+  # targeted the ladder tile ITSELF, which is BLOCK_MOVEMENT_FULL (collision dump
+  # flags=0x24120: FULLBLOCK) -- you cannot stand on it. Pathfinding to that
+  # unwalkable tile EJECTED the player OUTSIDE the house's south wall to
+  # (3088,3118) [y=3118 is the exterior row], from where the Climb-down returned
+  # "I can't reach that!". The ONLY walkable tile adjacent to the ladder is
+  # (3088,3120) (collision-confirmed walkable, directly NORTH of the ladder,
+  # INSIDE the house). The player is already interior here (entered via the
+  # north door in steps 8-10 to talk to the Quest Guide), so we route to the
+  # ladder along the interior walkable row y=3120 (x=3084..3088 all walkable) --
+  # seat first on an interior tile WEST of the ladder, then step east onto the
+  # approach tile. This keeps the pathfinder INSIDE and off the south wall.
   - id: 12d
-    description: "Walk onto the ladder's surface tile before climbing (exact-arrival)"
+    description: "Seat on interior tile west of ladder, staying inside the house (exact-arrival)"
     action: GOTO
-    args: "3088 3119 0 exact"
+    args: "3086 3120 0 exact"
     delay_before_ms: 500
-    await_condition: "location:3088,3119"
+    await_condition: "location:3086,3120"
     timeout_ms: 60000
+    notes: |
+      Interior walkable tile (collision-confirmed) on the same y=3120 row as the
+      ladder approach. Seating here first forces the next hop to stay INSIDE and
+      approach the ladder from the north (interior) rather than routing around
+      the south wall to the unwalkable ladder tile.
+
+  - id: 12e
+    description: "Step onto the ladder's ONLY walkable adjacent tile, north of it (exact-arrival)"
+    action: GOTO
+    args: "3088 3120 0 exact"
+    delay_before_ms: 500
+    await_condition: "location:3088,3120"
+    timeout_ms: 60000
+    notes: |
+      (3088,3120) is the sole walkable tile adjacent to the ladder at (3088,3119)
+      (collision dump: ladder tile = FULLBLOCK, this tile = walkable(0)). The
+      Climb-down is issued from directly north of the ladder, in range, interior.
 
   - id: 13
     description: "Climb down ladder to mining section (gate now open)"
@@ -212,17 +253,20 @@ steps:
     args: "Ladder Climb-down"
     delay_before_ms: 1500
     delay_after_ms: 2000
+    await_condition: "location:3088,9520"
+    timeout_ms: 30000
     notes: |
       Descends to the underground mining area (~3088, 9520 -- still plane 0,
-      detect descent by the y-coordinate JUMP, NOT a plane change). Gate is open
-      only after the RE-TALK (12b) + its completion monologue (12c) are exhausted.
-      Live-verified 2026-07-19: after that recipe one Climb-down landed the player
-      at (3088, 9520).
-      HONESTY NOTE: descent itself is verified by the NEXT section
-      (07_mining_smithing step 1: `GOTO 3080 9504 0` await `location:3080,9504`).
-      If the gate did NOT open (dialogue desync) the player stays on the surface,
-      that await times out, and strict_steps fails section 07 -- so the chain
-      STOPS honestly instead of blind-mining nothing for 40+ minutes (attempt #1).
+      detect descent by the y-coordinate JUMP, NOT a plane change; there is NO
+      plane change on this descent, so the await is a location y-jump, not
+      `plane:1`). Gate is open only after the RE-TALK (12b) + its completion
+      monologue (12c) are exhausted. Live-verified 2026-07-19: after that recipe
+      one Climb-down landed the player at (3088, 9520).
+      HONESTY NOTE: with strict_steps, if the gate did NOT open (dialogue desync)
+      the player stays on the surface, this await times out, and the section
+      FAILS honestly -- the chain STOPS instead of blind-marching into 40+ blind
+      minutes (attempt #1). The next section (07_mining_smithing step 1:
+      `GOTO 3080 9504 0 exact` await `location:3080,9504`) re-confirms as backup.
 
 # PITFALLS DISCOVERED (2026-01-25, updated 2026-07-18):
 # 1. MUST settle IN FRONT of cooking exit door at (3073, 3090) before INTERACT_OBJECT works

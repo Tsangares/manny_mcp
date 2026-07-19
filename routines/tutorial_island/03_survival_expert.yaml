@@ -44,7 +44,7 @@ steps:
   - id: 1
     description: "Walk to Survival Expert area"
     action: GOTO
-    args: "3100 3095 0"
+    args: "3100 3095 0 exact"
     await_condition: "location:3100,3095"
     timeout_ms: 120000
     # VALIDATED: Must walk closer before INTERACT_NPC works (range limit ~10 tiles)
@@ -84,7 +84,7 @@ steps:
   - id: 7
     description: "Walk to fishing spot"
     action: GOTO
-    args: "3101 3093 0"
+    args: "3101 3093 0 exact"
     await_condition: "location:3101,3093"
     timeout_ms: 60000
     # VALIDATED: Must be close to fishing spot before interaction works

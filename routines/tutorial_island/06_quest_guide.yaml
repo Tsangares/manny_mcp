@@ -24,13 +24,13 @@ steps:
   - id: 1
     description: "Walk to Quest Guide building area"
     action: GOTO
-    args: "3086 3110 0"
+    args: "3086 3110 0 exact"
     notes: "From cooking exit (3072, 3090), walk toward Quest Guide"
 
   - id: 2
     description: "Walk to Quest Guide building door"
     action: GOTO
-    args: "3086 3126 0"
+    args: "3086 3126 0 exact"
     delay_before_ms: 3000
 
   - id: 3
@@ -122,12 +122,26 @@ steps:
   # POSITION-PIN before the ladder (finding #2a): seat on the ladder's surface
   # tile so the range-based Climb-down is issued adjacent, not from across the
   # room ("I can't reach that!" silent-SUCCESS was the attempt-#1 06-resume bug).
+  # LADDER RE-PIN (2026-07-19, parity with 05_cooking_to_quest_guide 12d/12e):
+  # (3088,3119) is the ladder tile itself and is BLOCK_MOVEMENT_FULL (collision
+  # dump: FULLBLOCK) -- pinning onto it ejects the player outside the south wall
+  # and Climb-down returns "I can't reach that!". The only walkable adjacent tile
+  # is (3088,3120), north of the ladder, interior. Route there via the interior
+  # y=3120 row (seat west first, then step east) to stay inside the house.
   - id: 15b
-    description: "Walk onto the ladder's surface tile before climbing (exact-arrival)"
+    description: "Seat on interior tile west of ladder (exact-arrival)"
     action: GOTO
-    args: "3088 3119 0 exact"
+    args: "3086 3120 0 exact"
     delay_before_ms: 500
-    await_condition: "location:3088,3119"
+    await_condition: "location:3086,3120"
+    timeout_ms: 60000
+
+  - id: 15c
+    description: "Step onto the ladder's only walkable adjacent tile, north of it (exact-arrival)"
+    action: GOTO
+    args: "3088 3120 0 exact"
+    delay_before_ms: 500
+    await_condition: "location:3088,3120"
     timeout_ms: 60000
 
   - id: 16

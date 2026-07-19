@@ -103,7 +103,7 @@ steps:
   - id: 12
     description: "Walk to gate before opening"
     action: GOTO
-    args: "3090 3091 0"
+    args: "3090 3091 0 exact"
     delay_before_ms: 1000
     await_condition: "location:3090,3091"
     timeout_ms: 120000
@@ -140,7 +140,7 @@ steps:
   - id: 15
     description: "Recovery: walk back to Survival Expert start tile for safe re-entry (no-op on success)"
     action: GOTO
-    args: "3100 3095 0"
+    args: "3100 3095 0 exact"
     delay_before_ms: 500
     repeat_until: "no_item:Raw shrimps"
     max_iterations: 1

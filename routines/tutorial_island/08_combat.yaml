@@ -86,7 +86,7 @@ steps:
   - id: 1
     description: "Walk to Combat Instructor / rat-cage entrance"
     action: GOTO
-    args: "3104 9509 0"
+    args: "3104 9509 0 exact"
     delay_before_ms: 500
     await_condition: "location:3104,9509"
     timeout_ms: 120000
@@ -198,7 +198,7 @@ steps:
   - id: 16
     description: "Walk to the confirmed exit-gate approach tile"
     action: GOTO
-    args: "3109 9515 0"
+    args: "3109 9515 0 exact"
     await_condition: "location:3109,9515"
     timeout_ms: 60000
     delay_before_ms: 500
@@ -213,7 +213,7 @@ steps:
   - id: 18
     description: "Walk back toward the Combat Instructor"
     action: GOTO
-    args: "3106 9505 0"
+    args: "3106 9505 0 exact"
     await_condition: "location:3106,9505"
     timeout_ms: 60000
     delay_before_ms: 500
@@ -279,7 +279,7 @@ steps:
   - id: 27
     description: "Walk to exit ladder"
     action: GOTO
-    args: "3111 9525 0"
+    args: "3111 9525 0 exact"
     delay_before_ms: 500
     await_condition: "location:3111,9525"
     timeout_ms: 60000
