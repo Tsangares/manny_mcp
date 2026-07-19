@@ -4,8 +4,10 @@ Handles building, starting, stopping, and checking status.
 Supports multi-client via account_id parameter.
 """
 import asyncio
+import os
 import subprocess
 import time
+from pathlib import Path
 
 from ..credentials import credential_manager
 from ..registry import registry
@@ -30,6 +32,63 @@ ACCOUNT_ID_SCHEMA = {
 }
 
 
+def _install_pathfinder_resources() -> dict:
+    """
+    Stage the vendored pathfinder data (collision-map.zip, transports/transports.tsv,
+    data.fingerprint) from the plugin repo into the RuneLite resource tree before
+    compiling, via manny/scripts/install_pathfinder_resources.sh (nav WP6 wiring gap:
+    journals/NAV_WP6_DATA_REFRESH_SCOPE_2026-07-19.md item 4). Without this, a
+    re-cloned RuneLite tree or a post-refresh build silently ships without the
+    pathfinder resources (or with a stale copy the runtime integrity guard then
+    refuses at load).
+
+    Cheap and idempotent: the script only copies files whose contents differ, so
+    calling it on every build is a near-no-op once resources are current. Uses the
+    server's own config (plugin_directory / runelite_root) for path resolution --
+    no hardcoded absolute paths.
+
+    Fails loud: a missing script or a nonzero exit is returned as success=False
+    with the script's combined stdout/stderr, and the caller must abort the build
+    rather than proceeding with (possibly stale) resources.
+    """
+    script = Path(config.plugin_directory) / "scripts" / "install_pathfinder_resources.sh"
+    if not script.is_file():
+        return {
+            "success": False,
+            "error": f"install_pathfinder_resources.sh not found at {script}",
+            "output": "",
+        }
+
+    env = dict(os.environ)
+    env["MANNY_ROOT"] = str(config.plugin_directory)
+    env["RUNELITE_ROOT"] = str(config.runelite_root)
+
+    try:
+        result = subprocess.run(
+            [str(script)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env=env,
+        )
+    except Exception as e:
+        return {
+            "success": False,
+            "error": f"install_pathfinder_resources.sh failed to run: {e}",
+            "output": "",
+        }
+
+    output = (result.stdout or "") + (result.stderr or "")
+    if result.returncode != 0:
+        return {
+            "success": False,
+            "error": f"install_pathfinder_resources.sh exited {result.returncode}",
+            "output": output,
+        }
+
+    return {"success": True, "output": output}
+
+
 @registry.register({
     "name": "build_plugin",
     "description": "[RuneLite] Compile the manny RuneLite plugin using Gradle. Returns structured build results with any errors.",
@@ -48,6 +107,19 @@ async def handle_build_plugin(arguments: dict) -> dict:
     """Run Gradle to compile the plugin."""
     clean = arguments.get("clean", True)
     start_time = time.time()
+
+    # Stage current pathfinder resources onto the classpath before compiling
+    # (nav WP6 wiring gap -- see _install_pathfinder_resources docstring).
+    # Fail loud and abort the build rather than shipping stale/missing data.
+    pathfinder_result = await asyncio.to_thread(_install_pathfinder_resources)
+    if not pathfinder_result["success"]:
+        return {
+            "success": False,
+            "stage": "install_pathfinder_resources",
+            "error": pathfinder_result["error"],
+            "output": pathfinder_result["output"],
+            "build_time_seconds": round(time.time() - start_time, 2),
+        }
 
     # Build with Gradle, skipping tests and code quality checks
     cmd = ["./gradlew"]
@@ -82,7 +154,8 @@ async def handle_build_plugin(arguments: dict) -> dict:
         "build_time_seconds": round(build_time, 2),
         "errors": errors,
         "warnings": warnings[:10],  # Truncate warnings
-        "return_code": result.returncode
+        "return_code": result.returncode,
+        "pathfinder_resources": pathfinder_result["output"].strip(),
     }
 
     # Write large responses to file to avoid filling context
