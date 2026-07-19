@@ -134,7 +134,7 @@ class TestRunChain:
         chain, names = await self._make_chain(tmp_path, 3)
         calls = []
 
-        async def fake_run(path, max_loops, start_step, account_id):
+        async def fake_run(path, max_loops, start_step, account_id, force=False):
             calls.append(os.path.basename(path))
             return {"success": True, "routine_name": os.path.basename(path)}
 
@@ -149,7 +149,7 @@ class TestRunChain:
         chain, names = await self._make_chain(tmp_path, 3)
         calls = []
 
-        async def fake_run(path, max_loops, start_step, account_id):
+        async def fake_run(path, max_loops, start_step, account_id, force=False):
             calls.append(os.path.basename(path))
             # Second section fails.
             ok = len(calls) != 2
@@ -166,7 +166,7 @@ class TestRunChain:
         chain, names = await self._make_chain(tmp_path, 3)
         calls = []
 
-        async def fake_run(path, max_loops, start_step, account_id):
+        async def fake_run(path, max_loops, start_step, account_id, force=False):
             calls.append(os.path.basename(path))
             ok = len(calls) != 2
             return {"success": ok, "routine_name": os.path.basename(path)}

@@ -127,7 +127,8 @@ def is_chain(path: str) -> bool:
         return False
 
 
-async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '1', account_id: str = None):
+async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '1',
+                      account_id: str = None, force: bool = False):
     """Run a YAML routine and return results."""
     from mcptools import transport
     from mcptools.config import ServerConfig
@@ -182,7 +183,8 @@ async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '
         'routine_path': routine_path,
         'max_loops': max_loops,
         'start_step': start_step,
-        'account_id': account_id
+        'account_id': account_id,
+        'force': force
     })
 
     # Get final state
@@ -215,7 +217,7 @@ async def run_routine(routine_path: str, max_loops: int = 1, start_step: str = '
 
 
 async def run_chain(chain_path: str, max_loops: int = 1, account_id: str = None,
-                    continue_on_error: bool = False):
+                    continue_on_error: bool = False, force: bool = False):
     """Run an ordered chain of routines (chain YAML or directory).
 
     Each section is executed in order via ``run_routine``. By default the chain
@@ -254,7 +256,7 @@ async def run_chain(chain_path: str, max_loops: int = 1, account_id: str = None,
                 break
             continue
 
-        result = await run_routine(routine_path, max_loops, '1', account_id)
+        result = await run_routine(routine_path, max_loops, '1', account_id, force)
         section = {"routine": routine_path, **result}
         sections.append(section)
 
@@ -340,6 +342,9 @@ def main():
     parser.add_argument('--json', action='store_true', help='Output raw JSON instead of formatted')
     parser.add_argument('--continue-on-error', action='store_true',
                         help='For chains/directories: keep running later sections after a failure')
+    parser.add_argument('--force', action='store_true',
+                        help='DEFECT-26: start even if the account already has a kill loop '
+                             'active (normally refused to avoid a concurrent dual-loop)')
 
     args = parser.parse_args()
 
@@ -353,7 +358,7 @@ def main():
         print(f"Loops/section: {args.loops}, Account: {args.account or 'default'}, "
               f"continue_on_error: {args.continue_on_error}")
         result = asyncio.run(run_chain(args.routine, args.loops, args.account,
-                                       args.continue_on_error))
+                                       args.continue_on_error, args.force))
         if args.json:
             print(json.dumps(result, indent=2))
         else:
@@ -363,7 +368,7 @@ def main():
     print(f"Running: {args.routine}")
     print(f"Loops: {args.loops}, Start step: {args.start_step}, Account: {args.account or 'default'}")
 
-    result = asyncio.run(run_routine(args.routine, args.loops, args.start_step, args.account))
+    result = asyncio.run(run_routine(args.routine, args.loops, args.start_step, args.account, args.force))
 
     if args.json:
         print(json.dumps(result, indent=2))

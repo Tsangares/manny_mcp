@@ -146,6 +146,23 @@ def state_age_s(state_file):
         return None
 
 
+def read_active_loop(state_file):
+    """Return the state file's ``active_loop`` dict, or None. Never raises.
+
+    DEFECT-26: the plugin publishes a live kill-loop status under ``active_loop``
+    (null when idle). The watchdog reads it so it can tell a clean exit from a
+    run that died while a loop is still grinding (an UNMANAGED grind)."""
+    try:
+        with open(state_file, "r", errors="replace") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    al = data.get("active_loop")
+    return al if isinstance(al, dict) else None
+
+
 def pid_alive(pid):
     if not pid:
         return False
@@ -207,6 +224,7 @@ class RunRecord:
             "last_check": None,
             "temp_c": None,
             "state_age_s": None,
+            "active_loop": None,
             "status": "running",
             "crash_source": _CRASH_SRC,
             "events": [],
@@ -279,10 +297,12 @@ def main(argv):
         age = state_age_s(state_file)
         run_up = pid_alive(args.run_pid)
         client_up = pid_alive(args.client_pid) if args.client_pid else None
+        active_loop = read_active_loop(state_file)
 
         rec.update(last_check=now_iso(),
                    temp_c=temp,
-                   state_age_s=(round(age, 1) if age is not None else None))
+                   state_age_s=(round(age, 1) if age is not None else None),
+                   active_loop=active_loop)
 
         unhealthy = False
 
@@ -292,6 +312,19 @@ def main(argv):
             final_crashes = tail_crash_matches(log_file, seen_crash)
             for pat, desc, line in final_crashes:
                 rec.event("crash", "%s :: %s" % (desc, line))
+
+            # DEFECT-26: run process gone but the plugin-side kill loop is STILL
+            # grinding -> the grind is now UNMANAGED. Never mark this "completed":
+            # the whole point of Track-F is to notice exactly this. Record it so
+            # the LLM driver can re-attach / STOP the loop.
+            if active_loop is not None:
+                rec.update(status="unmanaged_loop")
+                rec.event("unmanaged_loop",
+                          "run pid %s gone but active_loop still present: %s"
+                          % (args.run_pid, active_loop))
+                rec.flush()
+                return 0
+
             unclean = bool(final_crashes) or last_unhealthy or (
                 age is not None and age > STATE_STALE_S)
             status = "dead" if unclean else "completed"

@@ -1067,6 +1067,112 @@ def interpolate_variables(text: str, config: dict) -> str:
     return re.sub(pattern, replacer, text)
 
 
+# ============================================================================
+# DEFECT-26: plugin-side kill-loop blocking + guard
+# ----------------------------------------------------------------------------
+# KILL_LOOP / KILL_LOOP_CONFIG route through the Java KillLoopCommand, which
+# runs a detached, long-lived loop on a background thread. Its IPC response
+# returns EARLY — sub-operations inside the loop (equip, drop, cook, bury) emit
+# rid-correlated responses, so ``transport.send_command`` matches the FIRST one
+# and reports "success" ~seconds in while the loop grinds on for hours. That is
+# exactly why run_routine.py used to report "1 loop SUCCESS" and exit, leaving
+# the grind UNMANAGED (the watchdog, attached to the run pid, then exits too).
+#
+# The plugin now exports ``active_loop`` into the state JSON
+# (GameEngine.StateExporter <- KillLoopCommand.getActiveLoopStatus). We poll it
+# to block until the loop actually finishes, so run_routine (and the watchdog
+# attached to it) stay alive for the loop's real duration.
+# ============================================================================
+KILL_LOOP_COMMANDS = {"KILL_LOOP", "KILL_LOOP_CONFIG"}
+
+
+def _active_loop_from_state(state: dict):
+    """Return the active_loop dict from a state snapshot, or None if absent."""
+    if not isinstance(state, dict):
+        return None
+    al = state.get("active_loop")
+    return al if isinstance(al, dict) else None
+
+
+def _loop_progress_key(active_loop: dict):
+    """A tuple that advances while the loop makes progress (kills/iteration)."""
+    if not isinstance(active_loop, dict):
+        return None
+    return (active_loop.get("kills"), active_loop.get("iteration"))
+
+
+async def check_active_loop(account_id: str = None):
+    """Return the account's active_loop status dict, or None if no loop is active.
+
+    Used as the pre-launch guard (refuse to start a routine over a running kill
+    loop) and by callers that need to know whether a grind is already in flight.
+    """
+    state = await get_game_state(account_id)
+    return _active_loop_from_state(state)
+
+
+async def _await_active_loop_finish(account_id: str, timeout_ms: int,
+                                    appear_grace_ms: int = 45000,
+                                    poll_interval_ms: int = 3000,
+                                    stall_ms: int = 300000) -> dict:
+    """Block until the plugin-side kill loop (state.active_loop) finishes.
+
+    Poll semantics:
+    - Wait up to ``appear_grace_ms`` for active_loop to APPEAR (loop spins up).
+      If it never appears, assume the plugin doesn't export the signal (old
+      build) or the loop already ended, and return without blocking further
+      (backward-compatible — the caller falls back to the command response).
+    - Once seen, block WHILE active_loop is present until one of:
+        * it clears            -> {"finished": True}
+        * ``timeout_ms`` elapse -> {"timeout": True}
+        * kills/iteration stop advancing for ``stall_ms`` -> {"stalled": True}
+    """
+    interval = max(0.5, poll_interval_ms / 1000.0)
+    overall_deadline = time.time() + max(0, timeout_ms) / 1000.0
+    appear_deadline = time.time() + max(0, appear_grace_ms) / 1000.0
+
+    # Phase 1: wait for the loop to appear (it may take a few seconds to spin up).
+    active = await check_active_loop(account_id)
+    while active is None:
+        if time.time() >= appear_deadline or time.time() >= overall_deadline:
+            _routine_logger.info(
+                "[KILL-LOOP-WAIT] No active_loop signal appeared within %dms — "
+                "not blocking (old plugin build or loop already finished).",
+                appear_grace_ms)
+            return {"waited": False, "reason": "no_active_loop_signal"}
+        await asyncio.sleep(interval)
+        active = await check_active_loop(account_id)
+
+    _routine_logger.info("[KILL-LOOP-WAIT] active_loop detected (%s) — blocking until it finishes.",
+                         active)
+
+    # Phase 2: block while the loop is present.
+    last_progress = _loop_progress_key(active)
+    last_progress_ts = time.time()
+    while True:
+        if time.time() >= overall_deadline:
+            _routine_logger.warning(
+                "[KILL-LOOP-WAIT] step timeout_ms (%dms) elapsed while loop still active.",
+                timeout_ms)
+            return {"waited": True, "timeout": True, "last_active_loop": active}
+
+        await asyncio.sleep(interval)
+        active = await check_active_loop(account_id)
+        if active is None:
+            _routine_logger.info("[KILL-LOOP-WAIT] active_loop cleared — loop finished.")
+            return {"waited": True, "finished": True}
+
+        progress = _loop_progress_key(active)
+        if progress != last_progress:
+            last_progress = progress
+            last_progress_ts = time.time()
+        elif (time.time() - last_progress_ts) * 1000.0 >= stall_ms:
+            _routine_logger.warning(
+                "[KILL-LOOP-WAIT] loop stalled (no kill progress for %dms): %s",
+                stall_ms, active)
+            return {"waited": True, "stalled": True, "last_active_loop": active}
+
+
 # NOTE: intentionally NOT a registered MCP tool. Routines are executed via
 # ./run_routine.py (the canonical path), which calls this handler directly.
 async def handle_execute_routine(arguments: dict) -> dict:
@@ -1075,6 +1181,7 @@ async def handle_execute_routine(arguments: dict) -> dict:
     start_step = arguments.get("start_step", 1)
     max_loops = arguments.get("max_loops", 10000)
     account_id = arguments.get("account_id")
+    force = arguments.get("force", False)
 
     # Load routine YAML
     try:
@@ -1087,6 +1194,23 @@ async def handle_execute_routine(arguments: dict) -> dict:
 
     if not routine or 'steps' not in routine:
         return {"success": False, "error": "Routine has no steps"}
+
+    # DEFECT-26 pre-launch guard: refuse to start over a running kill loop.
+    # Launching a routine (esp. one containing KILL_LOOP) while the client is
+    # already grinding a loop used to spawn a SECOND concurrent loop thread
+    # (dual-loop collision). Bail loudly unless --force was passed.
+    already_active = await check_active_loop(account_id)
+    if already_active is not None:
+        msg = (f"A kill loop is already active on account "
+               f"'{account_id or 'default'}' (active_loop={already_active}). "
+               f"Refusing to start a routine over it (would risk a concurrent "
+               f"dual-loop). Stop the loop first, or re-run with --force.")
+        if not force:
+            _routine_logger.error("[ROUTINE] %s", msg)
+            return {"success": False, "error": msg,
+                    "active_loop": already_active, "guard": "kill_loop_active"}
+        _routine_logger.warning("[ROUTINE] --force set: starting despite active kill loop (%s)",
+                                already_active)
 
     steps = routine['steps']
     loop_config = routine.get('loop', {})
@@ -1598,6 +1722,27 @@ async def _execute_step_once(step: dict, step_idx: int, routine_config: dict, ac
         step_result["elapsed_ms"] = result.get("elapsed_ms")
         if result.get("error"):
             step_result["error"] = result["error"]
+
+        # DEFECT-26: KILL_LOOP/KILL_LOOP_CONFIG responses return EARLY (see the
+        # KILL_LOOP_COMMANDS note above). Block on the plugin's exported
+        # active_loop signal until the loop truly finishes, so run_routine — and
+        # the watchdog attached to its pid — stay alive for the whole grind.
+        action_word = (action or "").strip().upper()
+        if action_word in KILL_LOOP_COMMANDS:
+            loop_wait = await _await_active_loop_finish(account_id, timeout_ms)
+            step_result["loop_wait"] = loop_wait
+            if loop_wait.get("finished"):
+                step_result["success"] = True
+            elif loop_wait.get("timeout") or loop_wait.get("stalled"):
+                # Loop outlived the step timeout or stopped advancing: surface it
+                # as a step failure so the runner/ledger don't call it clean.
+                step_result["success"] = False
+                step_result["error"] = (
+                    "kill loop did not finish within timeout_ms"
+                    if loop_wait.get("timeout") else
+                    "kill loop stalled (no kill progress)")
+            # else: no active_loop signal ever appeared -> keep the early
+            # response's success verdict (backward-compatible fallback).
 
     # Apply delay after action
     delay_after = step.get('delay_after_ms', 0)
