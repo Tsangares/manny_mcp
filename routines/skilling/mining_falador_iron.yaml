@@ -37,14 +37,14 @@ locations:
     validated: true
 
   inside_building:
-    x: 3019
-    y: 9739
+    x: 3018
+    y: 9738
     plane: 0
     description: "Inside the building, near staircase"
 
   iron_rocks:
-    x: 3033
-    y: 9737
+    x: 3032
+    y: 9736
     plane: 0
     description: "Iron rock cluster in Dwarven Mine"
     notes: "3 iron rocks close together"
@@ -78,10 +78,10 @@ steps:
   - id: 3
     phase: "enter_mine"
     action: GOTO
-    args: "3019 3450 0"
+    args: "3018 3449 0"
     description: "Walk inside the building"
     delay_after_ms: 500
-    await_condition: "location:3019,3450"
+    await_condition: "location:3018,3449"
     timeout_ms: 120000
 
   - id: 4
@@ -89,7 +89,7 @@ steps:
     action: INTERACT_OBJECT
     args: "Staircase Climb-down"
     description: "Climb down stairs to Dwarven Mine"
-    await_condition: "location:3019,9739"
+    await_condition: "location:3018,9738"
     timeout_ms: 15000
     delay_after_ms: 2000
     notes: "Underground uses different Y coordinates (+6400 offset), NOT a plane
@@ -98,17 +98,19 @@ steps:
       before the click), so it passed on the first poll whether or not the
       staircase click worked -- a missed click only surfaced later as a
       confusing step-5 GOTO timeout from the surface. Now waits on the
-      underground landing tile (locations.inside_building, 3019,9739), which
-      actually verifies the descent."
+      underground landing tile (locations.inside_building, 3018,9738 -- fixed
+      2026-07-19: the route-lint harness found the prior pin 3019,9739
+      non-walkable, nearest walkable one tile off), which actually verifies
+      the descent."
 
   # ========== PHASE 2: WALK TO IRON ROCKS ==========
   - id: 5
     phase: "navigate_to_iron"
     action: GOTO
-    args: "3033 9737 0"
+    args: "3032 9736 0"
     description: "Walk to iron rock cluster"
     notes: "Underground coordinates"
-    await_condition: "location:3033,9737"
+    await_condition: "location:3032,9736"
     timeout_ms: 120000
 
   # ========== PHASE 3: POWER MINE ==========
