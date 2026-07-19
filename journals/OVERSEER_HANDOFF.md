@@ -398,3 +398,27 @@ at 8h, log it out / stop its client and switch testing to the OTHER account/lane
 client's start (≈2h rest), then it may resume. Track each client's start time (ps lstart / ledger).
 Applies to Track G planning too: the 4h+ proof fits inside one 8h window, but schedule the grind's start
 so the cap isn't hit mid-proof.
+
+---
+## WINDOW #3 RESULT — 2026-07-19 ~07:00Z (DEFECT-26 CLOSED; two-lane proven)
+All four DEFECT-26 gates PASSED on live diort: (a) run_routine blocks for the full KILL_LOOP batch
+(active_loop advanced 0→5 then cleared); (b) STOP halts within one iteration via the InterruptedException
+handler; (c) dual-launch: Python guard rejects (`"guard": "kill_loop_active"`); raw-KILL_LOOP path
+serializes via command-file transport → old loop CANCELLED before new starts (no twin threads ever —
+invariant holds by cancellation, not rejection); (d) SWITCH_COMBAT_STYLE clicks the stance widget
+(CC_OP). Key findings: KILL_LOOP's startup auto-equip is a NO-OP when the weapon is already optimal →
+stance persists (the documented reset risk did not materialize); SwitchCombatStyle's built-in tab-open is
+flaky as a first action → routines must send explicit `TAB_OPEN Combat` first (28a3a28). Bronze sword
+stances: Stab(att)/Lunge(shared)/Slash(str)/Block(def).
+- **Lane 1 (newbakshesh):** client pid 2391595 (:2) started 06:19:54Z → **8h cap 14:19:54Z** (rest→~16:20Z).
+  Defence grind run `20260719T065401Z_newbakshesh` RUNNING (Block stance verified by XP attribution:
+  def climbing, atk/str frozen). Levels at redirect: att 8 / str 15 / def 1. navBackend=shadow.
+- **Lane 2 (blast):** two-client operation PROVEN (both up 06:40–06:58Z, peak 76°C — well under 84 abort).
+  Tutorial regression cleared 01–05 hands-free, then **STRUCTURALLY STUCK at 05→06 bridge**
+  (05_cooking_to_quest_guide.yaml): GOTO 3072,3090 left player at (3074,3091), 2 tiles east of the
+  west-edge corridor; all north hops wall-blocked (DEFECT-19 class + DEFECT-7 3-tile short-circuit).
+  Fix: rewrite bridge as exact-arrival GOTOs seating x=3072 FIRST, then north. blast client PARKED
+  (clean scoped stop; progress saved server-side; 8h clock reset).
+- **Shadow soak** (f467d47): engine healthy (median 373µs, zero mainland NONEs) but WP5 gate stays closed —
+  0 transport samples, thin mainland n=9. Need 100+ lines incl. a door/stair crossing (E2 provides).
+- diort creds now include blast. Repo commits this window: 28a3a28, bb20439, f467d47.
