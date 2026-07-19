@@ -326,11 +326,35 @@ class TestKillLoopFoodArg:
 
 
 # ---------------------------------------------------------------------------
-# Corpus anchor: the real chicken_killer_loop.yaml MUST be flagged for both
-# the numeric-food arg and the dead loop.max_iterations key.
+# Regression: the pre-fix chicken_killer_loop.yaml shape (numeric-food arg +
+# dead loop.max_iterations key). This used to be a corpus-anchored test
+# against the live routines/combat/chicken_killer_loop.yaml file, but that
+# file was fixed in commit 0d600ee (proper `none` food arg, max_iterations
+# dropped in favor of stop_conditions), decoupling the regression coverage
+# from mutable corpus state. The buggy shape is now reproduced inline via
+# tmp_path so this test stays stable regardless of corpus edits.
 # ---------------------------------------------------------------------------
 class TestCorpusChickenKiller:
-    def test_chicken_killer_loop_flagged(self):
+    def test_chicken_killer_loop_flagged(self, tmp_path):
+        path = _write_yaml(tmp_path, "chicken_killer_loop_buggy.yaml", {
+            "name": "Chicken Killer Auto-Loop",
+            "type": "combat",
+            "skill": "combat",
+            "steps": [
+                {"id": 1, "phase": "combat", "action": "KILL_LOOP",
+                 "args": "Chicken 100", "description": "Kill 100 chickens",
+                 "timeout_ms": 3600000},
+            ],
+            "loop": {"enabled": True, "max_iterations": 50},
+        })
+        res = _validate(path)
+        assert any("2nd arg" in e and "food name" in e.lower()
+                   for e in res["errors"]), _errs(res)
+        assert any("max_iterations" in w for w in res["warnings"]), _warns(res)
+
+    def test_live_chicken_killer_loop_now_clean(self):
+        # Corpus-health check: the real routine, post-fix (commit 0d600ee),
+        # must validate with zero errors.
         import os
         repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         path = os.path.join(repo, "routines/combat/chicken_killer_loop.yaml")
@@ -338,9 +362,7 @@ class TestCorpusChickenKiller:
             import pytest
             pytest.skip("chicken_killer_loop.yaml not present")
         res = _validate(path)
-        assert any("2nd arg" in e and "food name" in e.lower()
-                   for e in res["errors"]), _errs(res)
-        assert any("max_iterations" in w for w in res["warnings"]), _warns(res)
+        assert res["errors"] == [], _errs(res)
 
 
 # ---------------------------------------------------------------------------
