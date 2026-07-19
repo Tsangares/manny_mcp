@@ -2764,7 +2764,11 @@ def _routine_is_non_executable(routine: dict, routine_path: str) -> bool:
         return True
 
     # Human/LLM runbook format instead of machine `steps` (gravestone_retrieval).
-    if "manual_steps" in routine:
+    # Only exempt when there is NO real `steps:` list -- a routine that carries
+    # both a `manual_steps:` prose block AND an executable `steps:` list (e.g.
+    # utility/death_escape.yaml) is a genuine runnable routine and must NOT be
+    # written off as non-executable (V-2).
+    if "manual_steps" in routine and "steps" not in routine:
         return True
 
     # Filename signals a reference/catalog/library doc (widget_reference,
@@ -2919,8 +2923,17 @@ def validate_routine_deep(
                 args = step['args']
                 if isinstance(args, str):
                     parts = args.split()
-                    if len(parts) != 3:
-                        step_errors.append(f"Step {i}: GOTO requires 3 args (x y plane), got {len(parts)}")
+                    # GOTO accepts an optional trailing `exact` token (DEFECT-23
+                    # opt-in exact arrival -- GotoCommand.java:59-83 parses and
+                    # strips it), so both `x y plane` and `x y plane exact` are
+                    # legal.
+                    if len(parts) == 4 and parts[3].lower() != "exact":
+                        step_errors.append(
+                            f"Step {i}: GOTO 4th arg must be 'exact', got '{parts[3]}'")
+                    elif len(parts) not in (3, 4):
+                        step_errors.append(
+                            f"Step {i}: GOTO requires 3 args (x y plane) or 4 "
+                            f"(x y plane exact), got {len(parts)}")
                     else:
                         try:
                             x, y, plane = int(parts[0]), int(parts[1]), int(parts[2])

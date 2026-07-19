@@ -434,6 +434,98 @@ class TestCorpusChickenKiller:
 
 
 # ---------------------------------------------------------------------------
+# V-1: GOTO accepts an optional trailing `exact` token (DEFECT-23).
+# ---------------------------------------------------------------------------
+class TestGotoExactArg:
+    def test_goto_three_args_ok(self, tmp_path):
+        path = _write_yaml(tmp_path, "goto3.yaml", {
+            "name": "x",
+            "steps": [{"id": 1, "action": "GOTO", "args": "3073 3090 0",
+                       "description": "d"}],
+        })
+        res = _validate(path)
+        assert not any("GOTO" in e for e in res["errors"]), _errs(res)
+
+    def test_goto_four_args_exact_ok(self, tmp_path):
+        # `x y plane exact` is legal -- GotoCommand.java:59-83 strips `exact`.
+        path = _write_yaml(tmp_path, "goto4.yaml", {
+            "name": "x",
+            "steps": [{"id": 1, "action": "GOTO", "args": "3073 3090 0 exact",
+                       "description": "d"}],
+        })
+        res = _validate(path)
+        assert not any("GOTO" in e for e in res["errors"]), _errs(res)
+
+    def test_goto_four_args_bad_fourth_token_errors(self, tmp_path):
+        path = _write_yaml(tmp_path, "gotobad.yaml", {
+            "name": "x",
+            "steps": [{"id": 1, "action": "GOTO", "args": "3073 3090 0 fast",
+                       "description": "d"}],
+        })
+        res = _validate(path)
+        assert any("4th arg must be 'exact'" in e for e in res["errors"]), _errs(res)
+
+    def test_goto_five_args_errors(self, tmp_path):
+        path = _write_yaml(tmp_path, "goto5.yaml", {
+            "name": "x",
+            "steps": [{"id": 1, "action": "GOTO", "args": "1 2 0 exact extra",
+                       "description": "d"}],
+        })
+        res = _validate(path)
+        assert any("GOTO requires 3 args" in e for e in res["errors"]), _errs(res)
+
+    def test_live_cooking_to_quest_guide_clean(self):
+        # V-1 corpus anchor: this file uses `GOTO ... exact` and was the only
+        # corpus file failing validation purely due to the false positive.
+        import os
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(repo,
+                            "routines/tutorial_island/05_cooking_to_quest_guide.yaml")
+        if not os.path.exists(path):
+            import pytest
+            pytest.skip("file not present")
+        res = _validate(path)
+        assert res["errors"] == [], _errs(res)
+
+
+# ---------------------------------------------------------------------------
+# V-2: a routine carrying BOTH manual_steps: prose and a real steps: list is
+# executable -- the manual_steps exemption must not swallow it.
+# ---------------------------------------------------------------------------
+class TestManualStepsWithRealSteps:
+    def test_manual_steps_plus_steps_is_executable(self, tmp_path):
+        path = _write_yaml(tmp_path, "dualsteps.yaml", {
+            "name": "x", "type": "utility",
+            "manual_steps": ["press space", "click portal"],
+            "steps": [{"id": 1, "action": "GOTO", "args": "1 2 0",
+                       "description": "d",
+                       "await_condition": "location:1,2", "timeout_ms": 20000}],
+        })
+        res = _validate(path)
+        assert res["non_executable"] is False, res
+
+    def test_manual_steps_only_stays_non_executable(self, tmp_path):
+        path = _write_yaml(tmp_path, "proseonly.yaml", {
+            "name": "x", "type": "utility",
+            "manual_steps": ["press space", "click portal"],
+        })
+        res = _validate(path)
+        assert res["non_executable"] is True, res
+
+    def test_live_death_escape_executable(self):
+        # V-2 corpus anchor: death_escape.yaml has 12 real steps + a manual_steps
+        # doc block; it must be treated as a runnable routine.
+        import os
+        repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        path = os.path.join(repo, "routines/utility/death_escape.yaml")
+        if not os.path.exists(path):
+            import pytest
+            pytest.skip("file not present")
+        res = _validate(path)
+        assert res["non_executable"] is False, res
+
+
+# ---------------------------------------------------------------------------
 # Non-executable stubs stay exempt from the deep schema checks.
 # ---------------------------------------------------------------------------
 class TestStubExemption:
