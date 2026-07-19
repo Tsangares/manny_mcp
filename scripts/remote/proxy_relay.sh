@@ -14,15 +14,24 @@
 # A no-auth loopback relay sidesteps both: the JVM speaks plain SOCKS5 to
 # 127.0.0.1 and pproxy owns the upstream credentials + (future) sticky session.
 #
-# The upstream secret is read at RUNTIME from ~/.manny/credentials.yaml
-# (proxies.dataimpulse.socks5, stored as socks5h://user:pass@host:port) and
-# converted to pproxy's `socks5://host:port#user:pass` upstream form. The secret
-# is NEVER echoed by this script and never hard-coded.
+# The upstream secret is read at RUNTIME by socks_relay.py itself from the creds
+# file (proxies.dataimpulse.socks5, stored as socks5h://user:pass@host:port). The
+# relay defaults to ~/.manny/proxies.yaml (Bolt-immune) and falls back to
+# ~/.manny/credentials.yaml. The secret is read INSIDE the relay process — never
+# echoed by this script, never on argv, never hard-coded.
+#
+# HISTORY: this relay used to shell out to `pproxy`, but pproxy's `-r` URI parser
+# REJECTS the dataimpulse session/geo token in the username (`__cr.us;sessid.<id>`
+# — both the `.` and the `;` blow up its grammar). Since a live OSRS session needs
+# BOTH a US geo-pin and a sticky session, the token is mandatory, so pproxy was
+# swapped for scripts/remote/socks_relay.py (a dependency-free asyncio SOCKS5
+# forwarder that passes the token through verbatim). See
+# journals/2026-07-19_mat_sticky_proxy_bringup.md.
 #
 # Config (env):
 #   MANNY_SOCKS_PORT   loopback SOCKS5 port to listen on   (default: 1080)
 #   REPO_DIR           manny_mcp repo (for venv python)     (default: script's ../..)
-#   MANNY_CREDS        credentials.yaml path                (default: ~/.manny/credentials.yaml)
+#   MANNY_CREDS        creds file override (default: relay's proxies.yaml chain)
 #
 # Subcommands:
 #   start    launch the relay (idempotent — no-op if already up on this port)
@@ -35,12 +44,14 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="${REPO_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
 PORT="${MANNY_SOCKS_PORT:-1080}"
-CREDS="${MANNY_CREDS:-$HOME/.manny/credentials.yaml}"
+# Empty default => socks_relay.py uses its own creds chain (proxies.yaml, then
+# credentials.yaml). Set MANNY_CREDS to force a specific file.
+CREDS="${MANNY_CREDS:-}"
 
-PIDFILE="/tmp/manny_pproxy_${PORT}.pid"
-LOG="/tmp/manny_pproxy_${PORT}.log"
+PIDFILE="/tmp/manny_socks_relay_${PORT}.pid"
+LOG="/tmp/manny_socks_relay_${PORT}.log"
 
-# Prefer the repo venv python (has pproxy + pyyaml); fall back to system python3.
+# Prefer the repo venv python (has pyyaml); fall back to system python3.
 PYBIN="$REPO_DIR/venv/bin/python"
 [ -x "$PYBIN" ] || PYBIN="python3"
 
@@ -63,71 +74,25 @@ relay_pid() {
   return 1
 }
 
-# upstream_from_creds — read proxies.dataimpulse.socks5 and print pproxy's
-# upstream form `socks5://host:port#user:pass`. The secret is printed ONLY to
-# this function's stdout (captured into a local, never logged). Exits non-zero
-# with a message on stderr if the key is missing.
-upstream_from_creds() {
-  "$PYBIN" - "$CREDS" <<'PY'
-import sys, yaml
-path = sys.argv[1]
-try:
-    data = yaml.safe_load(open(path)) or {}
-except FileNotFoundError:
-    sys.stderr.write("proxy_relay: no credentials file: %s\n" % path)
-    sys.exit(2)
-raw = ((data.get("proxies") or {}).get("dataimpulse") or {}).get("socks5")
-if not raw:
-    sys.stderr.write("proxy_relay: proxies.dataimpulse.socks5 not set in %s\n" % path)
-    sys.exit(3)
-# socks5h://user:pass@host:port -> socks5://host:port#user:pass
-# rpartition('@') isolates the LAST '@' so an '@' inside the password is safe;
-# partition(':') splits on the FIRST ':' so a ':' inside the password is safe.
-after = raw.split("://", 1)[1]
-userinfo, _, hostport = after.rpartition("@")
-user, _, pw = userinfo.partition(":")
-if not hostport or not user:
-    sys.stderr.write("proxy_relay: malformed socks5 value (expected user:pass@host:port)\n")
-    sys.exit(4)
-print("socks5://%s#%s:%s" % (hostport, user, pw))
-PY
-}
-
 cmd_start() {
   local pid
   if pid="$(relay_pid)"; then
     echo "relay already up on 127.0.0.1:${PORT} (pid=$pid) — no-op"
     return 0
   fi
-  # Parse upstream secret into a local; never echo it.
-  local upstream
-  upstream="$(upstream_from_creds)" || {
-    echo "ERROR: could not read dataimpulse upstream from $CREDS (see message above)." >&2
-    echo "       Did you push creds to this host? (mannyctl <host> push-creds)" >&2
-    return 1
-  }
-  [ -n "$upstream" ] || { echo "ERROR: empty upstream parsed from creds" >&2; return 1; }
 
   echo "starting SOCKS5 relay on 127.0.0.1:${PORT} -> dataimpulse (secret not shown) ..."
   : >"$LOG" 2>/dev/null || true
   # setsid + </dev/null + >log sever the tty so an ssh disconnect can't SIGHUP it.
-  # We DON'T use `python -m pproxy`: pproxy 2.7.9 calls asyncio.get_event_loop()
-  # at startup, which RAISES on Python 3.14 (the auto-create-in-main-thread
-  # behaviour was removed). The shim pre-creates a loop so pproxy.server.main()
-  # works on Python 3.10 through 3.14. `-v` makes pproxy log each connection.
-  setsid "$PYBIN" -c '
-import asyncio
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-from pproxy.server import main
-main()
-' -l "socks5://127.0.0.1:${PORT}" -r "$upstream" -v >"$LOG" 2>&1 </dev/null &
+  # socks_relay.py reads the upstream user/pass from the creds file ITSELF (never
+  # argv/stdout/log) and forwards the dataimpulse session/geo token verbatim.
+  # -u keeps its connection logging unbuffered. CREDS empty => relay's own chain.
+  setsid "$PYBIN" -u "$SCRIPT_DIR/socks_relay.py" \
+      --listen-host 127.0.0.1 --port "$PORT" ${CREDS:+--creds "$CREDS"} \
+      >"$LOG" 2>&1 </dev/null &
   local relay_started=$!
   disown
   echo "$relay_started" >"$PIDFILE"
-  unset upstream   # drop the secret from the shell env asap
 
   # Readiness: a bad bind/upstream makes pproxy exit immediately. Wait until the
   # loopback port actually accepts a TCP connection (proves it's listening), or

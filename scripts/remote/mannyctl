@@ -11,7 +11,8 @@
 # Usage:
 #   mannyctl list
 #   mannyctl <host> provision                 # idempotent host setup (scripts/remote/provision.sh)
-#   mannyctl <host> push-creds                 # USER-GATED: rsync ~/.manny/credentials.yaml to host
+#   mannyctl <host> push-creds                 # USER-GATED: copy credentials.yaml (+proxies.yaml) to host
+#   mannyctl <host> push-proxy                 # copy ONLY proxies.yaml (proxy token, no account creds) to host
 #   mannyctl <host> start <account> [--proxy]  # thermal-guarded launch (per-account XVFB display)
 #   mannyctl <host> proxy <start|stop|status>  # local SOCKS5 relay (dataimpulse residential egress)
 #   mannyctl <host> stop <account>             # account-scoped stop (siblings keep running)
@@ -117,6 +118,11 @@ load_host() {
   H_WARN="$(hostfield "$HOST" temp_warn_c)"
   H_VHOST="$(hostfield "$HOST" viewer_host)"
   H_VPORT="$(hostfield "$HOST" viewer_port)"
+  # force_proxy: MANDATORY-proxy host. When true, EVERY client launch on this host
+  # egresses via the local SOCKS5 relay (MANNY_PROXY=1 is forced on, --proxy or
+  # not). client_remote.sh then fails CLOSED if the relay is down — so a host
+  # whose bare IP is ban-poison (datacenter) can never leak it. Used for mat.
+  H_FORCE_PROXY="$(hostfield "$HOST" force_proxy)"
 }
 
 is_local() { [ "$H_LOCAL" = "True" ] || [ "$H_LOCAL" = "true" ]; }
@@ -146,6 +152,10 @@ client_env_prefix() {
   local disp="${1:-$H_DISPLAY}"
   printf 'REPO_DIR=%q RUNELITE_LIBS=%q JAVA_BIN=%q XVFB_DISPLAY=%q TEMP_REFUSE_C=%q TEMP_WARN_C=%q' \
     "$H_STAGING" "$H_LIBS" "$H_JDK" "$disp" "$H_REFUSE" "$H_WARN"
+  # force_proxy hosts (e.g. mat, datacenter IP) always proxy: turn PROXY_FLAG on
+  # here so start/run egress via the relay even without an explicit --proxy. The
+  # fail-closed launch guard in client_remote.sh then prevents any home/host-IP leak.
+  if [ "$H_FORCE_PROXY" = "True" ] || [ "$H_FORCE_PROXY" = "true" ]; then PROXY_FLAG=1; fi
   # Opt-in proxy: --proxy on start/run sets PROXY_FLAG so the client egresses via
   # the local SOCKS5 relay. Appended only when requested — default OFF, so
   # status/stop/temp (which never set PROXY_FLAG) are untouched.
@@ -373,9 +383,10 @@ do_provision() {
 }
 
 do_push_creds() {
-  # USER-GATED. Copies ONLY ~/.manny/credentials.yaml to the host with strict
-  # perms. Never rsync -a the whole ~/.manny (it holds training_data/). Never
-  # logged/printed. See security note in REMOTE_CLIENT_ARCHITECTURE.md.
+  # USER-GATED. Copies ~/.manny/credentials.yaml (account tokens) AND, if present,
+  # ~/.manny/proxies.yaml (dataimpulse proxy token — Bolt-immune, needed by the
+  # SOCKS5 relay) to the host with strict perms. Never rsync -a the whole ~/.manny
+  # (it holds training_data/). Never logged/printed. See the arch doc security note.
   if is_local; then die "'$HOST' is local — creds already here"; fi
   local src="$HOME/.manny/credentials.yaml"
   [ -f "$src" ] || die "no $src on the orchestrator"
@@ -385,10 +396,29 @@ do_push_creds() {
   read -r ans
   [ "$ans" = "yes" ] || die "aborted (no creds copied)"
   run_on_host "mkdir -p ~/.manny && chmod 700 ~/.manny"
-  # scp the single file; then lock perms on the far side.
+  # scp the file(s); then lock perms on the far side.
   scp -q "$src" "$H_SSH:.manny/credentials.yaml" || die "scp failed"
   run_on_host "chmod 600 ~/.manny/credentials.yaml"
   echo "credentials.yaml copied to $HOST:~/.manny/ (chmod 600). Tokens not printed."
+  local psrc="$HOME/.manny/proxies.yaml"
+  if [ -f "$psrc" ]; then
+    scp -q "$psrc" "$H_SSH:.manny/proxies.yaml" || die "proxies.yaml scp failed"
+    run_on_host "chmod 600 ~/.manny/proxies.yaml"
+    echo "proxies.yaml copied to $HOST:~/.manny/ (chmod 600). Proxy token not printed."
+  fi
+}
+
+# do_push_proxy — copy ONLY ~/.manny/proxies.yaml (the dataimpulse proxy token,
+# NOT account creds). Non-gated: it carries no Jagex session, so it triggers no
+# new-device login. Needed on any host before `mannyctl <host> proxy start`.
+do_push_proxy() {
+  if is_local; then die "'$HOST' is local — proxies.yaml already here"; fi
+  local psrc="$HOME/.manny/proxies.yaml"
+  [ -f "$psrc" ] || die "no $psrc on the orchestrator"
+  run_on_host "mkdir -p ~/.manny && chmod 700 ~/.manny"
+  scp -q "$psrc" "$H_SSH:.manny/proxies.yaml" || die "proxies.yaml scp failed"
+  run_on_host "chmod 600 ~/.manny/proxies.yaml"
+  echo "proxies.yaml copied to $HOST:~/.manny/ (chmod 600). Proxy token not printed."
 }
 
 do_exec() { run_on_host "$*"; }
@@ -408,6 +438,7 @@ main() {
   case "$sub" in
     provision)   do_provision ;;
     push-creds)  do_push_creds ;;
+    push-proxy)  do_push_proxy ;;
     start)       [ $# -ge 1 ] || die "start needs an account"; do_start "$@" ;;
     proxy)       do_proxy "$@" ;;
     stop)        do_stop "$@" ;;

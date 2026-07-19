@@ -110,19 +110,35 @@ hosts:
     viewer_port: 8787
     notes: "Fresh 2026-07-19. Stale artifacts from an old attempt (~/runelite.jar, ~/.runelite/, ~/Desktop/manny/, ~/manny-mcp/) — do NOT trust or delete them; this entry provisions fresh alongside."
 
-  # ---- mat: example future host, residential-proxy egress fallback. --------
-  # Commented template for phase 2 — copy, fill in, uncomment.
-  # mat:
-  #   local: false
-  #   ssh: wil@100.123.10.30
-  #   jdk: /usr/lib/jvm/java-21-openjdk/bin/java
-  #   display: ":2"
-  #   staging_dir: /home/wil/Desktop/manny_mcp
-  #   runelite_libs: /home/wil/Desktop/runelite-client-libs
-  #   venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
-  #   temp_refuse_c: 88
-  #   temp_warn_c: 80
-  #   egress: "residential-proxy fallback — dataimpulse residential proxy available in ~/.manny/credentials.yaml (proxies.dataimpulse) for server-IP egress"
-  #   viewer_host: 100.123.10.30
-  #   viewer_port: 8787
-  #   notes: "Phase 2 candidate. If this host has a datacenter IP, route egress through the dataimpulse residential proxy (creds at ~/.manny/credentials.yaml -> proxies.dataimpulse); pointer only, no secrets in this file."
+  # ---- mat: Debian 13 VPS, datacenter IP => PROXY MANDATORY. ---------------
+  mat:
+    local: false
+    ssh: mat                        # /etc/hosts 157.254.18.86, Tailscale 100.123.10.30,
+                                    # key-based, user wil. Login shell is FISH (like diort/llama)
+                                    # — mannyctl/provision wrap remote cmds in bash. Keep it that way.
+    # Debian, NOT Arch: provision.sh Step 1 uses pacman, so JDK 21 + Xvfb are
+    # pre-installed via apt (openjdk-21-jdk-headless, xvfb) and this jdk path is
+    # set so provision's `test -x` guard makes Step 1 a no-op. sudo is NOPASSWD.
+    jdk: /usr/lib/jvm/java-21-openjdk-amd64/bin/java
+    display: ":2"
+    account_displays:
+      punitpun: ":5"     # reserved clean spare — tutorial island launch lane
+    staging_dir: /home/wil/Desktop/manny_mcp
+    runelite_libs: /home/wil/Desktop/runelite-client-libs
+    venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
+    temp_refuse_c: 88
+    temp_warn_c: 80
+    # force_proxy: MANDATORY. mat's bare IP is DATACENTER (157.254.18.86) = instant
+    # ban-poison for OSRS, so EVERY client launch must egress through the dataimpulse
+    # residential relay. mannyctl forces MANNY_PROXY=1 for this host and
+    # client_remote.sh fails CLOSED (aborts the launch) if the relay is down — the
+    # datacenter IP can never leak. proxies.yaml must be pushed first
+    # (mannyctl mat push-proxy). NOTE the residential proxy blocks the raw game
+    # socket (TCP 43594) at the provider level — see the bringup journal — so a live
+    # game login is gated on a dataimpulse port-unblock request; HTTP (login screen)
+    # traverses fine.
+    force_proxy: true
+    egress: "datacenter 157.254.18.86 (BAN-POISON) — never bare; always via dataimpulse residential relay (force_proxy)"
+    viewer_host: 100.123.10.30       # Tailscale (works off-LAN)
+    viewer_port: 8787
+    notes: "Debian 13 VPS. Runs the user's production Docker (couchdb for Obsidian LiveSync, jellyseerr) — do NOT touch those containers/ports. Client is a guest: stop when idle. Provisioned 2026-07-19."
