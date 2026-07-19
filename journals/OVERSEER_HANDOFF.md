@@ -764,3 +764,40 @@ before the metronomic grind tripped the ban — so humanization must cover the *
 - **punitpun tutorial run: NOT launched** — held behind proxy verification + humanization (unchanged standing gate). Map `punitpun → :5` in `hosts.yaml` before launch so it can't collide with the `:2` newbakshesh evidence client.
 
 Session paused here at user request.
+
+---
+
+## STATUS update — proxy sticky BLOCKED (relay swap needed) + offline tests added + Bolt-wipe caught
+
+**Supersedes the "Sticky session unconfirmed" bullet above.** Two things there were wrong/incomplete:
+1. `:10000` does **not** rotate — per dataimpulse docs it is already a **sticky port** (rotation is on
+   `:823`/`:824`). The sticky/geo pin is a **username token**: `<login>__cr.us;sessid.<id>`.
+2. The real blocker is now root-caused: **pproxy cannot carry that token.** Its `-r` URI parser
+   rejects the `.` in `__cr.us` AND the `;` in `sessid` — no encoding fixes it. And with the bare
+   login (only form pproxy accepts) dataimpulse egressed a **non-US** IP (`123.24.202.113`), so the
+   geo-pin genuinely matters. **Fix = swap the relay to `gost`/`microsocks`/`3proxy`** (accept
+   arbitrary upstream auth). Full evidence + fix direction:
+   `journals/2026-07-19_pproxy_incompatible_with_dataimpulse_tokens.md` (commit `91ba27c`).
+
+**Durable artifact:** `~/.manny/proxies.yaml` (600, NOT in repo) — proxy creds in a **Bolt-immune**
+file with the correct `__cr.us;sessid.osrs-tut-01` sticky+US token, ready for the swapped relay.
+`proxy_relay.sh` honors `MANNY_CREDS`, so point it there. Reason it's separate: see next line.
+
+**⚠️ Bolt re-import at ~11:02 this day** rewrote `~/.manny/credentials.yaml` and **wiped the entire
+`proxies:` section** (same recurring hazard that resets `default:` to a banned alias) — that is why
+the previously-working relay suddenly had no creds. It also **changed punitpun's `jx_session_id`** and
+added two accounts (`ifixifixit`, `fishibis2800`). Re-verify creds after any Bolt re-import.
+
+**Offline tests added** (audit found these were the only offline-actionable items; commit `1d71644`):
+- `tests/test_stuck_detector_command.py` (23) — first real coverage of `StuckDetector.check_command`,
+  the anti-bot-loop safety gate on every command (keys on `(normalized_cmd, state_hash)`, WARN@3 /
+  BLOCK@6, strict `>60s` reset). It was the one untested thing on the ban-recovery critical path.
+- `tests/test_path_utils.py` (13) — `normalize_path` contract incl. symlink resolution.
+
+**Offline queue is now exhausted.** Everything remaining is blocked, not hidden: proxy (relay swap,
+owned by a concurrent session editing `proxy_relay.sh`), DEFECT-32 Java half, vision-path retest, and
+the punitpun tutorial run — all live-gated on the user (Java also under freeze/lock). Concurrent agent
+this session also landed `hosts.yaml` edits (punitpun → `:5`, new `llama` host) — no collision; all
+commits scoped.
+
+Session paused here at user request.
