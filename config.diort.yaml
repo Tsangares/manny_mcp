@@ -1,0 +1,56 @@
+# RuneLite MCP Server Configuration — diort host profile
+#
+# Used ONLY when the server runs ON diort via scripts/remote/mcp_stdio.sh
+# (RUNELITE_MCP_CONFIG points here). Modeled on config.yaml. Differences:
+#   - display ":2"  (diort renders on Xvfb :2)
+#   - runelite_root / plugin_directory point at the host's shaded-jar libs dir
+#     (/home/wil/Desktop/runelite-client-libs). These are build-side paths; on a
+#     run-only host the full source tree is absent, so ServerConfig._validate()
+#     emits warnings-only for them (config.py) — the server still starts.
+# NO credentials here. Jagex session creds live in ~/.manny/credentials.yaml,
+# pushed separately via `mannyctl diort push-creds` and untouched by this file.
+
+# Path to the runelite repository root (build-only; warning-only on run hosts)
+runelite_root: /home/wil/Desktop/runelite-client-libs
+
+# Path to the plugin source (build-only; warning-only on run hosts)
+plugin_directory: /home/wil/Desktop/runelite-client-libs
+
+# RuneLite client JAR - fallback when Gradle shaded JAR not found
+runelite_jar: /home/wil/runelite.jar
+
+# Legacy option - no longer used (Gradle build always produces shaded JAR)
+use_exec_java: false
+
+# Java executable (JDK 21 on diort — must run the major-65 shaded jar)
+java_path: /usr/lib/jvm/java-21-openjdk/bin/java
+
+# RuneLite CLI args (JX_* env vars handle auto-login, no extra args needed)
+runelite_args: []
+
+# X11 display for RuneLite on diort (Xvfb :2)
+display: ":2"
+
+# VirtualGL settings (not used — Xvfb software render)
+use_virtualgl: false
+vgl_display: ":0"
+
+# Log settings
+log_file: ~/.runelite/logs/client.log
+log_buffer_size: 10000
+plugin_logger_prefix: "manny"
+
+# Command interface (manny plugin bi-directional control) — host-local /tmp
+command_file: /tmp/manny_command.txt
+state_file: /tmp/manny_state.json
+
+# Session persistence
+session_file: /home/wil/Desktop/manny_mcp/debug-session.json
+
+# Video streaming configuration (dashboard)
+video_streaming:
+  encoder: "auto"  # auto-detect: nvenc → vaapi → amf → libx264
+  framerate: 24
+  bitrate: "2M"
+  preset: "veryfast"
+  keyframe_interval: 48  # 2 seconds at 24fps

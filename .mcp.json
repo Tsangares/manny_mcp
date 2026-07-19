@@ -4,6 +4,16 @@
       "command": "/home/wil/Desktop/manny_mcp/venv/bin/python",
       "args": ["/home/wil/Desktop/manny_mcp/server.py"],
       "cwd": "/home/wil/Desktop/manny_mcp"
+    },
+    "manny-diort": {
+      "command": "ssh",
+      "args": [
+        "-o", "BatchMode=yes",
+        "-o", "ServerAliveInterval=15",
+        "-o", "ServerAliveCountMax=4",
+        "-T", "diort",
+        "/home/wil/Desktop/manny_mcp/scripts/remote/mcp_stdio.sh"
+      ]
     }
   }
 }
