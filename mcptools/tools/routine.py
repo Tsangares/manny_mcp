@@ -1264,6 +1264,17 @@ async def handle_execute_routine(arguments: dict) -> dict:
     loop_config = routine.get('loop', {})
     routine_config = routine.get('config', {})
 
+    # STRICT-STEPS honesty gate (config.strict_steps: true). When enabled, a step
+    # that FAILS under the default `on_failure: continue` policy still marks the
+    # whole SECTION failed (results["success"]=False) at completion -- WITHOUT
+    # changing per-step control flow. This kills the "false-pass class": the
+    # tutorial's #1 failure mode was a section that logged failed steps
+    # (ladder CLICK_WIDGET miss, repeat_until cap, GOTO await timeout) yet exited
+    # runner-status SUCCESS, so the chain marched into the next section on a
+    # desynced game. Off by default (legacy routines that tolerate step failures
+    # are unaffected); tutorial section YAMLs opt in via `config: {strict_steps: true}`.
+    strict_steps = bool(routine_config.get('strict_steps', False))
+
     # Build step index: map step ID -> list index (supports string IDs like "6b")
     step_id_to_idx = {}
     for idx, step in enumerate(steps):
@@ -1394,6 +1405,18 @@ async def handle_execute_routine(arguments: dict) -> dict:
                         _routine_logger.error("[ROUTINE] Aborting run: %s",
                                               results["abort_reason"])
                         return results
+
+                    # STRICT-STEPS: this failure took the default `continue`
+                    # policy. Under strict_steps we do NOT change control flow
+                    # (the runner still proceeds/restarts as before) but we DO
+                    # flip the section verdict to failed so the chain stops
+                    # instead of false-passing into the next section on a
+                    # desynced game. Records the first + all failing step ids.
+                    if strict_steps:
+                        results["success"] = False
+                        results["strict_failure"] = True
+                        results.setdefault("first_failed_step", step_id)
+                        results.setdefault("failed_steps", []).append(step_id)
 
                     # on_failure: continue (default) -- unchanged legacy behavior:
                     # inner-loop steps restart the iteration, everything else is
@@ -1637,6 +1660,87 @@ async def _execute_single_step(step: dict, step_idx: int, routine_config: dict, 
     return step_result
 
 
+# Movement commands whose whole job is to change the player's tile. A GOTO that
+# reports plugin-success but never moves the player one tile (the s07 cross-plane
+# ladder case: 0 tiles in 8.5 min, silent) must fail HONESTLY, not let the step
+# timeout absorb it. Only enforced on movement steps that carry NO await_condition
+# (a GOTO with `await_condition: location:X,Y` is already verified by the await
+# branch's timeout->failure path).
+MOVEMENT_COMMANDS = {"GOTO"}
+# How long to watch for movement progress before declaring a no-await GOTO stuck.
+MOVEMENT_PROGRESS_POLLS = 6
+MOVEMENT_PROGRESS_INTERVAL_S = 0.7
+# "already there" tolerance (chebyshev tiles): a GOTO to the tile you already
+# stand on legitimately never moves -- that is success, not a stuck march.
+MOVEMENT_ARRIVAL_TOLERANCE = 2
+
+
+def _player_xy(state: dict):
+    """Extract (x, y, plane) from a state dict, or None if unavailable."""
+    loc = (state or {}).get("player", {}).get("location") or {}
+    if "x" in loc and "y" in loc:
+        return (loc.get("x"), loc.get("y"), loc.get("plane"))
+    return None
+
+
+def _parse_goto_target(command: str):
+    """Parse 'GOTO x y [plane] [exact]' -> (x, y) or None."""
+    parts = (command or "").split()
+    if len(parts) >= 3:
+        try:
+            return (int(parts[1]), int(parts[2]))
+        except ValueError:
+            return None
+    return None
+
+
+async def _verify_goto_progress(command: str, account_id: str, pre_xy) -> dict:
+    """Honest movement check for a no-await GOTO (finding #2b).
+
+    Returns {"progressed": bool, "error": str|None, ...}. progressed=True if the
+    player either is already at the target (within tolerance), reaches the target,
+    or simply MOVES from the pre-move tile within the watch window. progressed=
+    False only when the player never moves one tile AND is not already at the
+    target -- the exact silent-march signature (walker cannot traverse a ladder /
+    blocked path and the step would otherwise blind-advance on its timeout).
+    """
+    target = _parse_goto_target(command)
+    if pre_xy is None:
+        # No baseline to compare against -> cannot honestly judge; don't block.
+        return {"progressed": True, "error": None, "reason": "no_baseline"}
+
+    def _at_target(xy):
+        if target is None or xy is None:
+            return False
+        return (abs(xy[0] - target[0]) <= MOVEMENT_ARRIVAL_TOLERANCE
+                and abs(xy[1] - target[1]) <= MOVEMENT_ARRIVAL_TOLERANCE)
+
+    if _at_target(pre_xy):
+        return {"progressed": True, "error": None, "reason": "already_at_target"}
+
+    for _ in range(MOVEMENT_PROGRESS_POLLS):
+        await asyncio.sleep(MOVEMENT_PROGRESS_INTERVAL_S)
+        cur = _player_xy(await get_game_state(account_id))
+        if cur is None:
+            continue
+        moved = (cur[0] != pre_xy[0] or cur[1] != pre_xy[1])
+        if moved or _at_target(cur):
+            return {"progressed": True, "error": None,
+                    "reason": "moved" if moved else "reached_target",
+                    "from": list(pre_xy[:2]), "to": list(cur[:2])}
+
+    tgt = f" toward {target}" if target else ""
+    return {
+        "progressed": False,
+        "from": list(pre_xy[:2]),
+        "target": list(target) if target else None,
+        "error": (f"GOTO did not move the player one tile{tgt} within "
+                  f"{MOVEMENT_PROGRESS_POLLS} polls -- path likely blocked or "
+                  f"requires a transport (ladder/stairs) the walker can't traverse; "
+                  f"failing the step instead of silently marching on (finding #2b)."),
+    }
+
+
 # repeat_until safety defaults. Overridable per-step (`max_iterations`,
 # `repeat_until_timeout_ms`) or via the routine `config:` block
 # (`repeat_until_max_iterations`, `repeat_until_timeout_ms`).
@@ -1838,6 +1942,14 @@ async def _execute_step_once(step: dict, step_idx: int, routine_config: dict, ac
                 step_result["retried"] = True
 
     else:
+        action_word = (action or "").strip().upper()
+        # Finding #2b: snapshot position before a no-await movement command so we
+        # can honestly detect the silent-march (plugin says success, player never
+        # moves). Only movement verbs with NO await_condition reach here.
+        pre_xy = None
+        if action_word in MOVEMENT_COMMANDS:
+            pre_xy = _player_xy(await get_game_state(account_id))
+
         result = await execute_simple_command(command, timeout_ms, account_id)
         step_result["success"] = result.get("success", False)
         step_result["response"] = result.get("response", {}).get("status")
@@ -1849,7 +1961,7 @@ async def _execute_step_once(step: dict, step_idx: int, routine_config: dict, ac
         # KILL_LOOP_COMMANDS note above). Block on the plugin's exported
         # active_loop signal until the loop truly finishes, so run_routine — and
         # the watchdog attached to its pid — stay alive for the whole grind.
-        action_word = (action or "").strip().upper()
+        # (action_word computed above, before the command was sent.)
         if action_word in KILL_LOOP_COMMANDS:
             loop_wait = await _await_active_loop_finish(account_id, timeout_ms)
             step_result["loop_wait"] = loop_wait
@@ -1877,6 +1989,18 @@ async def _execute_step_once(step: dict, step_idx: int, routine_config: dict, ac
                         "(unmanaged_loop risk — driver must intervene)")
             # else: no active_loop signal ever appeared -> keep the early
             # response's success verdict (backward-compatible fallback).
+
+        # Finding #2b: GOTO honesty. If a no-await movement command reported
+        # plugin-success but the player never moved a tile (and wasn't already at
+        # the target), fail the step so a blocked/cross-plane GOTO stops the run
+        # instead of blind-marching for minutes.
+        elif action_word in MOVEMENT_COMMANDS and step_result.get("success"):
+            progress = await _verify_goto_progress(command, account_id, pre_xy)
+            step_result["movement_check"] = progress
+            if not progress.get("progressed"):
+                step_result["success"] = False
+                step_result["error"] = progress.get("error", "GOTO made no progress")
+                _routine_logger.warning("[ROUTINE] Step %s: %s", step_id, step_result["error"])
 
     # Apply delay after action
     delay_after = step.get('delay_after_ms', 0)
@@ -2179,9 +2303,103 @@ async def check_client_health(account_id: str = None, max_stale_seconds: float =
 _routine_logger = logging.getLogger("routine.auto_restart")
 
 
+# Finding #5 (double-client): hard cap on auto-restarts PER account PER process.
+# The disconnect->relogin path escalates to a full restart on every bounded-wait
+# timeout and does NOT spend the crash restart_attempts budget, so before this cap
+# a flapping client could be relaunched forever (attempt #1: 40+ "Client
+# disconnected... attempting relogin" in a loop). Exceeding the cap fails LOUD.
+_MAX_AUTO_RESTARTS = 2
+_auto_restart_counts: dict = {}
+
+
+def _live_runelite_pids_for_account(account_id: str) -> list:
+    """Session-recorded PIDs for this account that are STILL a live RuneLite JVM.
+
+    Uses session_manager's cross-process session ledger (populated at launch by
+    ``start_instance``), so it finds a client launched by a SEPARATE process
+    (e.g. ``mannyctl start``) which this run's fresh MultiRuneLiteManager does NOT
+    track in ``self.instances`` -- the exact blind spot that let the restart path
+    spawn a SECOND client without reaping the first.
+    """
+    from ..runelite_manager import pid_is_runelite
+    from ..session_manager import session_manager
+    resolved = config.resolve_account_id(account_id) if config else account_id
+    pids = []
+    for sess in session_manager.get_active_sessions():
+        if sess.get("account") != resolved:
+            continue
+        pid = sess.get("pid")
+        if pid and pid_is_runelite(pid):
+            pids.append({"pid": pid, "display": sess.get("display")})
+    return pids
+
+
+async def _reap_account_client(account_id: str) -> dict:
+    """KILL-then-verify every live client for this account before a respawn.
+
+    Reaps BOTH the tracked instance (via stop_instance) and any session-recorded
+    PID a different process launched (SIGTERM -> verify -> SIGKILL). Returns
+    {"reaped": [...], "still_alive": [...]}: a non-empty ``still_alive`` means the
+    predecessor could not be confirmed dead and the caller MUST NOT spawn (that is
+    how two JVMs end up sharing one display + the account's command/state IPC).
+    """
+    import signal
+    from ..session_manager import session_manager
+
+    # 1. Tracked instance (no-op if this manager never launched it).
+    try:
+        await asyncio.to_thread(runelite_manager.stop_instance, account_id)
+    except Exception as e:
+        _routine_logger.warning("[AUTO-RESTART] stop_instance failed (may be untracked/dead): %s", e)
+
+    # 2. Cross-process session PIDs (the untracked mannyctl-launched client).
+    reaped, still_alive = [], []
+    for entry in _live_runelite_pids_for_account(account_id):
+        pid, display = entry["pid"], entry.get("display")
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            continue
+        except OSError as e:
+            _routine_logger.warning("[AUTO-RESTART] SIGTERM %s failed: %s", pid, e)
+        deadline = time.time() + 8
+        dead = False
+        while time.time() < deadline:
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                dead = True
+                break
+            await asyncio.sleep(0.3)
+        if not dead:
+            try:
+                os.kill(pid, signal.SIGKILL)
+                await asyncio.sleep(0.5)
+                os.kill(pid, 0)
+                still_alive.append(pid)  # SIGKILL still didn't take it
+            except ProcessLookupError:
+                dead = True
+            except OSError:
+                still_alive.append(pid)
+        if dead:
+            reaped.append(pid)
+            try:
+                session_manager.end_session(display=display)
+            except Exception:
+                pass
+    return {"reaped": reaped, "still_alive": still_alive}
+
+
 async def _auto_restart_client(account_id: str = None) -> bool:
     """
-    Stop and restart the RuneLite client, then wait for the state file to refresh.
+    Reap-then-respawn the RuneLite client, then wait for the state file to refresh.
+
+    KILL-THEN-SPAWN (finding #5): the predecessor client is reaped and confirmed
+    dead (by session PID, which works even when this process didn't launch it)
+    BEFORE a replacement is started, and at most ``_MAX_AUTO_RESTARTS`` restarts
+    are attempted per account per process -- otherwise fail loud. This prevents
+    the attempt-#1 double-client (two JVMs sharing display + IPC -> infinite
+    "Client disconnected, attempting relogin" loop).
 
     Returns True if the client is healthy again, False otherwise.
     """
@@ -2189,11 +2407,26 @@ async def _auto_restart_client(account_id: str = None) -> bool:
         _routine_logger.warning("[AUTO-RESTART] No runelite_manager available, cannot restart")
         return False
 
-    _routine_logger.info("[AUTO-RESTART] Stopping client for account '%s'...", account_id or "default")
-    try:
-        await asyncio.to_thread(runelite_manager.stop_instance, account_id)
-    except Exception as e:
-        _routine_logger.warning("[AUTO-RESTART] Stop failed (may already be dead): %s", e)
+    resolved = config.resolve_account_id(account_id) if config else (account_id or "default")
+    n = _auto_restart_counts.get(resolved, 0)
+    if n >= _MAX_AUTO_RESTARTS:
+        _routine_logger.error(
+            "[AUTO-RESTART] Refusing restart: account '%s' already restarted %d time(s) "
+            "this run (cap %d). Failing loud instead of flapping the client.",
+            resolved, n, _MAX_AUTO_RESTARTS)
+        return False
+    _auto_restart_counts[resolved] = n + 1
+
+    _routine_logger.info("[AUTO-RESTART] Reaping any live client for account '%s'...", resolved)
+    reap = await _reap_account_client(account_id)
+    if reap["still_alive"]:
+        _routine_logger.error(
+            "[AUTO-RESTART] Predecessor client(s) %s would NOT die; refusing to spawn a "
+            "second client (double-client/IPC-poison guard). Failing loud.",
+            reap["still_alive"])
+        return False
+    if reap["reaped"]:
+        _routine_logger.info("[AUTO-RESTART] Reaped predecessor PID(s): %s", reap["reaped"])
 
     await asyncio.sleep(3)  # Brief cooldown before restart
 

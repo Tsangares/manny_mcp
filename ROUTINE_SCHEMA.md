@@ -55,6 +55,27 @@ strings via `interpolate_variables()` (routine.py:1028-1067):
 `routine[...]` access in routine.py (only `steps`, `loop`, `config`, `name`
 appear, routine.py:1091-1120). Put coordinates in `args` on the step itself.
 
+### `config.strict_steps` — section-level honesty gate (2026-07-19, tutorial FIX-LOOP)
+
+`config: {strict_steps: true}` makes any step that FAILS under the default
+`on_failure: continue` policy mark the **whole routine's** result
+`success: False` at completion (with `strict_failure: true`,
+`first_failed_step`, and `failed_steps` recorded) — WITHOUT changing per-step
+control flow (the runner still proceeds/restarts exactly as before; it is a
+verdict change, not an abort). Rationale: tutorial attempt #1's cascade came
+from sections that logged failed steps (ladder click miss, `repeat_until`
+caps, GOTO await timeouts) yet exited runner-status SUCCESS, so the master
+chain marched into the next section on a desynced game. **Off by default** —
+legacy grind routines that tolerate transient step failures are unaffected.
+All `routines/tutorial_island/` sections opt in.
+
+Related engine honesty change (no YAML key needed): a **no-await `GOTO`** that
+reports plugin-success but does not move the player one tile within ~4s (and
+was not already at the target) now FAILS the step
+(`_verify_goto_progress`, routine.py) — the s07 cross-plane silent-march
+(0 tiles in 8.5 min) can no longer blind-advance on its timeout. GOTOs with a
+`location:` await are unaffected (their await already polices arrival).
+
 ---
 
 ## (b) Step reference
