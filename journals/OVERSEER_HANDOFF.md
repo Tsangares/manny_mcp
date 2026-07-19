@@ -393,3 +393,8 @@ once blast's Xvfb :3 exists). Overseer's stand-in grind monitor was retired (win
 After window-3 reports: E2 attended cowhide gate (lane 1, post-stats; closes DEFECT-21) → Track G per
 TRACK_G_PROTOCOL.md → nav graph-mode live gate per the soak report. One tree = one agent (branch-collision
 lesson); never launch a successor live agent without verifying the predecessor is DEAD via /tasks.
+**SESSION-LENGTH RULE (user, 2026-07-19):** never run any one client/account longer than ~8h continuous;
+at 8h, log it out / stop its client and switch testing to the OTHER account/lane until ~10h from that
+client's start (≈2h rest), then it may resume. Track each client's start time (ps lstart / ledger).
+Applies to Track G planning too: the 4h+ proof fits inside one 8h window, but schedule the grind's start
+so the cap isn't hit mid-proof.
