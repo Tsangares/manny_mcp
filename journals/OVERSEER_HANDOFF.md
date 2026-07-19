@@ -1,6 +1,7 @@
 # OVERSEER HANDOFF — manny (multi-project) — READ THIS FIRST
 
-**Updated:** 2026-07-18 (late), post Tracks A/B/C/E1-prep/F/H landing. Author: Claude (overseer). This is
+**Updated:** 2026-07-19 (post mystery-run resolution, Java defect bundle coded-not-deployed, E2 desk-verify,
+Nav Stage-2 plan). Author: Claude (overseer). This is
 the top-level entry point after compaction. It indexes the now-several parallel projects and how to resume
 each. For deep detail on any one, open the doc named in its row.
 
@@ -56,21 +57,63 @@ that being the north star.
 - `0d600ee` — 7 corpus routines fixed (the KILL_LOOP food-arg class the validator now catches, e.g.
   `chicken_killer_loop.yaml` was sending kill-count as a food name).
 - `c501d06` — decoupled the chicken-killer test from mutable corpus state.
-- **Uncommitted / in progress as of this writing:** tutorial pre-flight work — `05_cooking_to_quest_guide.yaml`
-  plane fixes + master-chain reconciliation via new `00_resume_from_questguide.yaml` / `00_resume_from_survival.yaml`
-  + `scripts/remote/mannyctl` tweaks. Not yet a commit — pick up and land before/alongside the newbakshesh
-  tutorial run.
+- `0cb6c9e`/`1b4b016`/`b0e08f8`/`ab020dd`/`2a06c31`/`5f9a08a`/`33029b6`/`770167f` — tutorial pre-flight
+  landed (05 plane fixes + ladder-gate recipe, chain-glob double-run guard), mannyctl watchdog cwd fix,
+  E1 `chicken_feathers.yaml` (stat-training grind, validated 0/0), E2 DRAFT `cowhide_banking.yaml` (24
+  steps, nested loop, 5 open questions flagged for live gate).
+- `91f84c5` — tutorial 07: position-pin every name-interact (live-diagnosed "Rocks" ambiguity — tin vs.
+  copper outcrops share a display name, closest-match resolution farmed tin forever; fixed with a
+  position-pinning GOTO before each ore-type INTERACT).
+- `ea371e0` — journal: **mystery run `20260719T014238Z` RESOLVED.** It was the ORIGINAL phase-1 live agent —
+  never actually terminated, it silently resumed and dual-drove the `newbakshesh` account in parallel with
+  the phase-1b agent (the exact dual-driver collision the coordination rule warns about). Stale agent
+  killed ~2026-07-19 02:00Z; phase-1b confirmed sole owner. **Lesson (recorded in the stage-1 journal):
+  before launching a successor live agent, verify the predecessor task is DEAD (`/tasks`), not just quiet —
+  a "still running" background agent can wake up and fire commands hours later.**
+- `2d1d8d3` — `ROUTINE_SCHEMA.md` gained section **(i) "Two live-validated authoring traps"**: position-pin
+  before ambiguous-name `INTERACT_OBJECT`/`INTERACT_NPC` (the tutorial-07 "Rocks" bug), and the
+  `CLICK_DIALOGUE "<speaker name>"` no-op trap (DEFECT-24 — monologues misreported as `type:"options"`).
+  Both found live 2026-07-18, both silent, neither caught by the validator.
+- `01ff1a3` — `journals/NAV_STAGE2_PLAN_2026-07-18.md`: next milestone's blueprint. Vendors the Skretzo
+  shortest-path plugin's packed collision map (~1.2 MB, `SplitFlagMap` 2-flag/tile format) + transport TSVs
+  into a new `manny.pathfinder` package behind a `navBackend` feature flag; cutover seam is
+  `gotoPositionSafe`. Deletes the `osrspathfinder.com` external dependency and the `world_map.png`
+  walkability tier. 6 work packages scoped, design-only (no code touched).
+- `9f6b6e8` — E2 `cowhide_banking.yaml` **desk-verified** against the OSRS wiki + corpus (no live account
+  touched): staircase waypoints corrected `3205,3209`→`3205,3208` on ground/mid floors (wiki `{{Map}}` pins
+  + `common_actions.yaml` precedent); batch size raised 30→35 kills (`KillLoopCommand`'s `max_kills` caps
+  loop **attempts**, not confirmed kills, so headroom above the 28-slot inventory is needed);
+  `BANK_DEPOSIT_ALL` self-heal added. **Live-gate remainders:** the 3 bridge-hop tiles (no independent
+  coordinate source — wiki has no bridge-tile page, only internal geometric consistency) and a possible
+  door at `3218,3217` on the courtyard→stair line — scan both before trusting this unattended.
 
 **manny** (`cd /home/wil/Desktop/manny && git log --oneline`):
 - `a6da377` — DEFECT-20: thread-safe collision/tile reads in GameEngine (off-thread wrap).
 - `b40838a` — DEFECT-21 fix: `validateAgainstLocalCollision` wired into the nav follower's click path
   (bridge water-stall). **Live gate still pending** — needs a round-trip cow-field⇄bank crossing on diort.
 - `6566fe9` — DEFECT-22: `LoginHandlers` ban misclassification fixed — stop world-hopping on terminal
-  (banned-account) login failures, fail fast instead. **Live gate still pending** — the banned `new`
-  account is the natural test case for this.
+  (banned-account) login failures, fail fast instead. Live gate showed the widget-text source doesn't see
+  the rasterized ban dialogue → **DEFECT-22b filed** (below).
+- `a8a1020` — DEFECT-22b: ban detection via **reflection over client login-response `String` fields** as
+  the PRIMARY signal (strict phrase match; RuneLite's public API exposes only `getLoginIndex()`, no
+  login-response string) + widget-scan fallback retained. Live gate = a login attempt on the banned `new`
+  account.
+- `8739648` — DEFECT-23: opt-in **`GOTO X Y [plane] exact`** bounded stepper — legacy GOTO parks ~1 tile
+  short (DEFECT-7 tolerance) and short-circuits "already there" within 3 tiles, wedging a following
+  INTERACT before settle (worst at doors). `exact` mode keeps taking short hops until it steps ONTO the
+  target tile. INTERACT's own post-settle retry is deferred to a future INTERACT-surface change (out of
+  scope for this bundle).
+- `4152392` — DEFECT-24: `GameEngine.buildDialogueState` — group-231 NPC monologues (multi-page, no real
+  options) now classify as `type:"continue"` / hint `CLICK_CONTINUE`, not `type:"options"` /
+  `CLICK_DIALOGUE "<speaker>"` (a no-op — the "speaker" child is a header, not a clickable option).
+  `TabOpenCommand` javadoc corrected (widget-click, not F-key, despite the stale doc's claim).
 
-All three manny fixes are bundled in one jar rebuild that still needs to be pushed to diort and live-gated
-(see "In flight" below).
+**Java defect bundle is CODED, compile-green, pushed to manny `master` — NOT DEPLOYED.** A deployment
+freeze holds while the live lane finishes the tutorial chain (one client instance, one owner, at a time —
+see coordination rule below). Deployment window = **one rebuild + provision** when the tutorial lane frees,
+then **three live gates** in sequence: DEFECT-22b (banned `new` account login), DEFECT-23 (exact-arrival
+GOTO on a known-tight spot), DEFECT-24 (a multi-page monologue). DEFECT-21/22 (jar `6566fe9`) remain
+live-gate-pending as before, riding the same rebuild.
 
 ### ACCOUNT STATUS (critical — read before touching any account)
 - **`new` (GrimmsFairly): BANNED 2026-07-18** — "serious rule breaking" per Jagex, behavioral detection.
@@ -86,20 +129,30 @@ All three manny fixes are bundled in one jar rebuild that still needs to be push
   **available option**, not currently in use (diort's residential IP was believed sufficient; the `new` ban
   shows IP alone isn't a full defense against behavioral detection — proxy remains a fallback, not a fix).
 
-### In flight
-1. **Track E phase-1 live agent on diort:** rebuild the jar with all 3 defect fixes (DEFECT-20/21/22) →
-   push to diort → gate DEFECT-22 via the banned `new` account (confirms fail-fast instead of world-hop
-   loop) → run `newbakshesh` through the full Tutorial Island chain (live-gating the 05/06 fixes above) →
-   then run the **E1 feather routine**: `KILL_LOOP_CONFIG` at the proven chicken coop, `loot_items:["Feather"]`,
-   run as a genuine stat-training grind toward att/str/def ~20, plus an initial smoke pass.
-2. **E2 — cowhide banking routine** (`routines/money_making/cowhide_banking.yaml`): inner loop kills cows
-   + loots hides, outer loop crosses the Lumbridge bridge to bank and deposits, repeats. Gated on the
-   DEFECT-21 live crossing verification (item 1's jar). Attended full-cycle gate (kill→fill→bank→return)
-   ≥2 consecutive loops before it's trusted unattended.
-3. **Track G — the milestone proof:** a *fresh* LLM session, given only `ROUTINE_SCHEMA.md` + the upgraded
+### Live lane status (at this writing)
+`phase-1b` is the SOLE owner of the `newbakshesh` client (see mystery-run resolution above — verify any
+predecessor task is DEAD before assuming otherwise). Position in the sequence: tutorial 07 (smithing,
+fixed) → 08 → 09 → 10 → mainland arrival → E1 feather smoke → E1 bounded stat-training grind
+(att/str/def → ~20). Nothing downstream of E1 has started live yet.
+
+### Sequence (in order, do not skip ahead)
+1. **Live lane (in progress):** finish Tutorial Island (07→10) → mainland verification → E1 feather
+   `KILL_LOOP_CONFIG` smoke pass → E1 stat-training grind to att/str/def ~20.
+2. **Deployment window** (once the tutorial lane frees the client — one rebuild + provision, see Java
+   defect bundle above): push jar with DEFECT-20/21/22/22b/23/24 to diort → run the **three live gates**
+   (DEFECT-22b via banned `new` login, DEFECT-23 exact-arrival GOTO, DEFECT-24 monologue) → also finally
+   live-gates DEFECT-21 (bridge crossing) which E2 depends on.
+3. **E2 — cowhide banking routine** (`routines/money_making/cowhide_banking.yaml`, desk-verified `9f6b6e8`,
+   see above): inner loop kills cows + loots hides, outer loop crosses the Lumbridge bridge to bank and
+   deposits, repeats. Gated on the deployment window's DEFECT-21 live crossing verification. Attended
+   full-cycle gate (kill→fill→bank→return) ≥2 consecutive loops, **including both bridge-crossing
+   directions**, before it's trusted unattended — this live gate also satisfies DEFECT-21's (`b40838a`)
+   outstanding requirement.
+4. **Track G — the milestone proof:** a *fresh* LLM session, given only `ROUTINE_SCHEMA.md` + the upgraded
    validator + the `manny-diort` MCP endpoint, authors/refines a routine variant and runs a 4+ hour
    unattended cowhide grind on diort. Watchdog ledger must show clean completion or correct intervention.
-   Journal the result. This is the last item — do not start it before E1+E2 are proven attended.
+   Journal the result. Runnable protocol: `journals/TRACK_G_PROTOCOL.md`. This is the last item — do not
+   start it before E1+E2 are proven attended and the deployment window has landed.
 
 ---
 
@@ -197,10 +250,12 @@ Loop milestone section at the top of this file — read that instead.** Kept for
 lines**; prefix every git cmd with explicit `cd /home/wil/Desktop/<repo> &&`. Repo-root `CLAUDE.md` is
 **untracked + gitignored** in manny_mcp (fixed mid-milestone — it used to be tracked, which violated the
 global rule; don't re-add it).
-Current HEADs (as of this handoff refresh): manny_mcp=`c501d06` (test decoupling, on top of the Close the
-Loop landings — Track A/B/C/E-prep/F/H), manny=`6566fe9` (DEFECT-22 ban fail-fast, on top of DEFECT-20/21).
-Both pushed to origin. manny_mcp has uncommitted tutorial pre-flight work in progress (see "In flight" at
-top) — check `git status` before assuming these are the only local diffs.
+Current HEADs (as of this handoff refresh): manny_mcp=`9f6b6e8` (E2 desk-verify, on top of Nav Stage-2 plan
+`01ff1a3`, schema traps `2d1d8d3`, mystery-run resolution `ea371e0`, tutorial-07 fix `91f84c5`, and the
+earlier Close the Loop Track A/B/C/E-prep/F/H landings), manny=`4152392` (DEFECT-24, on top of DEFECT-23
+`8739648`, DEFECT-22b `a8a1020`, DEFECT-22/21/20). Both pushed to origin. **manny's DEFECT-22b/23/24 bundle
+is coded + compile-green but NOT deployed** (deployment freeze — see Java defect bundle section above);
+check `git status` before assuming these are the only local diffs.
 
 **Close the Loop rules (current milestone, in addition to the pre-existing ones below):**
 - **`ROUTINE_SCHEMA.md` + the upgraded `validate_routine_deep` are the authoring on-ramp** for every new or
