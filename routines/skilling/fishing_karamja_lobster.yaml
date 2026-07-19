@@ -100,9 +100,15 @@ steps:
     action: FISH
     args: "lobster"
     description: "Fish lobsters until inventory full"
-    await_condition: "inventory_count:>=28"
     timeout_ms: 600000
-    notes: "Fishing takes several minutes. Lobster pot + coins = 2 slots, so 26 lobsters fill inventory"
+    notes: "Fishing takes several minutes. Lobster pot + coins = 2 slots, so 26 lobsters fill inventory.
+      await_condition removed (fixed 2026-07-18): FISH blocks synchronously
+      in the plugin (FishCommand.java loop, only responds when the
+      inventory-full condition it's already polling internally is met) --
+      pairing it with a step-level await_condition races the blocking call
+      and its retry re-sends the command (see ROUTINE_SCHEMA.md section (e)).
+      timeout_ms (10min) already generous for a full-inventory lobster
+      session, kept as-is."
 
   # ========== PHASE 3: RETURN TO PORT SARIM ==========
   - id: 7

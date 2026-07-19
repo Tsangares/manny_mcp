@@ -45,7 +45,7 @@ steps:
   - id: 2
     phase: "combat"
     action: KILL_LOOP
-    args: "Chicken 200"
+    args: "Chicken none 200"
     description: "Kill 200 chickens for combat XP"
     timeout_ms: 3600000
     notes: |

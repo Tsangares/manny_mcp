@@ -61,15 +61,26 @@ steps:
 
   - id: 4
     action: KILL_LOOP
-    args: "Hill_Giant 500"
+    args: "Hill_Giant Swordfish 500"
     description: "Start killing Hill Giants"
     timeout_ms: 14400000
-    notes: "timeout_ms explicit (fixed 2026-07-18, see
-      chicken_killer_training.yaml for the full explanation): KILL_LOOP blocks
-      synchronously until max_kills, so the 30s default would make
-      run_routine.py give up and exit long before 500 kills finish. 4hr
-      ceiling given the larger kill count; returns as soon as the plugin
-      actually responds."
+    notes: "Food fixed 2026-07-18: the previous `Hill_Giant 500` parsed '500'
+      as the food name (KillLoopCommand.java:95-97 -- 2nd positional arg is
+      FOOD, not kill count), so food management silently never worked and the
+      HP safety-stop floor was the unmanaged 50% branch instead of the
+      food-managed 30% floor. Hill Giants hit hard enough that food is
+      clearly intended, not `none`; this file itself has no banking step, but
+      the sibling routines that feed into it (routines/combat/
+      hill_giants_resupply.yaml, routines/combat/hill_giants_restock.yaml)
+      both withdraw Swordfish specifically for this trip, and
+      hill_giants_restock.yaml's own notes say to follow up with
+      `KILL_LOOP Hill_Giant Swordfish 500` -- so Swordfish is used here to
+      match the established inventory this routine assumes on entry.
+      timeout_ms explicit (fixed 2026-07-18, see chicken_killer_training.yaml
+      for the full explanation): KILL_LOOP blocks synchronously until
+      max_kills, so the 30s default would make run_routine.py give up and
+      exit long before 500 kills finish. 4hr ceiling given the larger kill
+      count; returns as soon as the plugin actually responds."
 
 # ISSUES DISCOVERED:
 # - Pathfinder API (osrspathfinder.com) can return 500 errors

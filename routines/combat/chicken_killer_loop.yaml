@@ -23,14 +23,13 @@ steps:
     action: GOTO
     args: "3180 3288 0"
     description: "Walk to chicken coop north of Lumbridge"
-    location: lumbridge_chicken_coop
     await_condition: "location:3180,3288"
     timeout_ms: 20000
 
   - id: 2
     phase: "combat"
     action: KILL_LOOP
-    args: "Chicken 100"
+    args: "Chicken none 100"
     description: "Kill 100 chickens"
     timeout_ms: 3600000
     notes: "KILL_LOOP blocks synchronously in the plugin (KillLoopCommand.java
@@ -42,7 +41,15 @@ steps:
       plugin actually responds, so this only affects the worst case."
 
 # Auto-restart loop - eliminates dead time
+# NOTE: `loop.max_iterations` and `loop.delay_between_loops_ms` were removed
+# 2026-07-18 -- both are dead keys (never read by the executor, see
+# ROUTINE_SCHEMA.md section (f)). The real iteration cap is the CLI
+# `--loops N` flag, e.g. `./run_routine.py <this file> --loops 50` for the
+# "50 batches x 100 kills" intent this file originally documented. A real
+# Grammar 2 stop_condition is added below so the loop also stops on its own
+# once the inventory fills, instead of relying solely on the CLI cap.
 loop:
   enabled: true
-  max_iterations: 50  # 50 batches x 100 kills = 5000 total kills
-  delay_between_loops_ms: 2000  # 2 sec between batches
+  repeat_from_step: 1
+  stop_conditions:
+    - "inventory_full"

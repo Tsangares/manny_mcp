@@ -109,6 +109,7 @@ steps:
     action: POWER_MINE
     args: "iron"
     description: "Power mine iron ore (mines and drops automatically)"
+    timeout_ms: 3600000
     notes: |
       This command will:
       - Find nearest iron rock
@@ -117,6 +118,13 @@ steps:
       - Repeat indefinitely
 
       Stop with KILL command when done
+
+      timeout_ms explicit (fixed 2026-07-18): POWER_MINE runs its own
+      internal while-loop and only responds when interrupted (this step's
+      "Repeat indefinitely" is literal) -- the 30s default meant
+      run_routine.py would give up and report a step timeout while the
+      client kept mining completely unsupervised. 1hr ceiling; returns as
+      soon as the plugin actually responds (i.e. on KILL/interrupt).
 
 # Loop configuration
 loop:

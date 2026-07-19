@@ -72,7 +72,7 @@ steps:
   - id: 7
     phase: "combat"
     action: KILL_LOOP
-    args: "Cow 100"
+    args: "Cow none 100"
     description: "Kill 100 cows for combat XP"
     timeout_ms: 3600000
     notes: "Automatically attacks, waits for kill, finds next target, repeats.
@@ -92,12 +92,17 @@ steps:
   - id: 8
     phase: "collection"
     action: KILL_COW_GET_HIDES
-    args: "200"
-    description: "Kill cows and collect hides for money"
+    description: "Kill cows and collect hides for money (runs until manually
+      stopped -- KillCowGetHidesCommand.java has no kill-count arg)"
     timeout_ms: 3600000
-    notes: "Alternative: Kills cows AND picks up cowhide drops. timeout_ms
-      explicit (fixed 2026-07-18): same blocking-command timeout issue as
-      step 7 above."
+    notes: "Alternative: Kills cows AND picks up cowhide drops. Arg signature
+      is `KILL_COW_GET_HIDES [food_name]` (KillCowGetHidesCommand.java:22) --
+      the bare `200` previously here was parsed as a food_name, not a kill
+      count (there is no kill-count arg at all), so it would have silently
+      tried to eat an item literally named \"200\" on low HP. Fixed
+      2026-07-18: dropped the bogus arg, left food unset (no food management).
+      timeout_ms explicit (fixed 2026-07-18): same blocking-command timeout
+      issue as step 7 above."
     expected_result: "Combat XP + cowhide inventory"
 
 # Combat settings
