@@ -48,6 +48,7 @@ date,account,host,section,first_contact,failure_class,live_minutes,run_id
 2026-07-19,fishibis2800,llama,08_combat,NR,not-reached-DEFECT29-sword-shield-bow-STILL-unmeasured,0,20260719T231115Z_fishibis2800
 2026-07-19,fishibis2800,llama,09_banking,NR,not-reached-05b,0,20260719T231115Z_fishibis2800
 2026-07-19,fishibis2800,llama,10_prayer_magic,NR,not-reached-05b,0,20260719T231115Z_fishibis2800
+2026-07-19,ifixifixit,diort,graph_mode_trial,F,graph-active-PROVEN-cmdline+vmargs;3-crossings-all-WALK-only-or-no-graph-path;executeTransport-NEVER-invoked;compound-gate+cook-door-NOT-transport-edges;fence-modeled-walkable;legacy-fallback-OK;no-clickspam;NOT-freed-parked-3077-3093-varp130,5,20260720T002746Z_ifixifixit
 2026-07-19,karldakilla,llama,01_character_creation,P,,1,20260719T234922Z_karldakilla
 2026-07-19,karldakilla,llama,01b_experience_selection,P,,1,20260719T234922Z_karldakilla
 2026-07-19,karldakilla,llama,02_gielinor_guide,P,,1,20260719T234922Z_karldakilla
@@ -59,3 +60,14 @@ date,account,host,section,first_contact,failure_class,live_minutes,run_id
 2026-07-19,karldakilla,llama,08_combat,NR,not-reached-DEFECT29-sword-shield-bow-STILL-unmeasured,0,20260719T234922Z_karldakilla
 2026-07-19,karldakilla,llama,09_banking,NR,not-reached-05b,0,20260719T234922Z_karldakilla
 2026-07-19,karldakilla,llama,10_prayer_magic,NR,not-reached-05b,0,20260719T234922Z_karldakilla
+2026-07-20,judeaislam,llama,01_character_creation,P,,1,20260720T003818Z_judeaislam
+2026-07-20,judeaislam,llama,01_experience_selection,P,,1,20260720T003818Z_judeaislam
+2026-07-20,judeaislam,llama,02_gielinor_guide,P,,1,20260720T003818Z_judeaislam
+2026-07-20,judeaislam,llama,03_survival_expert,P,,2,20260720T003818Z_judeaislam
+2026-07-20,judeaislam,llama,04_woodcutting_firemaking,P,,2,20260720T003818Z_judeaislam
+2026-07-20,judeaislam,llama,05_cooking,P,gate-170-holds-2nd-consecutive-run;cooking-RAN;dough-on-Range-success;progress-120-to-200,2,20260720T003818Z_judeaislam
+2026-07-20,judeaislam,llama,05b_06_quest_guide_ladder,P,PASS-ON-RETRY;run1-stall-door-3072-3090-opened-2x-then-tile-blocked-53s-wedged-3074-3091-stall-detected-180s-killed-python-restarted;run2-clean-cross-exact-step3-onto-door-tile-17-50-01;QG-arming-varp-220-230-250-proximity-gates-39a8cb2-WORK;gate-12f-passed-BEFORE-click;LADDER-DESCENDED-FIRST-EVER-3081-9508-progress-300,17,20260720T004946Z_judeaislam
+2026-07-20,judeaislam,llama,07_mining_smithing,P,FIRST-CONTACT-PASS;tin-copper-mined;bronze-bar-smelted;dagger-smithed;progress-370-to-400,4,20260720T004946Z_judeaislam
+2026-07-20,judeaislam,llama,08_combat,F,dagger-WIELD-PASS-DEFECT29-dagger-half-proven;sword-shield-handover-FAILED-steps6-8-sprinted-8s-2-spaces;equip-item-Bronze-sword-not-in-inventory-abort-after-retry2;varp-STUCK-400;manual-bridge-tested-unequip-reequip-varp-did-NOT-advance-hypothesis-equip-event-not-the-400-stage-trigger-maybe-combat-options-tab;idle-logout-18-05-20-PDT-during-post-abort-analysis-state-file-freezes-at-login-screen,6,20260720T004946Z_judeaislam
+2026-07-20,judeaislam,llama,09_banking,NR,not-reached-s08-abort,0,20260720T004946Z_judeaislam
+2026-07-20,judeaislam,llama,10_prayer_magic,NR,not-reached-s08-abort,0,20260720T004946Z_judeaislam
