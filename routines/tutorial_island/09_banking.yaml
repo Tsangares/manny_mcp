@@ -175,6 +175,20 @@ steps:
       exact mode (whose per-hop refiner BLOCKS once a door re-closes,
       ~5-7s after Open) is no longer needed or safe here.
 
+      MASKED no-op -- DO NOT "fix" or copy this distance blindly. The seat
+      (3123,3125) to this target (3123,3127) is only 2 Chebyshev tiles, inside
+      plain GOTO's `distance <= 3` no-op radius (GotoCommand.java:152), so this
+      GOTO issues NO click and the player does not move here. It is HARMLESS in
+      THIS position ONLY because the very next step (step 2, INTERACT_OBJECT
+      Ladder Climb-up) does its own pathing through the just-opened door to
+      reach the ladder at (3123,3128) -- the ladder interact carries the
+      crossing, so the through-walk's no-op never surfaces. This is the
+      OPPOSITE of 09_banking_to_account_guide.yaml step 3, where the next step
+      is a varp WAIT gate (nothing to carry the crossing), so that one had to
+      be retargeted >3 tiles from its seat (attempt #15). Leave this as-is
+      (proven across attempts #13-#15); do not copy its short distance to any
+      crossing whose next step is a WAIT/varp gate/dialogue/tab click.
+
   - id: 2
     description: "Climb ladder up to roof (abort -- don't march to descent having never left plane 0)"
     action: INTERACT_OBJECT

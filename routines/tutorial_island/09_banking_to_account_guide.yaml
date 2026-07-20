@@ -48,10 +48,28 @@ locations:
   exit_door_position: {x: 3124, y: 3124, plane: 0}  # Exact seat before opening door -- multiple doors nearby
   exit_door: {x: 3125, y: 3124, plane: 0}           # CONFIRMED (Driver #4, defects log:216-218): door to Account Guide room
   # Reused from 10_prayer_magic.yaml's `npcs.account_guide.location` (not an
-  # invented coordinate) -- the tile immediately past the door threshold,
-  # used as the plain through-walk target so the crossing lands the player
-  # right next to the NPC rather than stopping on the door tile itself.
+  # invented coordinate) -- the tile immediately past the door threshold. NO
+  # LONGER the through-walk target (see through_walk_target below): at only 2
+  # tiles from the (3124,3124) seat it fell inside plain GOTO's no-op radius.
   account_guide_npc: {x: 3126, y: 3124, plane: 0}
+  # THROUGH-WALK TARGET (attempt #15 fix, 2026-07-20, malikreyes/llama, run
+  # 20260720T052459Z): the crossing GOTO (step 3) must land >3 Chebyshev tiles
+  # from the (3124,3124) seat so plain GOTO issues a real click instead of the
+  # distance<=3 no-op that stranded malikreyes at the seat (varp stuck 525,
+  # journals/2026-07-20_tutorial_attempt15_malikreyes_llama.md; GotoCommand.java
+  # :152 `distance == 0 || (!exact && distance <= 3)`). (3128,3124) is 4 tiles
+  # from the seat -- NOT invented: it lies on the SAME straight row y=3124 as
+  # the seat (3124), the west door (3125), the Account Guide NPC (3126) and the
+  # east door (3130) -- all from 10_prayer_magic.yaml's own locations block --
+  # 2 tiles PAST the NPC and 2 tiles SHORT of the east door, so firmly interior
+  # to the Account Guide room. Walkable by direct continuity: it sits between
+  # the NPC's standing tile (3126,3124) and 10_prayer_magic.yaml's east-door
+  # exact seat (3129,3124) -- both confirmed walkable on this row (the latter
+  # exact-seated + arrival-confirmed there, live-exercised through judeaislam
+  # attempt #8). Distance 4 (not 5) also keeps 10_prayer_magic.yaml step 1's
+  # exact re-seat back to (3124,3124) inside exact mode's <=5-tile refinement
+  # window.
+  through_walk_target: {x: 3128, y: 3124, plane: 0}
 
 # STRICT-STEPS honesty gate (engine finding #1a): any failed step marks this
 # SECTION failed so the master chain STOPS instead of false-passing into the
@@ -95,20 +113,34 @@ steps:
       (journals/2026-07-20_tutorial_attempt12_malikreyes_llama.md).
 
   - id: 3
-    description: "Through-walk PAST the threshold to the Account Guide's tile (plain GOTO, not onto the door tile)"
+    description: "Through-walk PAST the threshold to a tile deep in the Account Guide room (plain GOTO, >3 tiles from the seat so a real click is issued, not onto the door tile)"
     action: GOTO
-    args: "3126 3124 0"
-    await_condition: "location:3126,3124"
+    args: "3128 3124 0"
+    await_condition: "location:3128,3124"
     timeout_ms: 60000
     on_failure: "retry:2"
     notes: |
       DOOR-CROSSING v2: a PLAIN GOTO straight to a tile PAST the threshold
-      (reusing the already-declared `account_guide_npc` location, not an
-      invented coordinate) crosses the door with one through-click during
-      the still-open window, instead of stopping on the door tile itself
-      (which exact mode's per-hop refiner would target and which becomes
-      BLOCKED once the door auto-closes -- see 05_cooking_to_quest_guide.yaml
-      pitfall #8 for the identical failure mode this avoids).
+      crosses the door with one through-click during the still-open window,
+      instead of stopping on the door tile itself (which exact mode's per-hop
+      refiner would target and which becomes BLOCKED once the door auto-closes
+      -- see 05_cooking_to_quest_guide.yaml pitfall #8 for the identical
+      failure mode this avoids).
+
+      ATTEMPT #15 RECEIPT (malikreyes/llama, run 20260720T052459Z,
+      journals/2026-07-20_tutorial_attempt15_malikreyes_llama.md, screenshot
+      ...9b_door_nomove.png): this step USED to target (3126,3124) -- only 2
+      Chebyshev tiles from the step-1 seat (3124,3124), squarely inside plain
+      GOTO's `distance <= 3` no-op radius (GotoCommand.java:152). The door
+      DID open (coordinate-pinned, step 2), but this GOTO logged "Already at
+      destination (distance: 2 tiles)" and issued NO click -- the player never
+      crossed, varp stayed 525, and step 4's honest >=530 gate aborted the
+      section. FIX: retarget to (3128,3124) = `through_walk_target` above
+      (distance 4 from the seat, >3 -> a real minimap click IS issued), on the
+      same straight walkable row through the open door, still interior to the
+      Account Guide room. This is the LOAD-BEARING crossing: the next step is a
+      varp WAIT gate (not an object/NPC interact whose own pathing would carry
+      the player through), so the through-walk MUST actually move the player.
 
   # Honest confirm: the supervisor's live salvage receipt (run 20260720T020701Z)
   # proved this door crossing advances varp 281 525 -> 530. Gate on the
@@ -153,5 +185,6 @@ steps:
 # - Verify a tutorial stage: WAIT + await_condition tutorial_progress:>=N
 
 # After this routine:
-# Player at (3126, 3124), inside the Account Guide room, varp 281 >= 530.
-# Ready for 10_prayer_magic.yaml.
+# Player at (3128, 3124), inside the Account Guide room (past the NPC at
+# 3126,3124, short of the east door at 3130,3124), varp 281 >= 530. Ready for
+# 10_prayer_magic.yaml (which re-seats at 3124,3124 and re-crosses defensively).

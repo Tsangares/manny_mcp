@@ -199,7 +199,24 @@ steps:
     await_condition: "location:3126,3124"
     timeout_ms: 60000
     on_failure: "retry:2"
-    notes: "DOOR-CROSSING v2: plain through-walk, never exact onto the door tile itself (exact's per-hop 'Walk here' refiner is BLOCKED once the door re-closes)."
+    notes: |
+      DOOR-CROSSING v2: plain through-walk, never exact onto the door tile
+      itself (exact's per-hop 'Walk here' refiner is BLOCKED once the door
+      re-closes).
+
+      MASKED no-op -- LEAVE AS-IS, do not copy this distance. The seat
+      (3124,3124) to this target (3126,3124) is only 2 Chebyshev tiles, inside
+      plain GOTO's `distance <= 3` no-op radius (GotoCommand.java:152), so this
+      GOTO issues no click here. It is HARMLESS in this defensive-re-open
+      position ONLY because the next step (step 4, INTERACT_NPC Account_Guide
+      Talk-to) paths through the just-opened door to the NPC at (3126,3124) --
+      the NPC interact carries the crossing (validated live: judeaislam attempt
+      #8 reached mainland through this exact sequence). Contrast
+      09_banking_to_account_guide.yaml step 3, the IDENTICAL geometry but
+      LOAD-BEARING (its next step is a varp WAIT gate with nothing to carry the
+      crossing), which was therefore retargeted >3 tiles from its seat (attempt
+      #15). Do NOT copy this 2-tile distance to any crossing whose next step is
+      a WAIT/varp gate/dialogue/tab click.
 
   - id: 4
     description: "Talk to Account Guide (first round)"
