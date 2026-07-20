@@ -193,10 +193,10 @@ steps:
       malikreyes_llama.md).
 
   - id: 3
-    description: "Through-walk PAST the threshold to the Account Guide's tile (plain GOTO, not onto the door tile)"
+    description: "Through-walk PAST the threshold, 4 tiles east on the y=3124 row (plain GOTO, not onto the door tile)"
     action: GOTO
-    args: "3126 3124 0"
-    await_condition: "location:3126,3124"
+    args: "3128 3124 0"
+    await_condition: "location:3128,3124"
     timeout_ms: 60000
     on_failure: "retry:2"
     notes: |
@@ -204,19 +204,18 @@ steps:
       itself (exact's per-hop 'Walk here' refiner is BLOCKED once the door
       re-closes).
 
-      MASKED no-op -- LEAVE AS-IS, do not copy this distance. The seat
-      (3124,3124) to this target (3126,3124) is only 2 Chebyshev tiles, inside
-      plain GOTO's `distance <= 3` no-op radius (GotoCommand.java:152), so this
-      GOTO issues no click here. It is HARMLESS in this defensive-re-open
-      position ONLY because the next step (step 4, INTERACT_NPC Account_Guide
-      Talk-to) paths through the just-opened door to the NPC at (3126,3124) --
-      the NPC interact carries the crossing (validated live: judeaislam attempt
-      #8 reached mainland through this exact sequence). Contrast
-      09_banking_to_account_guide.yaml step 3, the IDENTICAL geometry but
-      LOAD-BEARING (its next step is a varp WAIT gate with nothing to carry the
-      crossing), which was therefore retargeted >3 tiles from its seat (attempt
-      #15). Do NOT copy this 2-tile distance to any crossing whose next step is
-      a WAIT/varp gate/dialogue/tab click.
+      RETARGETED (3126,3124)->(3128,3124) after attempt #16. The old 2-tile
+      target sat inside plain GOTO's `distance <= 3` no-op radius
+      (GotoCommand.java:152) and was believed MASKED by step 4's NPC interact
+      pathing through the door. Attempt #16 FALSIFIED that: the GOTO
+      false-passed with no movement, the Account_Guide Talk-to fired out of
+      range with no dialogue, and the honest varp >=531 gate aborted (run
+      receipt: journals/2026-07-20_tutorial_attempt16_malikreyes_llama.md).
+      New target (3128,3124) is distance 4 from the seat (3124,3124) -- a real
+      click is issued -- and is the same interior tile 9b's through-walk
+      (fbde0cc) validated live in the same attempt: on the walkable y=3124 row,
+      2 tiles east of the NPC (3126,3124), 2 short of the east door (3130).
+      Step 4's Talk-to then paths 2 tiles back west to the NPC.
 
   - id: 4
     description: "Talk to Account Guide (first round)"
