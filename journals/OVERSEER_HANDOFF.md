@@ -801,3 +801,147 @@ this session also landed `hosts.yaml` edits (punitpun → `:5`, new `llama` host
 commits scoped.
 
 Session paused here at user request.
+
+---
+## STATE — 2026-07-19 (late): tutorial attempts 1-3, fix stack, proxy resolved
+
+**Where we are:** the proxy blocker is now resolved (transport proven end-to-end; one live-gated
+443 trial remains) and account posture has moved to `llama` as the primary run host on the home
+residential IP, no proxy needed there. Two live tutorial-chain attempts on `punitpun` (llama) both
+failed to reach mainland — not from ban risk (neither drew a ban signal) but from a genuine
+in-game/account desync at the Quest-Guide→ladder handoff, which a fix-loop diagnosed and patched
+between attempts. Attempt #3, on a **fresh** account (`ifixifixit`), is in flight now to test
+whether a clean account clears that handoff; this section does not have its result.
+
+**(2) Host roster**
+
+| Host | IP | Role | OS / JDK | Notes |
+|---|---|---|---|---|
+| **llama** (brabra) | 10.0.0.99 | **PRIMARY run host, all accounts, now** | Arch, JDK26+Xvfb | ~8 client lanes; home residential IP 96.39.231.108; no proxy needed |
+| diort | 10.0.0.13 (iMac) | Provisioned fallback | — | Proven thermal-stable earlier campaign; not the active lane host right now |
+| mat | 157.254.18.86 | Provisioned, **proxy-mandatory** | Debian 13, JDK21 | `force_proxy:true`; for IP-diversity via dataimpulse; fail-closed verified (no relay = no launch) |
+
+**(3) Account roster**
+
+| Account | Status |
+|---|---|
+| `ifixifixit` | **in use** — attempt #3, fresh account, in flight |
+| `fishibis2800`, `karldakilla`, `judeaislam`, `malikreyes` | usable spares |
+| `tovahkline` | unnamed, reserved for TYPE-command live test |
+| `punitpun`, `blast` | parked (punitpun desynced mid-ladder-handoff post-attempt-2; blast parked at section-08 combat area from an earlier window) |
+| `new`, `newbakshesh` | **BANNED** — permanent ban-detection gate aliases only, never for automation |
+| `main` | user's real account — **off-limits**, hard rule |
+
+Bolt re-import has repeatedly reset `credentials.yaml`'s `default:` to a banned alias (recurring
+hazard, 5+ occurrences) — now auto-fixed by `scripts/fix_credentials_defaults.sh`, wired into
+`mannyctl push-creds` so a Bolt reset can no longer propagate to a host.
+
+**(4) Deployed jar + key commits**
+
+Current deployed jar: `fa059e235a4d90d70021ecd056f4f9f7374448ed64ca91c7ac1eae5203347c23` —
+manny HEAD `cf22ed5` (the varp fix: `client.getVarPlayer(281)`, not `getVarbitValue(281)`).
+Provisioned + sha-pinned on llama and diort. Prior jars superseded: `054d6298…` (attempt #1),
+`b2b7a92…` (attempt #2, had the varbit/varp bug plus `TYPE` command).
+
+manny: `cf22ed5` (varp281 fix), `743d458` (`TYPE <text>` command), `2f641d9` (tutorial.progress
+export).
+manny_mcp: `732efd7` (ladder re-pin + GOTO-exact + quest-guide varp audit), `fcdada5`
+(tutorial_progress atom + master-chain gating), `8c8b67c` (attempt #2 journal + metrics),
+`15bbb22` (port-per-lane proxy + game-over-443), `665835c` (strict_steps + goto-progress-guard +
+kill-then-spawn), `44a6eb6` (provisioning host-config render + jar sha256 gate), `998ed4d`
+(`fix_credentials_defaults.sh`).
+
+**(5) Attempt results**
+
+| Attempt | Account/host | Result | Live minutes |
+|---|---|---|---|
+| **#1** | punitpun / llama | s01-05 clean first-contact PASS (~23min); s06 **false-passed** (dialogue-desync, no in-game progress); s07 nav-miss (cross-plane GOTO silently didn't move); s08 auto-restart spawned a second client on the same display/IPC. No ban. | 83 |
+| **#2** (resume) | punitpun / llama | `strict_steps` **WORKS** — honest failure confirmed at the same ladder step that false-passed in #1 (the headline win). Varbit gate found **INERT** (`getVarbitValue` vs `getVarpValue` — fixed in `fa059e2`). Ladder pin targeted the wrong (unwalkable) tile; even corrected, the account itself is **game-side desynced/unsalvageable** at the Quest-Guide→ladder handoff. No ban. | 19 |
+| **#3** (fresh) | ifixifixit / llama | **IN FLIGHT** — tests whether a fresh account clears the ladder handoff and reaches mainland. Journal `journals/2026-07-19_tutorial_attempt3_ifixifixit_llama.md` not yet written; check for it before assuming this section is current. | — |
+
+**(6) The fix stack (between #1 and #2, all offline-verified before #2 ran)**
+
+- **`config.strict_steps`** (manny_mcp `665835c`) — any step that fails under `on_failure:
+  continue` now flips the section's result to `success:false` instead of the runner silently
+  marching on; closes the exact false-pass class that caused #1's 42 blind minutes in s07/s08.
+- **varp fix** (manny `cf22ed5`) — tutorial-progress export was reading the wrong client
+  namespace (`getVarbitValue(281)` instead of `getVarPlayer(281)`), so `tutorial.progress` was
+  permanently 0 and the master-chain's stage-skip gate (`fcdada5`) could never fire. Fixed; now
+  deployed in the `fa059e2` jar.
+- **ladder re-pin** (manny_mcp `732efd7`) — attempt #2 found the ladder object itself is
+  `BLOCK_MOVEMENT_FULL` (can't stand on it); the only walkable approach tile is one north, from
+  inside the house via the north door. Re-pinned + GOTO-exact.
+- **kill-then-spawn** (manny_mcp `665835c`) — auto-restart previously called a no-op
+  `stop_instance()` when the client was launched by a different process, so recovery could spawn
+  a second live client sharing the same display/IPC (#1's root cause for s08). Now reaps the
+  tracked instance AND any session-ledger PID cross-process (SIGTERM→verify→SIGKILL→verify) before
+  spawning a replacement; refuses to spawn if a predecessor can't be confirmed dead. Capped at 2
+  auto-restarts per account per process.
+- **provisioning fixes** (manny_mcp `44a6eb6`) — `provision.sh` now renders a host-correct
+  `config.yaml` (java_path/runelite_jar/runelite_root from `hosts.yaml`) instead of shipping the
+  laptop file, and stamps a `runelite_jar_sha256` that `RuneLiteInstance.start()` verifies before
+  launch — closes the attempt-#1 stale-jar-fallback failure mode. `mannyctl run` now also exports
+  `PYTHONUNBUFFERED=1` so section-transition logs stream live instead of buffering to process exit.
+
+**(7) Proxy state**
+
+**Resolved as port-per-lane sticky** (manny_mcp `15bbb22`, supersedes the earlier sessid-token
+model): each dataimpulse gateway port (10000+N) is its own independent sticky session with a
+stable residential exit IP — no per-session token/TTL juggling. `hosts.yaml`'s `proxy_lanes` map
+assigns each concurrent account its own port/exit. Fail-closed verified on `mat` (`force_proxy:
+true` — no relay, no launch, home IP can never leak).
+
+**GAME-OVER-443 is viable, transport-proven end-to-end:** dataimpulse blocks the raw OSRS game
+port (43594) at the exit, but allows 443, and OSRS serves the identical TLS game service
+(`CN=*.runescape.com`) on both ports. `socks_relay.py --game-port-443` (default OFF) rewrites
+outbound `CONNECT :43594`→`:443` at the relay; a full TLS handshake to the game host through the
+proxy over this rewrite is proven. **Sole unproven link:** one sustained in-game session (login →
+world → gameplay) actually riding 443 — this is a user-gated live trial on a throwaway account,
+not an engineering gap. If confirmed, it makes a dataimpulse 43594 manual-unblock request
+unnecessary.
+
+**(8) NEXT GOALS, ranked**
+
+1. Collect attempt #3's result (`ifixifixit`, fresh account) — does a clean account clear the
+   Quest-Guide→ladder handoff now that the varp gate + ladder pin + strict_steps are all live?
+2. If #3 reaches mainland: continue the chain through 07-10 to get first-contact data on those
+   sections, including the still-untested DEFECT-29 equip live-gate (see below).
+3. Run the one user-gated 443 proxied live-login trial on a throwaway account to close out the
+   proxy track.
+4. Resume E2 (cowhide banking routine) / Track G (4h+ unattended proof) once a tutorial chain has
+   cleanly reached mainland on an account not carrying tutorial-desync baggage.
+
+**(9) Open defects / deferred**
+
+- **TYPE command live-accept** — `manny` `743d458` added `TYPE <text>` for typing into focused
+  fields; not yet live-gated (reserved account `tovahkline` earmarked for this test).
+- **DEFECT-29 (equip via screen-coordinate click)** — `handle_click_widget`/`handle_equip_item`
+  CLICK_AT on interface-relative bounds as if screen-absolute (walks the player instead of
+  equipping). Python-side fix already deployed (`ba8efd3`/`cba886e` from an earlier window) but
+  never live-re-verified — `blast` was parked at the section-08 combat area with a dagger
+  unequipped specifically to retest this, and no attempt since has reached that section on a
+  non-desynced account. Still untested live.
+- **The ~60-minute disconnect seen in attempt #1** — cause unestablished (no ban screen, relogin
+  succeeded). Watch for recurrence at similar session age in future long runs.
+- **DEFECT-27** (GOTO-exact misleading "success" flag when hops are exhausted off-target) and
+  **DEFECT-30** (loop-stop-on-timeout) — landed in earlier windows per the commit ledger above;
+  not re-verified in attempts #1-3, listed here for completeness since they sit in the same nav/
+  loop-control surface these attempts exercise.
+
+---
+
+## CHECKPOINT 2026-07-20 ~00:50Z — pre-compaction handoff (tutorial campaign, day of attempts #3-#6)
+
+**Campaign state in one line:** every defect from 5 tutorial attempts has a committed fix (most live-proven); attempt #6 (judeaislam, llama :8, FIRST SONNET SUPERVISOR, new 30s-poll/2.5-min-stall-abort/5-min-heartbeat posture) is LIVE and carries all of them; the ladder verdict is the expected next event.
+
+**Fix stack attempt #6 runs on (all pushed to manny_mcp master):** 31504fb gate thresholds (fresh account skips nothing; cooking gate 170) · b5f5e61 exact bridge on 05b (proven attempt-#1 door crossing; doctrine: plain=traversal, exact=positioning/seating) · 39a8cb2 arming state-gates + WAIT gate "verify ladder armed" on tutorial_progress:>=250 (honest abort, no dead-ladder clicks) · 9ade455 door pinning (exact confirmed seat before every door open; doors are identical — location IS identity, per user) · c186adf dryrun models tutorial_progress · 6ff3d27 freeze watchdog + llama display map (every alias mapped; :2 = user's physical desktop, never fall back to it). Jar on llama+pinned: d0668f58 (menu-matcher fix soaked clean 51 decisions; BACKSPACE/DELETE; manny commit 45b3900). Old jar .rollback-fa059e23 kept on host.
+
+**In-flight when this checkpoint was written (all background, will message main):** (1) attempt-#6 sonnet supervisor (llama, judeaislam); (2) opus builder: `mannyctl <host> window <account> <routine>` one-command run pipeline (gates: predecessor-dead, creds, display-mapped, provision+stash discipline+post-assertions, DEFECT-32 login gate, run+watchdog attach) — composes existing mannyctl, must not touch watchdog.py; (3) sonnet: stall detector in scripts/remote/watchdog.py (--stall-seconds, default 150: varp+position static → stall_detected/continuing/cleared ledger events, no kill); (4) fable fork: PROCESS_AUDIT_2026-07-20.md self-audit for the user at ~/Desktop.
+
+**Key verdicts banked today:** varp-281 read + master gating PROVEN (3×). strict_steps honest-fail PROVEN. Cooking gate fix PROVEN (attempt #5: cooking ran, varp→200). First healthy account REACHED the ladder (karldakilla, (3088,3118)); Climb-down primitive healthy; descent blocked only by arming desync (now gated+fixed). DEFECT-29 dagger equip PROVEN on diort (blast); sword/shield/bow UNMEASURED (blast deadlocked varp 400 — pre-equipped dagger blocks instructor dispense; fresh account through s08 is the only clean test). TYPE command PROVEN end-to-end — tovahkline NAMED; Set/Confirm widget 36569107; group-558 buttons need ENTER/CLICK_AT (CLICK_WIDGET null-bounds defect FIXED in 45b3900, live acceptance pending next group-558 visit). Graph nav trial (diort, ifixifixit): engine/flag/fallback SOUND but tutorial transport DB missing cook gate/door + fence mismodeled walkable → WALK-only routes, executeTransport never ran, rescue failed; shadow graph=FOUND counts walk-only routes (misleading); do NOT cut over tutorial until data fixed (task open). Legacy launch path: mannyctl run does NOT start a client — start first, then run (window command will subsume).
+
+**Parked accounts:** punitpun (desynced, dead), ifixifixit + fishibis2800 (pocket-trapped ~(3077,3094)/(3078,3097), varp 130 — rescue = graph mode after transport-data fix), karldakilla (at ladder, varp 200, clean — could resume for a ladder-only test if arming can be re-fired: quest guide steps re-runnable from (3086,3125)), blast (varp 400 deadlock, diort), tovahkline (named, fresh, unused). Fresh spares left: judeaislam (in use, #6), malikreyes (last untouched).
+
+**Next actions by outcome:** #6 mainland → MILESTONE: account factory (fan malikreyes/tovahkline through the chain on llama lanes; then Bolt-create→TYPE→tutorial pipeline). #6 fails → the failure is by construction NEW; diagnose with prior-art-first + verify factual premises (which commit/mode actually ran — today's inverted-diagnosis lesson) before fixing. Either way: read PROCESS_AUDIT for adopt-now items; open tasks #11 (launch-path/display allocator — window command may close it), #13 (tutorial transport data for graph nav).
+
+**Standing rules that keep biting (do not relearn):** always explicit --account (default=punitpun); banned aliases new/newbakshesh; main=REAL never; never pkill java; ps-not-pgrep for liveness; stash 3 humanize paths before provision, pop+verify after; scoped git add only (many concurrent committers), author Tsangares, no Co-Authored-By; supervisors poll inline, never background-exit reliance; fish shells everywhere remote — bash -c wrap; user reads plain language, not agent-speak.
