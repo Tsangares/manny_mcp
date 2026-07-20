@@ -945,3 +945,98 @@ unnecessary.
 **Next actions by outcome:** #6 mainland → MILESTONE: account factory (fan malikreyes/tovahkline through the chain on llama lanes; then Bolt-create→TYPE→tutorial pipeline). #6 fails → the failure is by construction NEW; diagnose with prior-art-first + verify factual premises (which commit/mode actually ran — today's inverted-diagnosis lesson) before fixing. Either way: read PROCESS_AUDIT for adopt-now items; open tasks #11 (launch-path/display allocator — window command may close it), #13 (tutorial transport data for graph nav).
 
 **Standing rules that keep biting (do not relearn):** always explicit --account (default=punitpun); banned aliases new/newbakshesh; main=REAL never; never pkill java; ps-not-pgrep for liveness; stash 3 humanize paths before provision, pop+verify after; scoped git add only (many concurrent committers), author Tsangares, no Co-Authored-By; supervisors poll inline, never background-exit reliance; fish shells everywhere remote — bash -c wrap; user reads plain language, not agent-speak.
+
+## CHECKPOINT 2026-07-20 ~05:10Z — pre-compaction handoff #2 (MAINLAND MILESTONE + certification series)
+
+**Read this section first on resume. Supersedes the ~00:50Z checkpoint above.**
+
+### The night's two headlines
+1. **MAINLAND REACHED (campaign milestone):** `judeaislam` completed Tutorial Island (varp-281 = 1000,
+   Lumbridge 3221,3218) on attempt #8, 02:45Z — screenshot `journals/images/2026-07-20_judeaislam_mainland_arrival.png`.
+   Needed 3 manual bridges (all since fixed). Parked at Lumbridge spawn, is the designated
+   mainland/quest test body.
+2. **Hands-free certification series (attempts #9-#12, `malikreyes`):** FIVE consecutive
+   zero-hand-driven-action measurement runs. Each found exactly one defect; each was fixed within
+   the hour. malikreyes parked at varp 510, (3123,3125), healthy — remaining unmeasured:
+   s09a entry door → boat.
+
+### Fix commits landed tonight (manny_mcp master, all pushed through 8e404f0; later ones local)
+- `31504fb` master gates 04→120/05→170 (wiki) · `b5f5e61`+`9ade455` exact bridge + door pins
+- `39a8cb2` QG arming gates · `45b3900`→jar d0668f58 menu-matcher/BACKSPACE (superseded, see jar note)
+- `6214d0e` s08 rebuild (equipment-stats step was MISSING — wiki varp ladder) · `f5fc911` door-crossing v2
+  (auto-close ~5-7s; open→immediate plain through-walk PAST threshold; never exact onto door tile)
+- `736c5a8` poll booth (verb "Use" was right; env failure; settle+retry+varp gate) · `38f4586` s09 split + ladder pin
+- `63fa2b5` Account Guide action-based tab click · `e3c51c5` s10 varp gates + CLICK_AT mainland menus
+- `215f400` s07 settle (falsified later) · `db8db72` s07 TRUE fix (invisible-mesbox drains + inner loop
+  [drain→anvil→click] gated has_item) · `e695cdf` s08b ranged reposition+retry loop (ACCEPTED live #12)
+- `9bebaf5`+`dad312d` mainland routines (see below) · `9e1e6f9` Cook's Assistant rewrite
+- `13aec22`/merge `8e404f0` skill_diff grammar · `6cf09d1` INTERACT_OBJECT [x y] docs
+- Journals: attempts 6-12 all committed with receipts + metrics_first_contact.csv rows.
+
+### JAR STATE (important)
+**Official deployed jar: `421c03e9…` (manny commit `7f42b54`)** = old d0668f58 + (1) group-162
+chatbox-modal export (dialogue.open:true, additive `dialogue.modal_text`, `[MODAL-BLOCK]` log —
+VALIDATED LIVE attempt #12), (2) CLICK_CHILD_WIDGET honest-failure (no more blind-rectangle false
+success), (3) INTERACT_OBJECT optional `[x y]` coordinate qualifier (`[MENU-MATCH]` log). It shipped
+EARLY by accident (gate-4 provision copies whatever is in the build path — no pin check; caught by
+the #12 supervisor, adopted deliberately, deviation logged in the #12 journal). Backup on llama:
+`client-…-shaded.jar.backup-421c03e9`. d0668f58 no longer exists as an artifact.
+**Gap ticketed (task #25): gate 4 must verify jar sha against an expected pin.**
+
+### In-flight desk agents at checkpoint time (check /tasks + git log on resume)
+1. **strict_steps absorbed-failure engine fix** (mcptools/tools/routine.py): inner retry loop that
+   exits via success must not fail the section for absorbed passes (attempt-#12 receipt: ranged loop
+   self-healed, bookkeeping still stopped the chain at 10/13). Absorbed failures stay visible.
+   CAUTION: routine.py carries the parked [HUMANIZE] hunk — agent instructed to commit its hunks only.
+2. **s09a door pin + corpus sweep** (09_banking.yaml, 09b, 10): entry door was ambiguous (5 doors in
+   range; wrong one at 3118,3124; documented door 3124,3126) — first corpus use of the new
+   `INTERACT_OBJECT Door Open 3124 3126` form + sweep of ALL unpinned Door/Ladder/Gate interacts.
+**When both land: relaunch attempt #13** (window command, malikreyes, hands-off doctrine, sonnet
+supervisor whose brief STARTS with "YOUR TURN NEVER ENDS…" — 5 prior supervisors ended turns to
+"wait"; the leading-rule brief fixed it in #11/#12).
+
+### Mainland assets (built, validated offline, NOT yet live-run)
+- `routines/mainland/`: `00_fresh_account.yaml` chain = arrival ritual (equip sword+shield →
+  Draynor bank deposit-all [Port Sarim deposit box evaluated+rejected: deposit-only, no
+  BANK_DEPOSIT_ALL; Draynor is ON the Port Sarim road — user's natural-movement intent honored] →
+  coop 3235,3295) → `combat_chickens_to_10s.yaml` (stance rotation, defence_level:10 gate) →
+  `combat_cows_hides.yaml` (COW_PEN_CENTER 3178,3327 from old KillCowGetHidesCommand, hides→castle bank).
+  Plus `fishing_lumbridge_swamp_to_10.yaml` (net spawn = GameObject 674 at 3246,3157) and
+  `woodcutting_lumbridge_to_10.yaml` (idempotent axe withdraw, LIGHT_FIRE needs-live-receipt).
+- `routines/quests/cooks_assistant.yaml` REWRITTEN (old Jan-2026 file was never live-completed; wrong
+  coords fixed: egg coop 3235,3295, DAIRY cow 3253,3266 not the combat field). Gates on item facts —
+  quest varp 29 NOT exported. #1 live risk: Cook's dialogue option text (silently no-ops on mismatch).
+- Grammar: `<skill>_level:N` existed already; NEW `skill_diff:<a>-<b>:<op>N` (base levels, ANY-of;
+  missing-skill → never-stop). Multi-phase balanced training = one routine per phase, chained.
+- **First mainland session plan (task #22):** judeaislam, `mannyctl llama window judeaislam
+  routines/mainland/00_fresh_account.yaml` — doubles as stage-2 graph-nav mainland shadow trial
+  (NAV_BACKEND=shadow) on the ~130-tile Draynor leg. Then Cook's Assistant.
+
+### Task board (open)
+#13 graph-nav tutorial transport data (parked; mainland shadow data comes free w/ task #22) ·
+#22 first mainland session · #25 jar-pin gate · #26 generic varp/quest export + `varp:` atom
+(one-paragraph spec in the Cook's Assistant report — highest-leverage quest infra) · attempt #13.
+
+### Standing doctrine added tonight (all in MANNY_OVERSEER.md / lesson journals)
+Receipts rule (verify which commit/mode/jar RAN before fixing — saved us twice tonight: exact-mode
+thrash + jar deviation) · door-crossing v2 + location-is-identity now has native `[x y]` support ·
+mode-matches-step-intent · strictness earned by live defect · command-success ≠ objective progress
+(anvil, ranged, CLICK_CHILD_WIDGET all this class — gate on state facts) · supervisor brief leads
+with the never-end-turn rule · one measurement variable per run when possible (jar deviation logged
+when violated) · stash discipline: gate 4 owns provision stashes, supervisors must NOT pre-stash
+(stack collision, attempt #9); `stash@{0}` on manny_mcp = parked humanize+bolt WIP duplicate —
+KEEP (bolt_cdp.py diverged tree-vs-stash; both variants preserved), never pop/drop.
+
+### Account roster
+main REAL-never-touch · new/newbakshesh BANNED · judeaislam MAINLAND (varp 1000, Lumbridge, test body)
+· malikreyes varp 510 mid-certification · tovahkline named/fresh (:10) · karldakilla fresh (:7) ·
+ifixifixit + fishibis2800 wall-trapped pockets (graph-nav rescue candidates, task #13) ·
+punitpun parked-forever spare · blast parked (progress-400 deadlock, pre-fix era — now fixable via
+the s08 rebuild if ever wanted). Zero ban signals all night, ~15 window launches on llama.
+
+### Resume protocol
+1. /tasks + git log --oneline -15 (both repos) to see what the in-flight agents landed.
+2. If #13 not yet run: launch it (window command; hands-off brief per attempts 9-12 pattern).
+3. On certification (varp 1000, 0 hands): account factory = tovahkline through the chain, then
+   task #22 mainland session on judeaislam, then Cook's Assistant live.
+4. Memory files current: project_manny_tutorial_milestone.md + campaign file + MEMORY.md index.
