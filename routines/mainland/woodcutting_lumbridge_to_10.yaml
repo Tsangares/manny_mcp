@@ -1,0 +1,153 @@
+# ============================================================================
+# woodcutting_lumbridge_to_10.yaml -- starter woodcutting (session variety)
+# ============================================================================
+# One of the alternate-session starter activities (see README.md): the intended
+# usage pattern MIXES activities across sessions (chickens / cows / fishing /
+# woodcutting) instead of grinding one -- activity variety at the
+# routine-selection level only; NOT humanization.
+#
+# WHAT IT DOES: chops normal Trees near Lumbridge until Woodcutting reaches
+#   level 10 (honest Grammar-2 gate `woodcutting_level:10`), BURNING each
+#   inventory of logs on site with the starter tinderbox (Firemaking XP -- the
+#   natural chop-and-burn pairing), with a drop fallback.
+#
+# AXE PROVENANCE (journal receipts): the tutorial leaves a Bronze axe in the
+#   inventory -- attempt-1 journal receipt "(net/shrimps/axe/tinderbox/bread/
+#   pot/bucket)" (journals/2026-07-19_tutorial_attempt1_punitpun_llama.md:76);
+#   the stage-3 journal receipts "bronze"->Bronze axe / "tin"->Tinderbox in the
+#   inventory matcher. BUT the arrival ritual banks the whole kit at DRAYNOR
+#   (3093,3243), so phase A withdraws the axe there first.
+#   IDEMPOTENT WITHDRAW: the withdraw step carries
+#   `await_condition: "has_item:Bronze axe"` -- the await polices the OUTCOME
+#   (axe in inventory), so the step passes whether the axe came from the bank
+#   or was already carried; it fails honestly (timeout) only when there is no
+#   axe anywhere. If the ritual never ran, the Draynor leg is a harmless detour.
+#
+# TREES: 3163,3301 -- corpus receipt (routines/skilling/woodcutting_lumbridge.
+#   yaml, the validated lvl-30 grind at this exact tile). ~90 tiles from
+#   Draynor bank.
+#
+# BURN-OR-DROP POLICY (documented choice): BURN primary. LIGHT_FIRE [logs] is a
+#   registered single-fire command (ListCommandsCommand.java:84) with built-in
+#   ground validation -- it checks the current tile is walkable+empty and walks
+#   to a nearby valid tile first if not (CookingFiremakingSupport.
+#   handleLightFire:110-160), which is exactly the per-fire movement a burn
+#   loop needs. It burns ONE log per call, so the burn step is a
+#   `repeat_until: "no_item:Logs"` loop (check-first; generous max_iterations
+#   absorbs failed light attempts at Firemaking 1). DROP_ALL Logs is the
+#   cleanup fallback: if burning stalls out at max_iterations, the remaining
+#   logs are dropped so the next pass starts with a free inventory (its
+#   `no_item:Logs` await is already satisfied when the burn cleared them all).
+#   *** needs-live-receipt: LIGHT_FIRE has no mainland live receipt in the
+#   journals (the tutorial used raw USE_ITEM_ON_ITEM, a different path). If the
+#   burn loop misbehaves live, delete step 6 -- step 7's drop alone is the
+#   validated-simple policy. ***
+#
+# Intended invocation (level gate stops it early and honestly):
+#   ./run_routine.py routines/mainland/woodcutting_lumbridge_to_10.yaml --loops 10 --account judeaislam
+
+name: "Starter woodcutting - Lumbridge trees to woodcutting 10 (chop and burn)"
+type: skilling
+skill: woodcutting
+
+# Documentation-only (engine reads coords from step args, not this block).
+locations:
+  draynor_bank:
+    x: 3093
+    y: 3243
+    plane: 0
+  lumbridge_trees:
+    x: 3163
+    y: 3301
+    plane: 0
+
+steps:
+  # ---- PHASE A (once; flat loop skips it): fetch the axe from Draynor ------
+  - id: 1
+    phase: "gear"
+    action: GOTO
+    args: "3093 3243 0"
+    description: "Walk to Draynor Village bank (where the arrival ritual
+      deposited the starter kit -- LocationManager.java:42 receipt)"
+    await_condition: "location:3093,3243"
+    timeout_ms: 240000
+
+  - id: 2
+    phase: "gear"
+    action: BANK_OPEN
+    description: "Open the bank"
+    on_failure: "retry:2"
+    delay_after_ms: 1000
+
+  - id: 3
+    phase: "gear"
+    action: BANK_WITHDRAW
+    args: "Bronze axe 1"
+    description: "Withdraw the bronze axe. IDEMPOTENT: the has_item await
+      polices the outcome, so this passes if the axe was already carried (the
+      withdraw itself may no-op/fail harmlessly) and fails honestly only if
+      there is no axe in bank or inventory."
+    await_condition: "has_item:Bronze axe"
+    timeout_ms: 15000
+    delay_after_ms: 500
+
+  - id: 4
+    phase: "gear"
+    action: BANK_CLOSE
+    description: "Close the bank"
+    delay_after_ms: 500
+
+  # ---- PHASE B (looped): chop -> burn -> (drop remainder) ------------------
+  - id: 5
+    phase: "chop"
+    action: GOTO
+    args: "3163 3301 0"
+    description: "Walk to the normal trees near Lumbridge (corpus receipt:
+      woodcutting_lumbridge.yaml grinds this exact tile)"
+    await_condition: "location:3163,3301"
+    timeout_ms: 240000
+
+  - id: 6
+    phase: "chop"
+    action: CHOP_TREE
+    args: "Tree"
+    description: "Chop normal trees until inventory full (blocking --
+      ChopTreeCommand responds only once full)"
+    timeout_ms: 1800000   # blocking command (ROUTINE_SCHEMA.md (e)); NO await_condition
+
+  - id: 7
+    phase: "burn"
+    action: LIGHT_FIRE
+    args: "Logs"
+    description: "Burn the logs one fire at a time (Firemaking XP). LIGHT_FIRE
+      validates/relocates to a clear tile itself per fire. CHECK-FIRST
+      repeat_until: runs zero times if there are no logs. Generous
+      max_iterations absorbs failed light attempts at Firemaking 1.
+      needs-live-receipt -- see BURN-OR-DROP POLICY in the header."
+    repeat_until: "no_item:Logs"
+    max_iterations: 60
+    repeat_until_timeout_ms: 10000
+    timeout_ms: 60000
+
+  - id: 8
+    phase: "burn"
+    action: DROP_ALL
+    args: "Logs"
+    description: "Cleanup fallback: drop any logs the burn loop left behind so
+      the next pass starts with a free inventory. Already-satisfied await
+      no_item:Logs makes this a verified no-op when the burn cleared them all.
+      (DropAllCommand PROTECTED_ITEMS can never drop the axe/tinderbox.)
+      Terminal step of the pass."
+    await_condition: "no_item:Logs"
+    timeout_ms: 60000
+
+# Flat loop: re-run chop->burn->drop from step 5 (skipping the one-time Draynor
+# axe fetch) until Woodcutting 10 (Grammar 2 <skill>_level:N). Bound passes
+# with --loops N on the CLI (loop.max_iterations is a dead key --
+# ROUTINE_SCHEMA.md (d)/(f)). Level 10 needs ~1,154 XP = ~46 normal logs
+# (25 XP each) = ~2 inventories, so --loops 10 is generous headroom.
+loop:
+  enabled: true
+  repeat_from_step: 5
+  stop_conditions:
+    - "woodcutting_level:10"

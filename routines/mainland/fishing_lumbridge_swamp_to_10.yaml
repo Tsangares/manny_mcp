@@ -1,0 +1,109 @@
+# ============================================================================
+# fishing_lumbridge_swamp_to_10.yaml -- starter net fishing (session variety)
+# ============================================================================
+# One of the alternate-session starter activities (see README.md): the intended
+# usage pattern MIXES activities across sessions (chickens / cows / fishing /
+# woodcutting) instead of grinding one -- activity variety at the
+# routine-selection level only; NOT humanization.
+#
+# WHAT IT DOES: net-fishes Shrimp on the Lumbridge Swamp coast until Fishing
+#   reaches level 10 (honest Grammar-2 gate `fishing_level:10`, same
+#   <skill>_level:N mechanism receipted in combat_chickens_to_10s.yaml /
+#   routine.py:2125-2132), dropping the raw shrimps between inventories.
+#
+# SPOT CHOICE: the Lumbridge Swamp coast by the Fishing tutor -- the classic
+#   net spot nearest Lumbridge spawn (~70 tiles south; the Draynor coast
+#   alternative at 3087,3233 has a corpus receipt in fishing_draynor.yaml but
+#   is ~2x the walk). LIVE RECEIPT for this area: journals/
+#   ground_item_spawns_lessons_2026-01-24.md -- Fishing tutor confirmed at
+#   (3245,3157); GOTO 3246,3157 settled live.
+#
+# NET ACQUISITION (honest, covers both cases): the tutorial starter kit
+#   includes a Small fishing net, BUT the arrival ritual banks it at Draynor.
+#   Instead of a bank round-trip, this routine uses the PERMANENT GROUND SPAWNS
+#   next to the Fishing tutor -- live receipt (same journal): the net spawns are
+#   GameObjects (ID 674) with a "Take" action, NOT TileItems; picked up live via
+#   `INTERACT_OBJECT fishing_net Take` -> has_item satisfied after ~6s.
+#   The take step uses `repeat_until: "has_item:Small fishing net"` --
+#   CHECK-FIRST semantics (ROUTINE_SCHEMA.md (b)): if a net is already in the
+#   inventory (ritual skipped / second session), the take runs ZERO times.
+#
+# DROP POLICY (documented choice): DROP raw shrimps, don't bank them. At levels
+#   1-10 raw shrimps are worthless (~10gp/inv) and the swamp has no bank within
+#   ~100 tiles -- banking would triple the session's travel for nothing. The
+#   DROP_ALL command is per-item-name ("DROP_ALL Raw_shrimps") and its
+#   PROTECTED_ITEMS blacklist (DropAllCommand.java) can never drop
+#   axes/tinderboxes/runes/coins; the fishing net is not named "Raw shrimps"
+#   and is untouched. Level 10 needs ~1,154 XP = ~116 shrimp (10 XP each) =
+#   ~4-5 inventories.
+#
+# Intended invocation (--loops is the only real pass cap; the level gate stops
+# it early and honestly):
+#   ./run_routine.py routines/mainland/fishing_lumbridge_swamp_to_10.yaml --loops 10 --account judeaislam
+
+name: "Starter net fishing - Lumbridge Swamp shrimp to fishing 10"
+type: skilling
+skill: fishing
+
+# Documentation-only (engine reads coords from step args, not this block).
+locations:
+  swamp_fishing_coast:
+    x: 3246
+    y: 3157
+    plane: 0
+    description: "Lumbridge Swamp coast at the Fishing tutor (net spots + net ground spawns)"
+
+steps:
+  # ---- travel to the swamp coast (flat-loop re-entry: spots drift) ---------
+  - id: 1
+    phase: "travel"
+    action: GOTO
+    args: "3246 3157 0"
+    description: "Walk to the Lumbridge Swamp coast by the Fishing tutor
+      (live receipt 2026-01-24: this GOTO settled; tutor at 3245,3157)"
+    await_condition: "location:3246,3157"
+    timeout_ms: 120000
+
+  # ---- acquire a small fishing net if not already carried ------------------
+  - id: 2
+    phase: "gear"
+    action: INTERACT_OBJECT
+    args: "fishing_net Take"
+    description: "Take a Small fishing net from the permanent ground spawn by
+      the tutor (GameObject ID 674 -- live receipt 2026-01-24). CHECK-FIRST:
+      runs zero times if a net is already in the inventory."
+    repeat_until: "has_item:Small fishing net"
+    max_iterations: 3
+    repeat_until_timeout_ms: 8000
+    timeout_ms: 15000
+
+  # ---- fish until the inventory fills (blocking) ---------------------------
+  - id: 3
+    phase: "fishing"
+    action: FISH
+    args: "Shrimp"
+    description: "Net-fish shrimp until inventory full (FishCommand blocks; it
+      finds and re-clicks the drifting spots itself -- corpus receipt in
+      fishing_karamja_lobster.yaml). At fishing 1-10 a fill is slow -- generous
+      ceiling."
+    timeout_ms: 1800000   # blocking command (ROUTINE_SCHEMA.md (e)); NO await_condition
+
+  # ---- drop the catch (policy: drop, don't bank -- see header) -------------
+  - id: 4
+    phase: "drop"
+    action: DROP_ALL
+    args: "Raw_shrimps"
+    description: "Drop all raw shrimps (per-item drop; net/tools untouched --
+      DropAllCommand PROTECTED_ITEMS + name filter). Terminal step of the pass."
+    await_condition: "no_item:Raw shrimps"
+    timeout_ms: 60000
+
+# Flat loop: walk back to the coast anchor (spots drift), re-check the net
+# (zero-cost if held), fish, drop -- until Fishing 10 (Grammar 2
+# <skill>_level:N). Bound passes with --loops N on the CLI (loop.max_iterations
+# is a dead key -- ROUTINE_SCHEMA.md (d)/(f)).
+loop:
+  enabled: true
+  repeat_from_step: 1
+  stop_conditions:
+    - "fishing_level:10"

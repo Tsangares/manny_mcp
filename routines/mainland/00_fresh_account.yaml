@@ -1,0 +1,29 @@
+# Mainland fresh-account MASTER CHAIN
+#
+# Runs the arrival ritual and then the chicken progression as one command
+# (master-chain style, per routines/tutorial_island/00_master.yaml):
+#
+#     ./run_routine.py routines/mainland/00_fresh_account.yaml --loops 40 --account judeaislam
+#
+# `--loops N` only affects routines that HAVE a loop block: the ritual (no
+# loop) runs exactly once; the chicken routine iterates its stance-rotation
+# passes up to N or until its honest `defence_level:10` gate fires.
+#
+# SCOPE: the chain deliberately ends at the chicken milestone. Graduating to
+# cows (combat_cows_hides.yaml) and the alternate-session skilling activities
+# (fishing_lumbridge_swamp_to_10.yaml, woodcutting_lumbridge_to_10.yaml) are
+# separate invocations chosen per session -- the intended usage pattern MIXES
+# activities across sessions rather than auto-chaining one long grind (see
+# README.md). That is also why this master exists: run_routine.py treats a
+# 00_* master chain as AUTHORITATIVE for directory runs, so a naive
+# `./run_routine.py routines/mainland/` runs ritual->chickens instead of
+# alphabetically grinding every routine in the directory back-to-back.
+
+name: "Mainland fresh account - arrival ritual + chickens to 10s"
+type: chain
+
+chain:
+  - routine: "arrival_ritual_bank_gear.yaml"
+    description: "Equip sword+shield, bank the starter kit at Draynor, walk to the chicken coop"
+  - routine: "combat_chickens_to_10s.yaml"
+    description: "Rotating-stance chicken training until attack/strength/defence all reach 10"

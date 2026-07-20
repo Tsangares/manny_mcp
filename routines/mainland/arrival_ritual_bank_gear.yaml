@@ -1,0 +1,148 @@
+# ============================================================================
+# arrival_ritual_bank_gear.yaml -- fresh-mainland arrival ritual (entry step)
+# ============================================================================
+# USER'S DESIGN (quote): "bank all your items maybe at port sarim before
+#   killing chickens and equipping the sword. that seems like a natural
+#   movement very not bot like."
+# A fresh tutorial graduate at Lumbridge spawn EQUIPS its combat gear first
+# (bronze sword + wooden shield -- so the deposit can't swallow them), takes a
+# real cross-country walk to a bank, deposits everything else, then proceeds to
+# the chicken routine's start point. This is the entry step of the mainland
+# chain: ritual -> combat_chickens_to_10s.yaml -> combat_cows_hides.yaml
+# (00_fresh_account.yaml / README.md). NOT humanization -- this is an activity/
+# route design choice at the routine level, per the user's explicit request.
+#
+# BANK CHOICE -- evaluated per the user's Port Sarim suggestion:
+#   * Port Sarim deposit box (3029,3210 -- corpus receipt, live-tested
+#     2025-01-09 in routines/skilling/fishing_karamja_lobster.yaml): the
+#     user's suggestion, but it is DEPOSIT-ONLY and the deposit-all command
+#     cannot work there: BANK_DEPOSIT_ALL clicks widget 786473 = (12<<16)+41,
+#     the BANK interface's Deposit-inventory button (BankingSupport.java:40) --
+#     that widget does not exist in the deposit-box interface. The proven
+#     deposit-box pattern is PER-ITEM BANK_DEPOSIT_ITEM with a timed (no await
+#     atom) interface open -- depositing a heterogeneous ~14-stack tutorial
+#     starter kit that way is fragile with zero desk receipts.
+#   * Draynor Village bank (3093,3243 -- code receipts: LocationManager.java:42
+#     "DRAYNOR_BANK" 3093,3243,0; the prior-art KillCowGetHidesCommand banks
+#     here): a FULL bank on the very road to Port Sarim, so the journey keeps
+#     the natural traveling character the user asked for (~130-tile
+#     cross-country walk, not a Lumbridge min-loop), while the deposit uses the
+#     proven BANK_OPEN / BANK_DEPOSIT_ALL / BANK_CLOSE command set.
+#   * Lumbridge Castle bank: nearest, but zero traveling character - rejected
+#     per the user's intent.
+#   PICK: Draynor Village bank. If the user wants the full Port Sarim walk
+#   specifically, the upgrade path is a deposit-box-aware DEPOSIT_ALL plugin
+#   command (or a per-item variant of this file) -- documented, not built.
+#
+# EQUIP MECHANISM (tutorial receipts): `mcp_tool: equip_item` with dict args
+#   is the canonical, outcome-verified path (DEFECT-29, commit ba8efd3;
+#   reference usage routines/tutorial_island/08_combat.yaml:109). It opens the
+#   inventory tab itself, guards widget bounds, and returns success ONLY if the
+#   item actually left the inventory -- no silent false-pass. The dagger half
+#   was proven live (attempt #6); sword/shield were received once the s08
+#   handover fix landed (tutorial completed attempt #8).
+#
+# PRECONDITION: fresh mainland account at/near Lumbridge spawn with the
+#   tutorial starter kit (bronze sword + wooden shield in inventory).
+#   *** needs-live-receipt: scan the actual mainland starter inventory on
+#   judeaislam before the first run (attempt-8 parked the account clean but no
+#   inventory dump was journaled). ***
+#
+# Intended invocation (or via 00_fresh_account.yaml chain):
+#   ./run_routine.py routines/mainland/arrival_ritual_bank_gear.yaml --account judeaislam
+
+name: "Arrival ritual - equip gear, bank at Draynor, walk to the chickens"
+type: utility
+
+config:
+  strict_steps: true   # one-shot ritual: any failed step must fail the verdict honestly
+
+# Documentation-only (engine reads coords from step args, not this block).
+locations:
+  draynor_bank:
+    x: 3093
+    y: 3243
+    plane: 0
+  lumbridge_chicken_coop:
+    x: 3235
+    y: 3295
+    plane: 0
+
+steps:
+  # ---- equip combat gear FIRST so the deposit can't swallow it -------------
+  - id: 1
+    phase: "gear"
+    mcp_tool: equip_item
+    args:
+      item_name: "Bronze sword"
+    description: "Wield the starter bronze sword (outcome-verified equip --
+      DEFECT-29; fails honestly if the sword is not in the inventory)"
+    on_failure: "retry:2"
+    timeout_ms: 20000
+
+  - id: 2
+    phase: "gear"
+    mcp_tool: equip_item
+    args:
+      item_name: "Wooden shield"
+    description: "Equip the starter wooden shield (no manual inventory-tab
+      re-click needed between equips -- equip_item reopens the tab itself)"
+    on_failure: "retry:2"
+    timeout_ms: 20000
+
+  # ---- the traveling leg: Lumbridge spawn -> Draynor Village bank ----------
+  - id: 3
+    phase: "travel"
+    action: GOTO
+    args: "3093 3243 0"
+    description: "Cross-country walk to Draynor Village bank (~130 tiles, the
+      Lumbridge->Port Sarim road). Single GOTO on purpose: the live pathfinder
+      (external API + minimap follower) owns the route -- no invented waypoint
+      tiles. needs-live-receipt: if the follower stalls on this corridor, split
+      into short hops with per-hop location awaits (cowhide_banking.yaml
+      pattern) using tiles harvested from the stall geometry."
+    await_condition: "location:3093,3243"
+    timeout_ms: 240000
+
+  # ---- deposit everything else (worn gear untouched) -----------------------
+  - id: 4
+    phase: "banking"
+    action: BANK_OPEN
+    description: "Open the Draynor bank (no 'bank open' await atom exists --
+      guard with retry)"
+    on_failure: "retry:2"
+    delay_after_ms: 1000
+
+  - id: 5
+    phase: "banking"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit the entire remaining starter kit (net/axe/tinderbox/
+      food/runes/bow/etc). Equipped sword+shield are untouched -- BankingSupport
+      DEPOSIT_INVENTORY_BUTTON only targets the inventory panel. Later skilling
+      sessions withdraw their tool from THIS bank (see woodcutting routine) or
+      use a ground spawn (see fishing routine)."
+    await_condition: "inventory_count:<=0"
+    on_failure: "abort"
+    timeout_ms: 10000
+    delay_after_ms: 500
+
+  - id: 6
+    phase: "banking"
+    action: BANK_CLOSE
+    description: "Close the bank"
+    on_failure: "abort"
+    delay_after_ms: 500
+
+  # ---- proceed to the chicken routine's start point ------------------------
+  - id: 7
+    phase: "travel"
+    action: GOTO
+    args: "3235 3295 0"
+    description: "Walk to the Lumbridge chicken coop (~180 tiles east) -- the
+      exact start point of combat_chickens_to_10s.yaml. needs-live-receipt
+      (same single-GOTO caveat as step 3)."
+    await_condition: "location:3235,3295"
+    timeout_ms: 300000
+
+# No loop: a ritual runs once. Chain it ahead of the chicken routine via
+# routines/mainland/00_fresh_account.yaml.
