@@ -21,6 +21,8 @@
 #   mannyctl <host> status [account]           # host status; with an account, scope the client list
 #   mannyctl <host> temp                       # quick remote package temp
 #   mannyctl <host> run <routine.yaml> [args] [--proxy]  # run_routine.py ON the host (+watchdog ledger)
+#   mannyctl <host> window <account> <routine> [--loops N] [--nav-backend shadow|legacy|graph] [--dry]
+#                                              # ONE-COMMAND live-run ceremony (6 numbered fail-loud gates)
 #   mannyctl <host> runs [run_id]              # print watchdog run ledger(s) (JSON, newest first)
 #   mannyctl <host> cmd <account> <COMMAND..>  # ad-hoc: send one plugin command, print response
 #   mannyctl <host> logs [account] [n]         # tail the client log on host
@@ -29,6 +31,36 @@
 #
 # NOTE: This is a prototype skeleton. TODO markers flag spots that need a live
 # host to validate. It intentionally never prints credentials/tokens.
+#
+# ---- `window`: the mechanized live-run ceremony -----------------------------
+# `mannyctl <host> window <account> <routine> [--loops N] [--nav-backend X] [--dry]`
+# replaces the ~10-minute by-hand checklist five supervised tutorial attempts
+# converged on (journals/2026-07-19_tutorial_attempt{3,3b,4,5}) with ONE
+# invocation that runs six numbered gates and HARD-FAILS LOUDLY at the first
+# violated one (never auto-kills, never auto-fixes — it refuses and tells you):
+#   GATE 1 predecessor-dead : no java client / run_routine.py / watchdog.py is
+#                             already driving <account> on the host (ps + jar-glob
+#                             + /proc environ; the bracket-trick avoids the
+#                             pgrep -f self-match trap from attempt #5).
+#   GATE 2 credentials      : local fix_credentials_defaults.sh sanitize; assert
+#                             the alias exists AND default: is not a BANNED alias
+#                             (new/newbakshesh); rsync creds to host (600).
+#   GATE 3 display          : <account> MUST have an explicit account_displays
+#                             mapping in hosts.yaml (never the :2 physical-desktop
+#                             fallback that hijacked the real desktop in #3b/#4).
+#   GATE 4 provision        : git-stash the parked humanize paths, provision, pop,
+#                             VERIFY the pop restored them; then assert on-host: jar
+#                             sha pin matches the host jar, routine.py has 0 humanize
+#                             refs, the routine file exists.
+#   GATE 5 launch           : client_remote.sh start on the hosts.yaml display with
+#                             NAV_BACKEND (default shadow), then a DEFECT-32 login
+#                             gate (abort on >3 world-hops / terminal-ban latch);
+#                             confirm LOGGED_IN + real location. NEVER touches the
+#                             mcptools display-pool allocator — display is hosts.yaml only.
+#   GATE 6 run              : run_routine.py detached (as `run`) + watchdog ledger.
+# --dry runs the read-only checks (gates 1-4) and prints what 5-6 WOULD do,
+# launching nothing. Every gate prints one WINDOW_GATE PASS/FAIL line and the run
+# ends with a machine-greppable WINDOW_RESULT summary block.
 
 set -u
 
@@ -438,16 +470,25 @@ do_push_creds() {
   printf "Type 'yes' to proceed: "
   read -r ans
   [ "$ans" = "yes" ] || die "aborted (no creds copied)"
-  run_on_host "mkdir -p ~/.manny && chmod 700 ~/.manny"
-  # scp the file(s); then lock perms on the far side.
-  scp -q "$src" "$H_SSH:.manny/credentials.yaml" || die "scp failed"
-  run_on_host "chmod 600 ~/.manny/credentials.yaml"
+  copy_creds_to_host
   echo "credentials.yaml copied to $HOST:~/.manny/ (chmod 600). Tokens not printed."
+}
+
+# copy_creds_to_host — the NON-interactive, NON-sanitizing file-copy half of a
+# creds push: scp ~/.manny/credentials.yaml (+proxies.yaml if present) to the host
+# and lock perms to 600. Shared by do_push_creds (which gates + sanitizes first)
+# and GATE 2 of do_window (which sanitizes + asserts first). Never rsync -a the
+# whole ~/.manny (it holds training_data/); never prints tokens. Remote host only.
+copy_creds_to_host() {
+  local src="$HOME/.manny/credentials.yaml"
+  [ -f "$src" ] || die "no $src on the orchestrator"
+  run_on_host "mkdir -p ~/.manny && chmod 700 ~/.manny"
+  scp -q "$src" "$H_SSH:.manny/credentials.yaml" || die "scp credentials.yaml failed"
+  run_on_host "chmod 600 ~/.manny/credentials.yaml"
   local psrc="$HOME/.manny/proxies.yaml"
   if [ -f "$psrc" ]; then
     scp -q "$psrc" "$H_SSH:.manny/proxies.yaml" || die "proxies.yaml scp failed"
     run_on_host "chmod 600 ~/.manny/proxies.yaml"
-    echo "proxies.yaml copied to $HOST:~/.manny/ (chmod 600). Proxy token not printed."
   fi
 }
 
@@ -465,6 +506,238 @@ do_push_proxy() {
 }
 
 do_exec() { run_on_host "$*"; }
+
+# ---- window: the mechanized live-run ceremony -----------------------------
+# Six numbered fail-loud gates. Each prints exactly one `WINDOW_GATE <n> <name>
+# PASS|FAIL|DRY|SKIP: <detail>` line; a violated gate aborts the whole run and
+# prints the machine-greppable WINDOW_RESULT summary. Composition, not a rewrite:
+# GATE 4 delegates to do_provision, GATE 6 to do_run, GATE 2 to
+# fix_credentials_defaults.sh + copy_creds_to_host — window only adds the gating.
+WIN_G=()            # WIN_G[n] = PASS|FAIL|DRY|SKIP for gate n
+WIN_HOST=""; WIN_ACCT=""; WIN_ROUTINE=""; WIN_NAV=""; WIN_DRY=""
+
+BANNED_ALIASES="new newbakshesh"   # never auto-start here (ban-detection gate only)
+
+win_gate() {  # <n> <name> <status> <detail...>
+  local n="$1" name="$2" status="$3"; shift 3
+  WIN_G[$n]="$status"
+  printf 'WINDOW_GATE %s %-16s %s: %s\n' "$n" "$name" "$status" "$*"
+}
+
+win_summary() {  # <overall>
+  local overall="$1" n
+  echo "=== WINDOW SUMMARY (host=$WIN_HOST account=$WIN_ACCT routine=$WIN_ROUTINE nav=$WIN_NAV dry=${WIN_DRY:-0}) ==="
+  local line="WINDOW_RESULT"
+  for n in 1 2 3 4 5 6; do line="$line gate${n}=${WIN_G[$n]:-SKIP}"; done
+  echo "$line"
+  echo "WINDOW_RESULT overall=$overall"
+}
+
+# win_abort <gate_n> <name> <detail...> — print the FAIL line, mark this gate
+# FAIL + all later gates SKIP, emit the summary, and exit loudly (never proceeds).
+win_abort() {
+  local n="$1" name="$2"; shift 2
+  win_gate "$n" "$name" FAIL "$*"
+  local i; for i in 1 2 3 4 5 6; do [ "$i" -gt "$n" ] && WIN_G[$i]="SKIP"; done
+  win_summary FAIL
+  exit 1
+}
+
+do_window() {
+  # Parse: <account> <routine> [--loops N] [--nav-backend X] [--dry]
+  local acct="" routine="" loops="" nav="shadow" dry="" pos=()
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --dry|--dry-run) dry=1; shift ;;
+      --loops) loops="${2:?--loops needs N}"; shift 2 ;;
+      --nav-backend) nav="${2:?--nav-backend needs shadow|legacy|graph}"; shift 2 ;;
+      --loops=*) loops="${1#--loops=}"; shift ;;
+      --nav-backend=*) nav="${1#--nav-backend=}"; shift ;;
+      -h|--help) echo "usage: mannyctl $HOST window <account> <routine> [--loops N] [--nav-backend shadow|legacy|graph] [--dry]"; return 0 ;;
+      --*) die "window: unknown flag '$1'" ;;
+      *) pos+=("$1"); shift ;;
+    esac
+  done
+  acct="${pos[0]:-}"; routine="${pos[1]:-}"
+  [ -n "$acct" ]    || die "window needs an <account> (e.g. mannyctl $HOST window punitpun routines/tutorial_island/00_master.yaml)"
+  [ -n "$routine" ] || die "window needs a <routine> path (e.g. routines/tutorial_island/00_master.yaml)"
+  case "$acct" in *[!A-Za-z0-9_]*) die "window: account '$acct' has unexpected characters (expect [A-Za-z0-9_])";; esac
+  case "$nav" in shadow|legacy|graph) ;; *) die "window: --nav-backend must be shadow|legacy|graph (got '$nav')";; esac
+  if [ -n "$loops" ]; then case "$loops" in *[!0-9]*) die "window: --loops must be a positive integer (got '$loops')";; esac; fi
+
+  WIN_HOST="$HOST"; WIN_ACCT="$acct"; WIN_ROUTINE="$routine"; WIN_NAV="$nav"; WIN_DRY="$dry"
+
+  echo "=== mannyctl window: $acct -> $routine on $HOST (nav=$nav${loops:+ loops=$loops}${dry:+ DRY-RUN}) ==="
+
+  # Bootstrap the on-host gate helpers so GATE 1 (predecessor) can run BEFORE the
+  # GATE 4 provision. Mirrors provision.sh's own copy-then-run bootstrap. Benign:
+  # deploys ONLY the read-only checking tools (window_checks.py / window_login_gate.py)
+  # — no creds, no client/game state. Skipped for a local host (already present).
+  if ! is_local; then
+    run_on_host "mkdir -p $(printf %q "$H_STAGING/scripts/remote")" \
+      && scp -q "$SCRIPT_DIR/window_checks.py" "$SCRIPT_DIR/window_login_gate.py" "$H_SSH:$H_STAGING/scripts/remote/" \
+      || die "window: failed to deploy gate helpers to $HOST (ssh/scp reachable?)"
+  fi
+
+  # ---- GATE 1: predecessor-dead (read-only; runs in dry + real) ------------
+  # Delegated to scripts/remote/window_checks.py (predecessor) which scans /proc
+  # for a java client (comm=java + *shaded.jar + MANNY_ACCOUNT_ID=acct) and for a
+  # python run_routine.py/watchdog.py already driving --account acct. Gating on
+  # comm=java|python* means the check can NEVER self-match — the attempt-#5
+  # pgrep -f trap is structurally impossible. Refuses if alive; NEVER auto-kills.
+  # A host that lacks the helper (never provisioned) definitionally has no manny
+  # predecessor, so an absent helper is treated as CLEAR.
+  local pred_out pred_rc
+  pred_out="$(run_on_host "if [ -f $(printf %q "$H_STAGING/scripts/remote/window_checks.py") ]; then cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") scripts/remote/window_checks.py predecessor --account $(printf %q "$acct"); else echo PREDECESSOR_CLEAR_NOHOSTREPO; fi")"; pred_rc=$?
+  case "$pred_out" in
+    PREDECESSOR_ALIVE*)
+      win_abort 1 predecessor-dead "${pred_out#PREDECESSOR_ALIVE } is still driving '$acct' on $HOST — refusing (stop it yourself: mannyctl $HOST stop $acct; never auto-killed here)" ;;
+    PREDECESSOR_CLEAR_NOHOSTREPO)
+      win_gate 1 predecessor-dead PASS "host has no manny_mcp checkout yet — no predecessor possible" ;;
+    PREDECESSOR_CLEAR)
+      win_gate 1 predecessor-dead PASS "no java client / run_routine.py / watchdog.py driving '$acct' on $HOST" ;;
+    *)
+      win_abort 1 predecessor-dead "could not verify predecessor state on $HOST (rc=$pred_rc out='$pred_out') — refusing to proceed blind" ;;
+  esac
+
+  # ---- GATE 2: credentials -------------------------------------------------
+  # Local sanitize (idempotent; only ever touches the LOCAL creds file) so a Bolt
+  # re-import can't leave default: pointed at a BANNED alias, then assert the alias
+  # exists AND default: is safe, then (real only) rsync to host at 600.
+  local creds_file="${MANNY_CREDENTIALS:-$HOME/.manny/credentials.yaml}"
+  [ -f "$creds_file" ] || win_abort 2 credentials "no local creds file $creds_file"
+  local fixcreds="$SCRIPT_DIR/../fix_credentials_defaults.sh"
+  if [ -x "$fixcreds" ]; then
+    "$fixcreds" >/dev/null 2>&1 || win_abort 2 credentials "fix_credentials_defaults.sh failed — refusing (a banned default may be unsanitized)"
+  fi
+  grep -qE "^  ${acct}:" "$creds_file" || win_abort 2 credentials "account alias '$acct' not present in $creds_file (import it first)"
+  local cur_default; cur_default="$(sed -n 's/^default:[[:space:]]*//p' "$creds_file" | head -1)"
+  local b; for b in $BANNED_ALIASES; do
+    [ "$cur_default" = "$b" ] && win_abort 2 credentials "default: is the BANNED alias '$cur_default' — refusing (ban-detection gate only; fix_credentials_defaults.sh should have repaired this)"
+  done
+  if [ -n "$dry" ]; then
+    win_gate 2 credentials PASS "alias '$acct' present, default='$cur_default' (not banned); [dry] would rsync creds to $HOST at 600"
+  elif is_local; then
+    win_gate 2 credentials PASS "alias '$acct' present, default='$cur_default' (not banned); host is local — creds already here"
+  else
+    copy_creds_to_host || win_abort 2 credentials "creds rsync to $HOST failed"
+    win_gate 2 credentials PASS "alias '$acct' present, default='$cur_default' (not banned); creds synced to $HOST (600)"
+  fi
+
+  # ---- GATE 3: display (hosts.yaml explicit mapping ONLY) ------------------
+  # The account MUST have an explicit account_displays entry; NEVER fall back to
+  # the host `display` (:2 is llama's PHYSICAL desktop — the #3b/#4 hijack). This
+  # resolved display is the ONLY display window uses (never the mcptools pool).
+  local disp; disp="$(host_account_display "$HOST" "$acct")"
+  if [ -z "$disp" ] || [ "$disp" = "None" ]; then
+    win_abort 3 display "'$acct' has NO account_displays mapping for '$HOST' in hosts.yaml — refusing (an unmapped account would hijack the host's physical :$H_DISPLAY desktop). Add '$acct: \":N\"' under hosts.$HOST.account_displays."
+  fi
+  win_gate 3 display PASS "'$acct' -> display $disp (explicit hosts.yaml mapping)"
+
+  # ---- GATE 4: provision with parked-file discipline -----------------------
+  # Real mode: git-stash the parked humanize paths so provision ships a CLEAN
+  # routine.py (0 humanize refs) + no humanize.py, run provision, pop, VERIFY the
+  # pop restored every parked path (loud fail if a stash pop is lost/conflicted).
+  # Dry mode: skip the mutating stash+provision; still run the read-only on-host
+  # assertions against the host's CURRENT (prior-provision) state.
+  local parked=(mcptools/humanize.py tests/test_humanize.py mcptools/tools/routine.py)
+  if [ -z "$dry" ]; then
+    ( cd "$REPO_DIR" || exit 1
+      # snapshot parked paths (sha or ABSENT) so we can verify the pop restored them
+      declare -A pre=()
+      local p sha
+      for p in "${parked[@]}"; do
+        if [ -f "$p" ]; then sha="$(sha256sum "$p" | awk '{print $1}')"; else sha="ABSENT"; fi
+        pre[$p]="$sha"
+      done
+      local stashed=""
+      if git -C "$REPO_DIR" status --porcelain -- "${parked[@]}" 2>/dev/null | grep -q .; then
+        git -C "$REPO_DIR" stash push -u -m "mannyctl-window-provision-$(date -u +%Y%m%dT%H%M%SZ)" -- "${parked[@]}" >/dev/null 2>&1 \
+          || { echo "WINDOW_GATE4_ERR stash-push-failed"; exit 21; }
+        stashed=1
+      fi
+      MANNY_HOSTS_YAML="$HOSTS_YAML" bash "$SCRIPT_DIR/provision.sh" "$HOST" >/tmp/mannyctl_window_provision.log 2>&1
+      local prc=$?
+      if [ -n "$stashed" ]; then
+        git -C "$REPO_DIR" stash pop >/dev/null 2>&1 || { echo "WINDOW_GATE4_ERR stash-pop-failed"; exit 22; }
+      fi
+      [ "$prc" -eq 0 ] || { echo "WINDOW_GATE4_ERR provision-rc=$prc"; exit 23; }
+      # VERIFY the pop restored every parked path to its pre-stash sha
+      for p in "${parked[@]}"; do
+        if [ -f "$p" ]; then sha="$(sha256sum "$p" | awk '{print $1}')"; else sha="ABSENT"; fi
+        [ "$sha" = "${pre[$p]}" ] || { echo "WINDOW_GATE4_ERR parked-not-restored:$p"; exit 24; }
+      done
+      exit 0
+    )
+    local grc=$?
+    case "$grc" in
+      0)  ;;
+      21) win_abort 4 provision "git stash push of parked humanize paths FAILED — refusing to provision (would ship humanize into the client)" ;;
+      22) win_abort 4 provision "git stash POP FAILED after provision — parked files may be UNRESTORED; resolve 'git stash list' manually before retrying" ;;
+      23) win_abort 4 provision "provision.sh failed (see /tmp/mannyctl_window_provision.log)" ;;
+      24) win_abort 4 provision "parked humanize path was NOT restored by stash pop — STOP and check the working tree/stash manually" ;;
+      *)  win_abort 4 provision "provision stage failed (rc=$grc)" ;;
+    esac
+  fi
+
+  # Post-provision on-host assertions (read-only; run in dry + real), delegated to
+  # window_checks.py assert-provision: (a) config.yaml jar sha pin present AND ==
+  # sha256 of the host *shaded.jar, (b) routine.py has ZERO humanize refs, (c) the
+  # routine file exists. Single-argv invocation (no heredoc => no fish-hop hazard).
+  local assert_out
+  assert_out="$(run_on_host "cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") scripts/remote/window_checks.py assert-provision --account $(printf %q "$acct") --staging $(printf %q "$H_STAGING") --libs $(printf %q "$H_LIBS") --routine $(printf %q "$routine")")"
+  case "$assert_out" in
+    ASSERT_OK*) ;;
+    ASSERT_ERR*) win_abort 4 provision "on-host assertion failed: ${assert_out#ASSERT_ERR } (host may be unprovisioned; re-run without --dry, or: mannyctl $HOST provision)" ;;
+    *) win_abort 4 provision "could not run on-host assertions (out='$assert_out')" ;;
+  esac
+  if [ -n "$dry" ]; then
+    win_gate 4 provision PASS "[dry] would stash humanize paths + provision + pop+verify; on-host now: ${assert_out#ASSERT_OK }"
+  else
+    win_gate 4 provision PASS "provisioned (parked files stashed/popped/verified); on-host: ${assert_out#ASSERT_OK }"
+  fi
+
+  # ---- GATE 5: launch (client on the hosts.yaml display + DEFECT-32 gate) --
+  if [ -n "$dry" ]; then
+    win_gate 5 launch DRY "would: client_remote.sh start $acct on display $disp (NAV_BACKEND=$nav), then window_login_gate.py --account $acct --timeout 90 --max-hops 3 (abort on >3 world-hops / terminal-ban latch, require LOGGED_IN + real location) — launching NOTHING"
+  else
+    # Launch on the hosts.yaml-resolved display ONLY (never the mcptools display
+    # pool). NAV_BACKEND threads through client_remote.sh (-Dmanny.navBackend).
+    # client_remote.sh's own 30s LOGGED_IN wait is cosmetic (login can take ~40s,
+    # attempt #4) so we DON'T trust its exit code — the authoritative confirmation
+    # is the on-host DEFECT-32 gate polling the plugin state file.
+    echo "-- GATE 5: launching client '$acct' on $disp (nav=$nav) --"
+    run_on_host "cd $(printf %q "$H_STAGING") && NAV_BACKEND=$(printf %q "$nav") $(client_env_prefix "$disp") ./scripts/remote/client_remote.sh start $(printf %q "$acct")" || true
+    echo "-- GATE 5: DEFECT-32 login gate (poll state file, max 90s) --"
+    local login_out login_rc
+    login_out="$(run_on_host "cd $(printf %q "$H_STAGING") && $(printf %q "$H_VENVPY") scripts/remote/window_login_gate.py --account $(printf %q "$acct") --timeout 90 --max-hops 3")"; login_rc=$?
+    echo "$login_out"
+    case "$login_rc" in
+      0) win_gate 5 launch PASS "${login_out#WINDOW_LOGIN PASS: }" ;;
+      3) win_abort 5 launch "SUSPECTED BAN — ${login_out#WINDOW_LOGIN BAN: } — do NOT relaunch; vision-confirm + mark the account" ;;
+      4) win_abort 5 launch "DEFECT-32 world-hop — ${login_out#WINDOW_LOGIN WORLDHOP: }" ;;
+      5) win_abort 5 launch "login TIMEOUT — ${login_out#WINDOW_LOGIN TIMEOUT: } (check: mannyctl $HOST logs $acct)" ;;
+      *) win_abort 5 launch "login gate error rc=$login_rc: $login_out" ;;
+    esac
+  fi
+
+  # ---- GATE 6: run (run_routine.py detached + watchdog, via `run`) ---------
+  if [ -n "$dry" ]; then
+    win_gate 6 run DRY "would: mannyctl $HOST run $routine --account $acct${loops:+ --loops $loops} (setsid-detached run_routine.py + watchdog ledger; watchdog freeze/stall/DEFECT-32 defaults + --temp-refuse ${H_REFUSE:-88}) — launching NOTHING"
+    win_summary DRY-OK
+    return 0
+  fi
+  echo "-- GATE 6: launching run_routine.py + watchdog (detached) --"
+  local run_args=("$routine" --account "$acct")
+  [ -n "$loops" ] && run_args+=(--loops "$loops")
+  if do_run "${run_args[@]}"; then
+    win_gate 6 run PASS "run_routine.py + watchdog detached on $HOST (see MANNY_RUN_ID / MANNY_RUN_LEDGER above; follow: mannyctl $HOST runs)"
+    win_summary OK
+    return 0
+  else
+    win_abort 6 run "run_routine.py failed to launch (see output above / mannyctl $HOST logs $acct)"
+  fi
+}
 
 # ---- dispatch -------------------------------------------------------------
 
@@ -489,6 +762,7 @@ main() {
     status)      do_status "$@" ;;
     temp)        do_temp ;;
     run)         do_run "$@" ;;
+    window)      do_window "$@" ;;
     runs)        do_runs "$@" ;;
     cmd)         do_cmd "$@" ;;
     logs)        do_logs "$@" ;;
