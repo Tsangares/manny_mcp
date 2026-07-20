@@ -83,8 +83,14 @@ steps:
       manual recipe -- an un-settled arrival makes the Open click miss).
       The door at (3072, 3090) leads OUT of the cooking building toward Quest Guide.
 
+  # DOOR = cook building WEST exit door at (3072,3090). Doors are IDENTICAL objects;
+  # INTERACT_OBJECT resolves name-only nearest-match (no coordinate qualifier exists --
+  # InteractObjectCommand.java parses just <name> <action>) and the cook building has
+  # more than one door. The exact seat on the threshold tile (3073,3090) in step 1,
+  # location-await-CONFIRMED, is what guarantees nearest-match = THIS door. Never
+  # separate this step from its seat step.
   - id: 2
-    description: "Open cooking exit door"
+    description: "Open cooking exit door at (3072,3090)"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
@@ -149,8 +155,11 @@ steps:
     await_condition: "location:3086,3125"
     timeout_ms: 60000
 
+  # DOOR = Quest Guide building door at (3086,3126). Same identical-object rule:
+  # nearest-match by name only, so the exact seat on the approach tile (3086,3125)
+  # in step 8, location-await-CONFIRMED, is what pins the click to THIS door.
   - id: 9
-    description: "Open Quest Guide building door"
+    description: "Open Quest Guide building door at (3086,3126)"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
@@ -369,6 +378,16 @@ steps:
 #    NO "Quest Guide" dialogue OPTION to select -- widget 15138820 is the speaker-name
 #    header, misreported as an option by the state writer (DEFECT-24). Do NOT add a
 #    CLICK_DIALOGUE "Quest Guide" / CLICK_WIDGET 15138820 step: it is a silent no-op.
+# 7. DOOR PINNING (user-proven method, 2026-07-19): in-game doors are IDENTICAL
+#    objects -- their only defining feature is LOCATION. INTERACT_OBJECT has NO
+#    coordinate/location qualifier (InteractObjectCommand.java parses only
+#    <object_name> <action>; resolution is name-only nearest-match within 15 tiles).
+#    Therefore EVERY door Open step must be immediately preceded by an exact GOTO
+#    seat on that door's threshold/approach tile WITH a location await confirming
+#    arrival -- the confirmed seat is what guarantees nearest-match resolves to the
+#    intended door (steps 1->2 and 8->9 here). A coordinate-qualified INTERACT_OBJECT
+#    is a candidate Java enhancement (interactWithGameObject(id, name, action,
+#    WorldPoint) already exists internally, just not exposed as a command).
 #
 # After this routine:
 # Player is underground in mining area at approximately (3088, 9520)

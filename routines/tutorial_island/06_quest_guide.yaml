@@ -27,14 +27,23 @@ steps:
     args: "3086 3110 0"
     notes: "From cooking exit (3072, 3090), walk toward Quest Guide. PLAIN mode (reverted from `exact` 2026-07-19, parity with 05_cooking_to_quest_guide): exact hard-fails on partial arrival and seals the player; plain self-corrects."
 
+  # DOOR-PIN SEAT (user-proven method, parity with 05_cooking_to_quest_guide 8->9,
+  # 2026-07-19): doors are IDENTICAL objects -- location is their only defining
+  # feature, and INTERACT_OBJECT resolves name-only nearest-match (no coordinate
+  # qualifier exists). Exact seat on the door's approach tile (3086,3125), with a
+  # location await CONFIRMING arrival, guarantees the next step's nearest "Door"
+  # is the intended one.
   - id: 2
-    description: "Walk to Quest Guide building door"
+    description: "Seat on Quest Guide door approach tile (exact-arrival, confirmed)"
     action: GOTO
-    args: "3086 3126 0"
+    args: "3086 3125 0 exact"
     delay_before_ms: 3000
+    await_condition: "location:3086,3125"
+    timeout_ms: 60000
 
+  # DOOR = Quest Guide building door at (3086,3126); pinned by the confirmed seat above.
   - id: 3
-    description: "Open Quest Guide building door"
+    description: "Open Quest Guide building door at (3086,3126)"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 2000
