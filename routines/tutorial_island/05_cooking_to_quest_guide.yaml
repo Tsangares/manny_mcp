@@ -1,11 +1,29 @@
 # Tutorial Island - Part 5: Cooking Exit to Quest Guide
 # STATUS: REPAIRED 2026-07-19 (attempt #5 diagnosis — cooking-exit bridge GOTOs
 #         restored to `exact`, reproducing the attempt-#1 passing config 402950b)
+#         UPDATED 2026-07-20 (door-race fix, run 20260720T003818Z): the crossing
+#         step (old step 3, exact-GOTO ONTO the door tile) is replaced by a plain
+#         through-walk PAST the threshold. See DOOR-CROSSING v2 note below.
 #
 # This routine handles the navigation from the Cooking section to Quest Guide building.
-# CRITICAL: The path from cooking exit requires going WEST (onto the door tile) first,
-# then NORTH along the western edge in short hops. Direct north paths are blocked by
-# invisible fences and NAV-DIRECT cannot dogleg west-through-door-then-north.
+# CRITICAL: The path from cooking exit requires going WEST (crossing the door
+# threshold) first, then NORTH along the western edge in short hops. Direct north
+# paths are blocked by invisible fences and NAV-DIRECT cannot dogleg
+# west-through-door-then-north.
+#
+# DOOR-CROSSING v2 (2026-07-20, run 20260720T003818Z, desk-verified with log
+# receipts): tutorial-island doors auto-close server-side ~5-7s after Open. Two
+# patterns lose that race: (1) a redundant cross-section re-seat+re-open of the
+# same door (removed 2026-07-20 -- 05_cooking.yaml no longer opens this door; see
+# its trailing comment), and (2) `exact`-GOTO ONTO the door tile as the crossing
+# step -- exact's per-hop refiner right-clicks "Walk here" on the door tile itself,
+# which is BLOCKED once the door re-closes (empty menu), spinning to a 53s timeout.
+# The fix pattern: exact seat on the threshold (unchanged doctrine) -> INTERACT
+# Open -> immediately (no delay padding) a PLAIN GOTO to a tile PAST the threshold
+# (never onto the door tile) so one through-click crosses during the open window.
+# Exact stays for SEATS; the through-step is plain and targets beyond the doorway.
+# Applied to both door crossings in this file (cooking-exit step 3, Quest Guide
+# entry step 9b).
 #
 # EXACT-MODE RESTORE (2026-07-19, attempt #5 diagnosis): the cooking-exit leg GOTOs
 # (steps 1,3,4,5,6,7,8) carry the ` exact` suffix AGAIN. History, corrected:
@@ -47,11 +65,10 @@ locations:
   quest_guide_npc: {x: 3084, y: 3121, plane: 0}
   ladder_down: {x: 3088, y: 3119, plane: 0}  # Surface side of the ladder; climbing down lands underground (see 07_mining_smithing.yaml, y~9500, still plane 0)
 
-# Navigation waypoints (VALIDATED - onto door tile then short north hops)
+# Navigation waypoints (VALIDATED - plain through-walk past threshold, then short north hops)
 # NOTE: not a schema key read by the executor (steps below walk this exact route)
-#   {x: 3073, y: 3090, note: "Settle in front of cooking exit door"}
-#   {x: 3072, y: 3090, note: "Step ONTO the door tile after opening"}
-#   {x: 3072, y: 3096, note: "North hop 1 (<=10 tiles)"}
+#   {x: 3073, y: 3090, note: "Settle in front of cooking exit door (exact seat)"}
+#   {x: 3072, y: 3096, note: "PLAIN through-walk PAST the door tile (3072,3090) -- v2 2026-07-20, never target the door tile itself"}
 #   {x: 3072, y: 3106, note: "North hop 2"}
 #   {x: 3072, y: 3112, note: "North hop 3"}
 #   {x: 3080, y: 3120, note: "Toward Quest Guide building"}
@@ -93,35 +110,39 @@ steps:
     description: "Open cooking exit door at (3072,3090)"
     action: INTERACT_OBJECT
     args: "Door Open"
-    delay_before_ms: 1000
-    delay_after_ms: 1000
+    notes: |
+      DOOR-CROSSING v2 (2026-07-20, run 20260720T003818Z): no delay_before/after
+      padding on this step or the through-walk (step 3) that follows it. Tutorial-
+      island doors auto-close server-side ~5-7s after Open (desk-verified with log
+      receipts, run 20260720T003818Z). The old recipe here padded 1000ms before AND
+      after the Open, then GOTO'd `exact` ONTO the door tile (3072,3090) itself as
+      the "step through" -- but `exact` mode's per-hop refiner right-clicks
+      "Walk here" on each intermediate tile INCLUDING the destination, and once the
+      door re-closes that click is BLOCKED (empty "Walk here" menu on a closed
+      door tile), spinning to a 53s timeout failure. Fix: minimize the gap between
+      Open and the crossing step, and never target the door tile itself with GOTO
+      -- see step 3.
 
   - id: 3
-    description: "Step ONTO the door tile (west corridor) once it is open (exact-arrival)"
+    description: "Through-walk PAST the threshold into the west corridor (plain GOTO, not onto the door tile)"
     action: GOTO
-    args: "3072 3090 0 exact"
-    delay_before_ms: 500
-    await_condition: "location:3072,3090"
-    timeout_ms: 60000
-    notes: |
-      Head WEST onto the door tile before any north hop; NAV-DIRECT cannot dogleg
-      through the door. THIS IS THE WEDGE-FIX HOP. In PLAIN mode the DEFECT-7 short-
-      circuit (GotoCommand.java:152: distance <= 3 => SUCCESS without moving) leaves the
-      player at (3074,3091), 2 tiles EAST of x=3072, and every north hop then wall-stalls
-      (attempt #5 / blast lane-2). `exact` skips that short-circuit and refines the 2
-      tiles west ONTO x=3072 (stepOntoExactTile, ≤8 hops within a 5-tile range) — the
-      same seat that let attempt #1 (commit 402950b, exact) cross this leg cleanly.
-
-  - id: 4
-    description: "North hop 1 along west edge (exact-arrival, stays on x=3072)"
-    action: GOTO
-    args: "3072 3096 0 exact"
-    delay_before_ms: 500
+    args: "3072 3096 0"
     await_condition: "location:3072,3096"
     timeout_ms: 60000
     notes: |
-      Exact so the hop lands ON x=3072 and stays in the corridor; a plain hop can
-      short-circuit ~3 tiles out and drift back east off the wall line.
+      DOOR-CROSSING v2 (2026-07-20, run 20260720T003818Z): this step replaces the
+      old two-step "exact-GOTO onto the door tile (3072,3090), then exact-GOTO to
+      the first north hop (3072,3096)" pair. The door tile is the one place exact
+      mode is actively harmful: exact's per-hop refiner (stepOntoExactTile) issues
+      a "Walk here" right-click on the door tile as an intermediate/final hop, and
+      that click is BLOCKED once the door auto-closes (~5-7s after Open) -- empty
+      menu, 53s timeout, confirmed live on run 20260720T003818Z. A single PLAIN
+      GOTO straight to a tile PAST the threshold (3072,3096, reusing the old
+      step-4 north-hop-1 target) crosses the door with ONE through-click during
+      the still-open window, instead of stopping to click the door tile itself.
+      Exact stays for SEATS (step 1); this crossing step is intentionally plain.
+      The `location:3072,3096` await keeps its standard 3-tile Chebyshev tolerance
+      (ROUTINE_SCHEMA.md (c)) as the confirm.
 
   - id: 5
     description: "North hop 2 along west edge (exact-arrival)"
@@ -162,13 +183,15 @@ steps:
     description: "Open Quest Guide building door at (3086,3126)"
     action: INTERACT_OBJECT
     args: "Door Open"
-    delay_before_ms: 1000
-    delay_after_ms: 1000
+    notes: |
+      DOOR-CROSSING v2 (2026-07-20, run 20260720T003818Z): no delay padding here --
+      see step 9b, which now does the immediate plain through-walk past this door
+      instead of a redundant re-seat on the same approach tile.
 
   # ── QUEST-GUIDE COMPLETION SEQUENCE (varp-281 audit, 2026-07-19) ──────────────
   # OSRS wiki (RuneScape:Varplayer/281) confirms the EXACT varp-281 stage ladder
   # for the Quest-Guide segment, and the steps below implement it in order:
-  #   200  Enter Quest Guide's house        <- steps 8-9 (open north door + enter)
+  #   200  Enter Quest Guide's house        <- steps 8-9-9b (open north door + enter)
   #   220  Talk to Quest Guide              <- step 10 (+ exhaust intro, step 11)
   #   230  Open the Quests tab              <- step 12  (TAB_OPEN quests)  ** THE GATE **
   #   240  Talk to Quest Guide AGAIN        <- step 12b (+ exhaust monologue, 12c)
@@ -182,23 +205,27 @@ steps:
   # cleanly to 250. (This maps to 00_master's progress_gate: 250 for this section,
   # which is correct — the section is complete once 281 reaches 250.)
   # ──────────────────────────────────────────────────────────────────────────────
-  # PROXIMITY GATE (attempt #5 karldakilla, defense-in-depth 2026-07-19):
-  # make the arming sequence STATE-gated, not order-fated. The steps below drive
-  # varp 281 200->230->240->250 (250 ARMS the ladder); they must NOT fire on fixed
-  # step order when the player is not actually at the guide. Attempt #5's player was
-  # wedged ~30 tiles south -- the Talk-to steps failed "Quest_Guide not found within
-  # 15 tiles" 4x and the chain marched on to a never-armed ladder. This step
-  # RE-CONFIRMS proximity to the guide (~3086,3126) immediately before the first
-  # Talk-to and HOLDS via on_failure: retry:2. If the player genuinely cannot reach
-  # the guide, retry exhaustion ABORTS the run honestly (ROUTINE_SCHEMA.md (b):
-  # retry:N falls back to abort) instead of silently arming from 30 tiles away.
+  # DOOR-CROSSING v2 (2026-07-20, run 20260720T003818Z): this step USED TO be a
+  # "proximity gate" that re-issued an `exact` GOTO back onto the SAME tile as the
+  # step-8 seat (3086,3125) -- pure ceremony that never actually crossed the
+  # threshold, leaving the actual crossing to step 10's INTERACT_NPC Talk-to,
+  # whose own internal auto-path has to walk through the door itself. If the door
+  # auto-closes (~5-7s after Open, desk-verified run 20260720T003818Z) before that
+  # internal pathfind completes, Talk-to can lose the same race the cooking-exit
+  # door did. Fixed the same way: immediately after Open, a PLAIN through-walk to
+  # a tile INSIDE the house past the doorway -- reusing the `quest_guide_npc`
+  # location already declared at the top of this file (3084,3121), not an invented
+  # coordinate -- so the player is already past the door and standing next to the
+  # Quest Guide before Talk-to ever needs to path through the doorway itself.
+  # Retry structure preserved from the old proximity gate (attempt #5 karldakilla,
+  # 2026-07-19): on_failure retry:2, then abort honestly (ROUTINE_SCHEMA.md (b))
+  # rather than silently marching on with the player still stuck outside.
   - id: 9b
-    description: "Proximity gate: confirm AT the Quest Guide before arming (state-gated)"
+    description: "Through-walk PAST the Quest Guide doorway (plain GOTO to the NPC's tile, not the door tile)"
     action: GOTO
-    args: "3086 3125 0 exact"
-    await_condition: "location:3086,3125"
+    args: "3084 3121 0"
+    await_condition: "location:3084,3121"
     timeout_ms: 60000
-    delay_after_ms: 1000
     on_failure: "retry:2"
 
   - id: 10
@@ -344,23 +371,22 @@ steps:
       minutes (attempt #1). The next section (07_mining_smithing step 1:
       `GOTO 3080 9504 0 exact` await `location:3080,9504`) re-confirms as backup.
 
-# PITFALLS DISCOVERED (2026-01-25, updated 2026-07-18):
+# PITFALLS DISCOVERED (2026-01-25, updated 2026-07-18, updated 2026-07-20):
 # 1. MUST settle IN FRONT of cooking exit door at (3073, 3090) before INTERACT_OBJECT works
 #    (arrival must settle -- add delay_after_ms; an un-settled arrival misses the Open click)
-# 2. After opening the door, step ONTO the door tile (3072, 3090) BEFORE heading north.
-#    NAV-DIRECT cannot dogleg west-through-door-then-north; use explicit waypoints.
-#    USE `exact` MODE on this seat + every north hop (steps 1,3,4,5,6,7,8). PLAIN mode
-#    is the wedge: the DEFECT-7 short-circuit (GotoCommand.java:152: distance <= 3 =>
-#    SUCCESS without moving) leaves the player at (3074,3091), 2 tiles EAST of x=3072,
-#    and every north hop then stalls "[NAV-LOOKAHEAD] Player didn't move ... path blocked
-#    by wall/obstacle", re-detecting the open door WallObject at (3072,3090) as the
-#    blocker (attempt #5 karldakilla; blast lane-2). `exact` skips the short-circuit and
-#    refines onto x=3072 (≤8 hops within a 5-tile range) — the config attempt #1 passed on
-#    (commit 402950b). The attempt-#3 walled-pocket that once justified reverting to plain
-#    was the progress-gate skip (05_cooking gate 120 vs 04 reaching 130) running 05b with
-#    the player OUTSIDE at a wrong start tile — fixed separately in 31504fb (gate ->170),
-#    not an exact-mode fault. The `location:X,Y` awaits (3-tile Chebyshev, ROUTINE_SCHEMA.md
-#    (c)) stay as secondary confirms after exact guarantees the literal tile.
+# 2. [SUPERSEDED 2026-07-20, see pitfall #8] After opening the door, the OLD recipe stepped
+#    ONTO the door tile (3072, 3090) itself with `exact` mode before heading north. That
+#    correctly fixed the DEFECT-7 plain short-circuit (GotoCommand.java:152: distance <= 3
+#    => SUCCESS without moving, leaving the player at (3074,3091) 2 tiles EAST of x=3072 --
+#    attempt #5 karldakilla; blast lane-2) but introduced a NEW failure mode: exact's per-hop
+#    refiner (stepOntoExactTile, ≤8 hops within a 5-tile range) right-clicks "Walk here" on
+#    the door tile as the final hop, and doors auto-close ~5-7s after Open -- once closed,
+#    that click is BLOCKED (empty menu), spinning to a 53s timeout (run 20260720T003818Z).
+#    v2 fix (pitfall #8): keep `exact` for the SEAT (step 1) and the north hops (4-8), but
+#    make the crossing step (3) a PLAIN GOTO to a tile PAST the door (3072,3096) instead of
+#    onto the door tile -- one through-click during the still-open window. NAV-DIRECT still
+#    cannot dogleg west-through-door-then-north, so the explicit waypoint stays; only the
+#    door-tile target and the exact/plain choice on that one step changed.
 # 3. Direct north paths from cooking are blocked by invisible fences -- hug the west edge (x=3072)
 # 4. Navigate north in short (<=10-tile) hops, each with a plain GOTO + location await
 # 5. Quest Guide dialogue has multiple "Click here to continue" screens. EXHAUST them
@@ -388,6 +414,26 @@ steps:
 #    intended door (steps 1->2 and 8->9 here). A coordinate-qualified INTERACT_OBJECT
 #    is a candidate Java enhancement (interactWithGameObject(id, name, action,
 #    WorldPoint) already exists internally, just not exposed as a command).
+# 8. DOOR-CROSSING v2 (2026-07-20, run 20260720T003818Z, desk-verified with log
+#    receipts): tutorial-island doors auto-close server-side ~5-7s after Open. Two
+#    patterns lose that race, both fixed this date: (a) a redundant cross-section
+#    double-open -- 05_cooking.yaml used to end by opening this same door, then this
+#    file re-seated and re-opened it again in steps 1-2, burning ~10s of ceremony
+#    while the door re-closed (fixed by deleting 05_cooking's trailing door-open
+#    steps -- this file now owns the crossing exclusively); and (b) `exact`-GOTO ONTO
+#    the door tile as the crossing step -- exact's per-hop "Walk here" refiner is
+#    BLOCKED once the door re-closes, spinning to a 53s timeout (pitfall #2). THE FIX
+#    PATTERN: exact seat on the threshold (doctrine unchanged) -> INTERACT Open ->
+#    immediately (minimal delay_before/after) a PLAIN GOTO to a tile PAST the
+#    threshold, never onto the door tile itself. Applied here to the cooking-exit
+#    door (step 3, target 3072,3096) and the Quest Guide door (step 9b, target
+#    3084,3121 -- the already-declared `quest_guide_npc` location, not invented).
+#    Exact stays for SEATS; the through-step is always plain and targets beyond the
+#    doorway. Prior art: the deleted Java `GateAction` (manny repo, `git show
+#    34133c5^:tutorial_island/replay/GateAction.java`) was STATE-gated -- it checked
+#    the gate's actual open/closed object ID and skipped the Open click if already
+#    open. The durable future fix is a state-aware cross-door Java command that reads
+#    door state directly instead of YAML timing ceremony; see MANNY_OVERSEER.md.
 #
 # After this routine:
 # Player is underground in mining area at approximately (3088, 9520)

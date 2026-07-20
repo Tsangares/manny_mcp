@@ -116,6 +116,36 @@ turns trace to one meta-error: **diagnosing a nav symptom while a state bug (the
 corrupted the experiment's premise.** Fix committed: `b5f5e61` restores exact on 05b's bridge
 steps 1,3-8 (the proven `402950b` sequence), keeps tolerant awaits as confirms, keeps ladder pins.
 
+## ADDENDUM (2026-07-20): the door-tile exception
+
+Desk-verified with log receipts (run 20260720T003818Z): the refined doctrine above
+("match the mode to the step's intent... positioning steps need exact") has exactly
+one exception, and it matters. Tutorial-island doors auto-close server-side ~5-7s
+after Open. `exact` is correct for SEATS (stand on the threshold approach tile so
+the next Open resolves to the right door) — but it is actively HARMFUL if used for
+the crossing step itself, i.e. an exact-GOTO ONTO the door tile. Exact's per-hop
+refiner (`stepOntoExactTile`) right-clicks "Walk here" on each intermediate tile
+including the destination; once the door re-closes under it, that click on the
+door tile is BLOCKED (empty "Walk here" menu), and the step spins to a ~53s
+timeout instead of failing fast. This was compounded in
+`05_cooking_to_quest_guide.yaml` by a second defect: `05_cooking.yaml` independently
+opened the SAME door at its own tail end, so the door was already re-closing by the
+time 05b's re-seat + re-open + exact-onto-door-tile sequence ran — ~10s of redundant
+ceremony spent before the crossing even attempted the doomed exact click.
+
+The corrected pattern: exact seat on threshold → INTERACT Open → immediately
+(minimal delay padding) a PLAIN GOTO to a tile PAST the threshold, never onto the
+door tile. One through-click during the still-open window, instead of a refined
+multi-hop approach that can get caught mid-sequence by the auto-close. Fixed in
+`05_cooking.yaml` (deleted the redundant trailing door-open) and
+`05_cooking_to_quest_guide.yaml` (both door crossings) on 2026-07-20; doctrine
+recorded in `MANNY_OVERSEER.md` §4. Prior art for the durable fix: the deleted Java
+`GateAction` (`git show 34133c5^:tutorial_island/replay/GateAction.java` in
+`~/Desktop/manny`) was already state-gated — it read the gate's actual open/closed
+object ID and skipped the Open click if already open. A state-aware cross-door Java
+command (open only if closed, walk through only once confirmed open) would make
+this whole class of timing race structurally impossible instead of YAML-timed.
+
 ## Checklist additions for future fix windows
 
 1. Before hardening a primitive corpus-wide, name the **live defect** that motivates each site.

@@ -6,7 +6,8 @@
 # 2. Talk to Master Chef
 # 3. Make bread dough (flour + water)
 # 4. Cook bread on range
-# 5. Exit to Quest Guide section
+# Door crossing to Quest Guide is owned entirely by
+# 05_cooking_to_quest_guide.yaml (2026-07-20 door-race fix) -- see note above steps.
 
 name: "Tutorial Island - Cooking"
 type: tutorial
@@ -85,22 +86,22 @@ steps:
     args: "Space"
     delay_before_ms: 3000
 
-  - id: 11
-    description: "Walk to north door"
-    action: GOTO
-    args: "3073 3090 0"
-    delay_before_ms: 1000
-    await_condition: "location:3073,3090"
-    timeout_ms: 120000
-    # Door at (3072, 3090) - stand next to it
-
-  - id: 12
-    description: "Exit cooking building to Quest Guide area"
-    action: INTERACT_OBJECT
-    args: "Door Open"
-    delay_before_ms: 1000
-    # CRITICAL: North door at (3072, 3090) leads to Quest Guide
-    # DO NOT use south door at (3079, 3084) - leads to maze area
+# DOOR CROSSING REMOVED (2026-07-20, door-race fix, run 20260720T003818Z): steps
+# 11-12 used to walk to the north door and open it here, then
+# 05_cooking_to_quest_guide.yaml (05b) re-seated and re-opened the SAME door in its
+# own steps 1-2. Tutorial-island doors auto-close server-side ~5-7s after Open, so
+# that redundant re-seat+re-open was pure ceremony that burned ~10s while the door
+# re-closed under 05b — one contributor to the door-crossing failures diagnosed that
+# run. This section's job now ends when cooking completes (step 10); 05b OWNS the
+# entire door-crossing (seat -> Open -> immediate through-walk) as the sole actor,
+# with no double-open race between sections. The player is left INSIDE the kitchen,
+# which is exactly the precondition 05b's step 1 (exact seat at 3073,3090) expects.
+# progress_gate 170 ("exit Master Chef kitchen", 00_master.yaml) is NOT asserted by
+# this file -- it was never reached by this section's old steps 11-12 either (opening
+# the door doesn't cross the threshold); it is reached inside 05b once its
+# seat->Open->through-walk sequence actually steps the player outside. run_chain's
+# progress_gate is a pre-section SKIP check only (run_routine.py: skip section if
+# progress already >= gate), not a postcondition this file must satisfy.
 
 # PITFALLS DISCOVERED:
 # 1. USE_ITEM_ON_ITEM with full names like "Pot_of_flour" FAILS
@@ -109,4 +110,6 @@ steps:
 # 3. WRONG EXIT DOOR at (3079, 3084) leads to complex maze area
 
 # After this routine:
-# Player exits to Quest Guide area, ready for 06_quest_guide.yaml
+# Player is still INSIDE the Master Chef kitchen, cooking complete. The door
+# crossing to the Quest Guide area (and progress_gate 170) happens entirely in
+# 05_cooking_to_quest_guide.yaml, which owns the exit door end-to-end.
