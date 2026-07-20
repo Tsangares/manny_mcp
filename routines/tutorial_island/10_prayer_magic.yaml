@@ -395,12 +395,21 @@ steps:
     notes: "CONFIRMED, Driver #4: crossed 13 tiles of outdoor path fine (GOTO reported 'failed' at 1-off -- DEFECT-10, treat as advisory and verify via location await)"
 
   - id: 17
-    description: "Walk to chapel"
+    description: "Walk to chapel (exact — 3-tile leg sits ON the plain no-op radius)"
     action: GOTO
-    args: "3130 3107 0"
+    args: "3130 3107 0 exact"
     delay_before_ms: 500
     await_condition: "location:3130,3107"
     timeout_ms: 60000
+    notes: |
+      EXACT earned by live defect (attempt #17, third instance of the
+      plain-GOTO no-op class): from step 16's tile (3128,3110) this leg is
+      exactly 3 Chebyshev tiles — inside plain GOTO's `distance <= 3`
+      short-circuit (GotoCommand.java:152) — so plain mode reported success
+      without moving, leaving the Brace interact to fire from the wrong seat
+      (contributed to the pacing menu-miss). This is a POSITIONING step (seat
+      for a pacing NPC); no door on the path, so no auto-close race — exact is
+      the doctrine-correct mode here.
 
   # ===================== Phase 5: Brother Brace (Prayer) =====================
   # ⚠️ OPEN BLOCKER (found live 2026-07-19, STILL OPEN -- out of scope for
@@ -425,24 +434,29 @@ steps:
     delay_before_ms: 600
     on_failure: abort
 
-  - id: "18b"
-    description: "VERIFY the Brother Brace talk registered -- varp advanced to 570"
-    action: WAIT
-    await_condition: "tutorial_progress:>=570"
-    timeout_ms: 15000
-    on_failure: "abort"
-    notes: |
-      Live receipt (attempt #8, run 20260720T023314Z): reaching the chapel and
-      opening dialogue with Brother Brace advances varp 281 from 550 to 570.
-      `dialogue` alone (step 18's await) confirms SOME dialogue opened, not
-      necessarily this one -- this gate confirms it was actually credited
-      before the blind intro-drain below.
-
   - id: 19
     description: "Advance Brother Brace intro dialogue"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
+
+  - id: "18b"
+    description: "VERIFY the Brother Brace talk registered -- varp advanced to 570 (checked AFTER the drain)"
+    action: WAIT
+    await_condition: "tutorial_progress:>=570"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      REORDERED after attempt #17: this gate originally sat BETWEEN the
+      Talk-to and the space-drain, and aborted live with the dialogue open —
+      a menu-verified Talk-to had succeeded but varp 570 was never credited
+      within 15s (dialogue still open 2+ minutes later). The varp credits on
+      dialogue ADVANCEMENT, not on opening. Verify-after-drain is the pattern
+      every other talk gate in this section already uses and that passed live
+      in attempt #17 (Account Guide: talk -> drain -> WAIT >=531; second Brace
+      talk below: 21 -> 22 -> 22b). The attempt-#8 note previously here
+      conflated opening with advancing (that run was hand-bridged through this
+      stretch).
 
   - id: 20
     description: "Open Prayer tab"
