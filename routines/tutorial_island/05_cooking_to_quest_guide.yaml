@@ -173,6 +173,25 @@ steps:
   # cleanly to 250. (This maps to 00_master's progress_gate: 250 for this section,
   # which is correct — the section is complete once 281 reaches 250.)
   # ──────────────────────────────────────────────────────────────────────────────
+  # PROXIMITY GATE (attempt #5 karldakilla, defense-in-depth 2026-07-19):
+  # make the arming sequence STATE-gated, not order-fated. The steps below drive
+  # varp 281 200->230->240->250 (250 ARMS the ladder); they must NOT fire on fixed
+  # step order when the player is not actually at the guide. Attempt #5's player was
+  # wedged ~30 tiles south -- the Talk-to steps failed "Quest_Guide not found within
+  # 15 tiles" 4x and the chain marched on to a never-armed ladder. This step
+  # RE-CONFIRMS proximity to the guide (~3086,3126) immediately before the first
+  # Talk-to and HOLDS via on_failure: retry:2. If the player genuinely cannot reach
+  # the guide, retry exhaustion ABORTS the run honestly (ROUTINE_SCHEMA.md (b):
+  # retry:N falls back to abort) instead of silently arming from 30 tiles away.
+  - id: 9b
+    description: "Proximity gate: confirm AT the Quest Guide before arming (state-gated)"
+    action: GOTO
+    args: "3086 3125 0 exact"
+    await_condition: "location:3086,3125"
+    timeout_ms: 60000
+    delay_after_ms: 1000
+    on_failure: "retry:2"
+
   - id: 10
     description: "Talk to Quest Guide (intro)"
     action: INTERACT_NPC
@@ -180,6 +199,12 @@ steps:
     await_condition: "dialogue"
     delay_before_ms: 2000
     delay_after_ms: 1200
+    on_failure: "retry:2"
+    notes: |
+      on_failure: retry:2 -- if the guide isn't found (player not in range) re-send
+      up to twice, then abort honestly rather than march past this arming talk with
+      the ladder left un-armed (attempt #5). The proximity gate (9b) should already
+      have us in range; this is the belt-and-braces retry.
 
   - id: 11
     description: "Exhaust the Quest Guide's INTRO monologue (blind fixed-count)"
@@ -212,7 +237,11 @@ steps:
     await_condition: "dialogue"
     delay_before_ms: 1500
     delay_after_ms: 1200
+    on_failure: "retry:2"
     notes: |
+      on_failure: retry:2 -- this is the RE-TALK that drives varp 281 to 240->250
+      and arms the ladder. If it can't find the guide, retry then abort honestly
+      instead of marching to a never-armed ladder (attempt #5 karldakilla).
       THE GATE-OPENER (live-proven 2026-07-19). The ladder stays inert after only
       the intro talk + journal open. Re-talking once the Quest Journal is open
       makes the guide give the completion monologue ("Now that you have the quest
@@ -268,6 +297,22 @@ steps:
       (3088,3120) is the sole walkable tile adjacent to the ladder at (3088,3119)
       (collision dump: ladder tile = FULLBLOCK, this tile = walkable(0)). The
       Climb-down is issued from directly north of the ladder, in range, interior.
+
+  # GROUND-TRUTH LADDER GATE (attempt #5 karldakilla, 2026-07-19): the FIRST
+  # account ever to physically reach the ladder menu-clicked Climb-down 3x and it
+  # silently no-op'd -- the ladder was never ARMED (varp 281 stuck at 200 because
+  # the arming talks fired 30 tiles away and failed). This WAIT reads the plugin's
+  # game-truth Tutorial-progress (state.tutorial.progress = varbit 281; the
+  # tutorial_progress atom in monitoring.py, absent/null -> not satisfied) and, if
+  # the ladder is NOT armed (progress < 250), FAILS HONESTLY at this named step.
+  # on_failure: abort STOPS the run here rather than clicking a dead ladder at step
+  # 13 and no-op'ing 3x. If armed (>=250) it passes instantly and the descent runs.
+  - id: 12f
+    description: "verify ladder armed (varp 281 >= 250)"
+    action: WAIT
+    await_condition: "tutorial_progress:>=250"
+    timeout_ms: 15000
+    on_failure: "abort"
 
   - id: 13
     description: "Climb down ladder to mining section (gate now open)"

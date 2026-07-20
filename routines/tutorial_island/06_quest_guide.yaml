@@ -39,11 +39,27 @@ steps:
     args: "Door Open"
     delay_before_ms: 2000
 
+  # PROXIMITY GATE (parity with 05_cooking_to_quest_guide 9b, attempt #5 fix
+  # 2026-07-19): state-gate the arming talk instead of firing it on fixed step
+  # order. Confirm the player is actually AT the guide (~3086,3126) before the
+  # Talk-to; HOLD via on_failure: retry:2 and, if the guide is genuinely
+  # unreachable, ABORT honestly rather than arming from across the map.
+  - id: 3b
+    description: "Proximity gate: confirm AT the Quest Guide before arming (state-gated)"
+    action: GOTO
+    args: "3086 3125 0 exact"
+    await_condition: "location:3086,3125"
+    timeout_ms: 60000
+    delay_after_ms: 1000
+    on_failure: "retry:2"
+
   - id: 4
     description: "Talk to Quest Guide"
     action: INTERACT_NPC
     args: "Quest_Guide Talk-to"
+    await_condition: "dialogue"
     delay_before_ms: 2000
+    on_failure: "retry:2"
 
   - id: 5
     description: "Continue dialogue (space)"
@@ -144,12 +160,30 @@ steps:
     await_condition: "location:3088,3120"
     timeout_ms: 60000
 
+  # GROUND-TRUTH LADDER GATE (parity with 05_cooking_to_quest_guide 12f, attempt
+  # #5 fix 2026-07-19): verify the ladder is ARMED (varp 281 >= 250) before the
+  # Climb-down. If not armed the click silently no-ops (attempt #5 clicked a dead
+  # ladder 3x); on_failure: abort STOPS here at a named step instead.
+  - id: 15d
+    description: "verify ladder armed (varp 281 >= 250)"
+    action: WAIT
+    await_condition: "tutorial_progress:>=250"
+    timeout_ms: 15000
+    on_failure: "abort"
+
   - id: 16
     description: "Climb down ladder to mining section"
     action: INTERACT_OBJECT
     args: "Ladder Climb-down"
     delay_before_ms: 1000
+    delay_after_ms: 2000
+    await_condition: "location:3088,9520"
+    timeout_ms: 30000
     notes: |
+      Descent await location:3088,9520 (parity with 05b step 13): confirms the
+      y-jump into the underground mining area (~3088,9520, still plane 0 -- NO
+      plane change on this descent). If the gate was open this satisfies; if not,
+      the 15d WAIT gate above already aborted before we reach here.
       Ladder leads to underground mining tutorial area.
       NOTE: this 06 file is DEPRECATED (not in the master chain -- see
       00_master.yaml; the merged 05_cooking_to_quest_guide.yaml owns the ladder
