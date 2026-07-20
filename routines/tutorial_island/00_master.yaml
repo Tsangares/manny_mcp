@@ -169,7 +169,25 @@ chain:
     description: "Section 9b: Banking exit -> Account Guide door"
     progress_hint: 9
     progress_gate: 530      # live receipt (attempt #8, run 20260720T020701Z, supervisor salvage): GOTO 3124,3124 + Door Open advances varp 525->530 -- the value THIS section's own door crossing produces (mirrors 05b/08b: gate == section's own proven output, not the next section's 550 Prayer boundary, which 10_prayer_magic.yaml drives). Prior (09a) 525 < 530.
+  # SPLIT 2026-07-20 (attempt #18, malikreyes/llama, run 20260720T060923Z):
+  # section 10 is now two chain sections (mirroring 05/05b, 08a/08b, 09a/09b)
+  # so a restart at progress 550 is idempotent by this gate mechanism instead
+  # of re-running the Account Guide ceremony. ROOT CAUSE: attempt #18 was the
+  # first run to START section 10 at varp 550 (a mid-section resume). The old
+  # single file re-ran its Phase 1-4 Account Guide steps unconditionally, and
+  # step 1's exact re-seat at (3124,3124) -- the west-door threshold INSIDE the
+  # bank building -- is UNREACHABLE from a 550 park outside it: the pathfinder
+  # wedged at (3127,3129) against the north wall (8/8 exact hops hit empty
+  # "Cancel" menus), honest DEFECT-27 + strict_steps abort. See 10_prayer_
+  # magic.yaml / 10b_prayer_magic_boat.yaml headers + journals/2026-07-20_
+  # tutorial_attempt18_malikreyes_llama.md. FIX: gate 10a at 550 so a resume at
+  # >=550 SKIPS the Account Guide half and enters 10b at its outdoor chapel
+  # approach (open-ground plain GOTO, reachable from any 550 park).
   - routine: 10_prayer_magic.yaml
-    description: "Section 10: Prayer + Magic (exit Tutorial Island)"
+    description: "Section 10a: Account Guide (tab click, east-door exit)"
     progress_hint: 10
-    progress_gate: 1000     # wiki: tutorial complete (1000). Prior (09) 550 < 1000.
+    progress_gate: 550      # 10a's own last action: the east-door crossing advances varp 540->550 (step 15 verify gate, live receipt attempt #8). Prior (09b) 530 < 550. A resume at >=550 skips 10a (Account Guide already credited) and enters 10b directly, avoiding the unreachable west-door re-seat (attempt #18). Mirrors the 05b/08b/09b pattern: gate == what the section's own final action proves.
+  - routine: 10b_prayer_magic_boat.yaml
+    description: "Section 10b: Prayer/Brother Brace, Magic/Wind Strike, Ironman decline, mainland exit"
+    progress_hint: 10
+    progress_gate: 1000     # wiki: tutorial complete (1000). Prior (10a) 550 < 1000. Entry varp 550; opening nav (step 16) is plain GOTO to the outdoor chapel waypoint, reachable from any 550 park.
