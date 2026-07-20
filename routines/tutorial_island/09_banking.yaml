@@ -1,4 +1,4 @@
-# Tutorial Island - Part 9: Banking
+# Tutorial Island - Part 9a: Banking (ladder, bank booth, poll booth)
 # STATUS: VALIDATED (steps transcribed 2026-07-18 from
 # journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md, Driver #4 ~01:55 PT --
 # "BANK + ACCOUNT SECTIONS PASSED")
@@ -8,7 +8,34 @@
 #    quirk: the bank entrance is only reachable via the roof)
 # 2. Use bank booth
 # 3. Use poll booth (auto-credits poll points)
-# 4. Exit through door to the Account Guide room
+#
+# SECTION SPLIT (attempt #8, run 20260720T020701Z, 2026-07-20): this file used
+# to also exit through the door to the Account Guide room, but that made a
+# chain resume at progress 525 (poll booth already visited) wastefully re-run
+# the whole ladder+bank+poll-booth leg for zero new progress -- see the
+# LADDER SEAT FIX note below and 09_banking_to_account_guide.yaml (mirrors the
+# 05/05b and 08/08b splits; 00_master.yaml progress_gate 525 for THIS file).
+# The door-exit steps now live in 09_banking_to_account_guide.yaml.
+#
+# LADDER SEAT FIX (attempt #8, run 20260720T020701Z, 2026-07-20): live receipt
+# -- account resumed at varp-281 progress 525 (poll booth already visited,
+# from a prior attempt), the chain correctly re-ran this section from step 1
+# (old gate was the section-end value 550, not the 525 this section itself
+# produces -- see the split above), and step 2's ladder climb hit the
+# AMBIGUOUS-NAME TRAP: three "Ladder" objects were in range; INTERACT_OBJECT's
+# name-only nearest-match resolved to the ladder at (3116,3126) instead of
+# this routine's documented ladder at (3123,3128). The click "succeeded" (a
+# real ladder was climbed) but the plane never flipped to 1, so the honest
+# `await_condition: plane:1` + `on_failure: abort` correctly stopped the run
+# at the real fault instead of marching on desynced. Same identical-objects/
+# location-is-identity problem as doors (9ade455) -- the fix is the same
+# doctrine: seat in EXACT mode adjacent to the SPECIFIC object before
+# INTERACT so nearest-match can only resolve to the intended object. New step
+# 1b below seats at (3123,3127) -- not invented: it is the file's own
+# `bank_roof`/`bank_floor` location (declared below, one tile due north of
+# the ladder tile 3123,3128, used both after Climb-up and after Climb-down),
+# derived here as the pre-climb approach tile between the door opened in
+# step 1 (3124,3126) and the ladder itself.
 #
 # DRIVER #4 CONFIRMATION (defects log:214-244): "Route: Bank booth used (bank
 # opened, 25gp) -> poll credit auto -> east door (3125,3124) -> Account Guide
@@ -32,9 +59,11 @@
 #
 # RISKS NOTED BUT NOT FIXABLE IN YAML (Java-side, deployment-frozen):
 # - DEFECT-7: GOTO tolerance no-ops at distance <=3 tiles ("worse than
-#   documented" per Driver #4 -- no-ops even at distance 3). The GOTO in step
-#   9 below is short; await_condition (location-based) is used to verify
-#   actual arrival rather than trusting the GOTO command's own success flag.
+#   documented" per Driver #4 -- no-ops even at distance 3). Step 1b's ladder
+#   seat GOTO (and the door-approach GOTO now in
+#   09_banking_to_account_guide.yaml step 1) are short; await_condition
+#   (location-based) is used to verify actual arrival rather than trusting
+#   the GOTO command's own success flag.
 # - DEFECT-11: INTERACT_OBJECT has no action-aware door filtering -- if an
 #   open door and the target closed door are both in range, it can lock onto
 #   the wrong one (blocked Driver #4's bank RE-ENTRY x3). This routine only
@@ -44,19 +73,20 @@
 #   if this routine is ever resumed mid-section, re-verify door state before
 #   assuming the ladder/door steps are no-ops.
 
-name: "Tutorial Island - Banking"
+name: "Tutorial Island - Banking (ladder / bank booth / poll booth)"
 type: tutorial
 phase: 9
 
 # Key Locations
+# NOTE: the Account Guide exit-door locations (exit_door_position 3124,3124 /
+# exit_door 3125,3124) moved to 09_banking_to_account_guide.yaml with the
+# steps that use them (SECTION SPLIT, see header).
 locations:
   from_combat_ladder: {x: 3123, y: 3128, plane: 0}  # Ladder from combat area
   bank_roof: {x: 3123, y: 3127, plane: 1}           # After climbing up
   bank_floor: {x: 3123, y: 3127, plane: 0}          # After climbing down
   bank_booth: {x: 3120, y: 3123, plane: 0}
   poll_booth: {x: 3119, y: 3121, plane: 0}
-  exit_door_position: {x: 3124, y: 3124, plane: 0}  # Walk here before opening door
-  exit_door: {x: 3125, y: 3124, plane: 0}           # CONFIRMED (Driver #4, defects log:216-218): door to Account Guide room
 
 # Key Objects
 objects:
@@ -97,6 +127,30 @@ steps:
     delay_after_ms: 1500
     notes: "Door at (3124, 3126) blocks access to ladder"
 
+  - id: "1b"
+    description: "Seat adjacent to the documented ladder (3123,3128), exact-mode, so nearest-match can't resolve to a decoy Ladder"
+    action: GOTO
+    args: "3123 3127 0 exact"
+    await_condition: "location:3123,3127"
+    timeout_ms: 60000
+    delay_before_ms: 500
+    on_failure: "retry:2"
+    notes: |
+      LADDER SEAT FIX (attempt #8, run 20260720T020701Z, 2026-07-20): three
+      "Ladder" objects were in range of the old un-seated step 2, and
+      INTERACT_OBJECT's name-only nearest-match resolved to the decoy at
+      (3116,3126) instead of the documented ladder at (3123,3128) -- the
+      click succeeded (a ladder was climbed) but plane never flipped to 1,
+      so the honest await/abort caught it before marching on desynced.
+      (3123,3127) is not an invented coordinate -- it is this file's own
+      `bank_roof`/`bank_floor` location (one tile due north of the ladder
+      tile 3123,3128, walkable on both planes since it's the landing tile
+      for both Climb-up and Climb-down below), used here as the pre-climb
+      approach seat so the exact-mode arrival pins the character directly
+      next to THIS ladder before the interact fires. Exact mode is earned
+      here by the live defect above (MANNY_OVERSEER.md #2: strictness
+      requires a motivating live defect, not prophylactic hardening).
+
   - id: 2
     description: "Climb ladder up to roof (abort -- don't march to descent having never left plane 0)"
     action: INTERACT_OBJECT
@@ -105,7 +159,7 @@ steps:
     on_failure: abort
     timeout_ms: 15000
     delay_before_ms: 1000
-    notes: "Ladder at (3123, 3128)"
+    notes: "Ladder at (3123, 3128). Seated at (3123,3127) in step 1b (exact) immediately before this interact -- see LADDER SEAT FIX above."
 
   - id: 3
     description: "Climb ladder down to bank floor"
@@ -167,7 +221,11 @@ steps:
     delay_before_ms: 500
     notes: "The tutorial poll booth opens only an info mesbox (voting needs a higher level than the isle allows), so the space drain already closes everything; this Escape is a proven-benign safety close."
 
-  # Phase 4: Verify the poll booth registered, then exit to the Account Guide room
+  # Phase 4 (section end): Verify the poll booth registered.
+  # SECTION SPLIT (attempt #8, 20260720T020701Z): the door-crossing steps that
+  # used to follow here (walk to 3124,3124 / open door at 3125,3124) now live
+  # in 09_banking_to_account_guide.yaml -- this WAIT is this file's LAST step
+  # and its own progress_gate value (00_master.yaml: 525) for the chain.
   - id: 9
     description: "VERIFY the poll booth was visited -- varp advanced to 525"
     action: WAIT
@@ -177,28 +235,14 @@ steps:
     notes: |
       Wiki varp-281 ladder: 520 = "Close Bank and open Poll Booth", 525 =
       "WalkIntoDoorAccountGuide". Reaching 525 proves the poll booth was actually
-      used -- the exit door (step 11) honestly blocks ("You need to visit the poll
-      booth before you can proceed through this door") until varp hits 525, which is
-      exactly where attempt #7 got stuck after a false-march. If the poll-booth use
-      failed, varp stays 520, this WAITs to timeout, and the section aborts honestly
-      (strict_steps) at the REAL fault instead of the downstream door.
-
-  - id: 10
-    description: "Walk to door in front of Account Guide room"
-    action: GOTO
-    args: "3124 3124 0"
-    await_condition: "location:3124,3124"
-    timeout_ms: 60000
-    delay_before_ms: 500
-    notes: "Must walk to door position before clicking - multiple doors nearby! Short GOTO -- DEFECT-7 tolerance no-op risk, verified via location await rather than the GOTO command's own success flag."
-
-  - id: 11
-    description: "Open door to Account Guide room"
-    action: INTERACT_OBJECT
-    args: "Door Open"
-    delay_before_ms: 1000
-    delay_after_ms: 1500
-    notes: "Door at (3125, 3124) leads to Account Guide -- CONFIRMED, Driver #4 (defects log:216-218). Passable only once varp >= 525 (poll booth visited), verified by step 9."
+      used -- the exit door (now 09_banking_to_account_guide.yaml step 1/2)
+      honestly blocks ("You need to visit the poll booth before you can proceed
+      through this door") until varp hits 525, which is exactly where attempt #7
+      got stuck after a false-march. If the poll-booth use failed, varp stays
+      520, this WAITs to timeout, and the section aborts honestly (strict_steps)
+      at the REAL fault instead of the downstream door. This is also this
+      file's progress_gate (00_master.yaml) -- a chain resume with progress
+      >=525 skips this whole ladder+bank+poll-booth section as already done.
 
 # PITFALLS DISCOVERED:
 # 1. Bank booth is on plane 0, but you arrive on plane 1 after climbing up
@@ -215,17 +259,27 @@ steps:
 # 4. Progress does NOT advance on the INTERACT alone -- it advances to 525 only
 #    after the message box is cleared. Gate on tutorial_progress:>=525 (step 9),
 #    not on the interact's own success flag (attempt #7's false-march lesson).
-# 5. The exit door (step 11) honestly blocks until varp 525 ("You need to visit
-#    the poll booth before you can proceed through this door"). Step 9's WAIT gate
-#    catches a failed poll-booth use at the real fault instead of the door.
-# 6. DEFECT-7 (GOTO short-move no-op): step 10's GOTO is <=3 tiles; verified via
-#    location await rather than trusting GOTO's own reported success
+# 5. AMBIGUOUS-NAME LADDER TRAP (attempt #8, run 20260720T020701Z, 2026-07-20):
+#    the ladder INTERACT resolves name-only nearest-match against THREE "Ladder"
+#    objects in range; an un-seated click can silently climb the wrong one (a
+#    real ladder, honest plane:1 await/abort caught the desync). FIX: step 1b
+#    seats exact-mode at (3123,3127) -- adjacent to the documented ladder
+#    (3123,3128) -- immediately before the interact. Same doctrine as door
+#    pinning (9ade455): location is identity for identical objects.
+# 6. The exit door (now 09_banking_to_account_guide.yaml) honestly blocks until
+#    varp 525 ("You need to visit the poll booth before you can proceed through
+#    this door"). Step 9's WAIT gate catches a failed poll-booth use at the real
+#    fault instead of the door.
 
 # WORKING PATTERNS:
 # - Bank booth: INTERACT_OBJECT Bank_booth Use
 # - Poll booth: INTERACT_OBJECT Poll_booth Use  (verb live-validated 2026-07-20)
 # - Clear the poll message box: KEY_PRESS space (blind repeat), NOT CLICK_CONTINUE
 # - Verify a tutorial stage: WAIT + await_condition tutorial_progress:>=N
+# - Ambiguous-named objects (ladders, doors): exact-mode seat adjacent to the
+#   SPECIFIC object, location-await confirmed, before the interact.
 
 # After this routine:
-# Player at Account Guide room door (3125, 3124), ready for 10_prayer_magic.yaml
+# Player at the bank floor (3123,3127), poll booth visited (varp 281 >= 525).
+# Continue with 09_banking_to_account_guide.yaml (the door to the Account
+# Guide room and the honest confirm through to varp 530).

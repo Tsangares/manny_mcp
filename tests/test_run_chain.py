@@ -197,7 +197,8 @@ class TestMasterChainFile:
                               "routines", "tutorial_island", "00_master.yaml")
         entries, base = run_routine.resolve_chain(master)
         names = [os.path.basename(e["routine"]) for e in entries]
-        # 12 section files (two 01_*, two 05_*, two 08_*), in tutorial order.
+        # 13 section files (two 01_*, two 05_*, two 08_*, two 09_*), in
+        # tutorial order.
         #
         # 06_quest_guide.yaml is deliberately NOT chained (DOUBLE-RUN FIX,
         # 2026-07-18, commit e17123a): 05_cooking_to_quest_guide.yaml is the
@@ -209,12 +210,21 @@ class TestMasterChainFile:
         # mirroring the 05/05b split so a chain restart is idempotent by the
         # progress_gate mechanism (the varp-400 wedge fix). Both are in the
         # master's explicit chain list.
+        #
+        # Section 09 is SPLIT into two chained sub-sections (2026-07-20, attempt
+        # #8, run 20260720T020701Z): 09_banking.yaml (ladder/bank/poll booth,
+        # gate 525) and 09_banking_to_account_guide.yaml (Account Guide exit
+        # door, gate 530), same rationale -- a resume at progress 525 no longer
+        # wastefully re-runs the whole banking leg. Both are in the master's
+        # explicit chain list.
         assert names[0] == "01_character_creation.yaml"
         assert names[-1] == "10_prayer_magic.yaml"
         assert "06_quest_guide.yaml" not in names
         assert "08_combat.yaml" in names
         assert "08_combat_sword_ranged.yaml" in names
-        assert len(entries) == 12
+        assert "09_banking.yaml" in names
+        assert "09_banking_to_account_guide.yaml" in names
+        assert len(entries) == 13
         # Every referenced section actually exists on disk.
         for e in entries:
             assert os.path.exists(e["routine"]), e["routine"]
@@ -224,14 +234,14 @@ class TestMasterChainFile:
         # file) must detect the authoritative 00_master.yaml (which has a
         # `chain:` key) and use ITS explicit chain instead of the raw glob.
         # The raw directory glob would otherwise pick up all *.yaml files
-        # (both 01_* variants, both 05_* variants, both 08_* variants, AND the
-        # superseded 06_quest_guide.yaml) -- the master's curated chain resolves
-        # to 12 and never includes 06.
+        # (both 01_* variants, both 05_* variants, both 08_* variants, both
+        # 09_* variants, AND the superseded 06_quest_guide.yaml) -- the
+        # master's curated chain resolves to 13 and never includes 06.
         tutorial_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "routines", "tutorial_island")
         entries, base = run_routine.resolve_chain(tutorial_dir)
         names = [os.path.basename(e["routine"]) for e in entries]
-        assert len(entries) == 12
+        assert len(entries) == 13
         assert "06_quest_guide.yaml" not in names
         assert names[0] == "01_character_creation.yaml"
         assert names[-1] == "10_prayer_magic.yaml"

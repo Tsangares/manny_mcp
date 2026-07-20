@@ -149,10 +149,26 @@ chain:
     description: "Section 8b: Combat (sword/shield, melee, bow, ranged, exit)"
     progress_hint: 8
     progress_gate: 510      # wiki varp-281: banking starts (510) = combat done. Prior (08a) 410 < 510.
+  # SPLIT 2026-07-20 (attempt #8, run 20260720T020701Z): section 09 is now two
+  # chain sections (mirroring 05/05b and 08a/08b) so a restart at progress 525
+  # (poll booth already visited) is idempotent by this gate mechanism instead
+  # of wastefully re-running the whole ladder+bank+poll-booth leg. ROOT CAUSE:
+  # the old single-file gate was 550 (the Prayer/Brother Brace boundary), a
+  # value 09_banking.yaml's own steps can never produce (Prayer is driven by
+  # 10_prayer_magic.yaml) -- a resume at 525 therefore always saw 525 < 550
+  # and re-ran the entire section from step 1, where the (co-discovered)
+  # ladder ambiguous-name trap then hit: three "Ladder" objects in range,
+  # un-seated INTERACT_OBJECT resolved to a decoy at (3116,3126) instead of
+  # the documented ladder (3123,3128), caught by the honest plane:1 abort.
+  # See 09_banking.yaml header for the ladder-seat fix.
   - routine: 09_banking.yaml
-    description: "Section 9: Banking"
+    description: "Section 9a: Banking (ladder, bank booth, poll booth)"
     progress_hint: 9
-    progress_gate: 550      # wiki: prayer/Brother Brace starts (550) = banking done. Prior (08) 510 < 550.
+    progress_gate: 525      # wiki: "WalkIntoDoorAccountGuide" (525) = this section's own last action (poll booth visited, step 9 WAIT). Prior (08b) 510 < 525.
+  - routine: 09_banking_to_account_guide.yaml
+    description: "Section 9b: Banking exit -> Account Guide door"
+    progress_hint: 9
+    progress_gate: 530      # live receipt (attempt #8, run 20260720T020701Z, supervisor salvage): GOTO 3124,3124 + Door Open advances varp 525->530 -- the value THIS section's own door crossing produces (mirrors 05b/08b: gate == section's own proven output, not the next section's 550 Prayer boundary, which 10_prayer_magic.yaml drives). Prior (09a) 525 < 530.
   - routine: 10_prayer_magic.yaml
     description: "Section 10: Prayer + Magic (exit Tutorial Island)"
     progress_hint: 10

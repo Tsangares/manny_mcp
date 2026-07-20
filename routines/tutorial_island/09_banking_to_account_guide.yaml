@@ -1,0 +1,150 @@
+# Tutorial Island - Part 9b: Banking exit -> Account Guide door
+# STATUS: NEW 2026-07-20 (attempt #8, run 20260720T020701Z) -- split out of
+# 09_banking.yaml (mirrors the 05/05b and 08/08a-08b splits) so a chain
+# resume at progress 525 (poll booth already visited) doesn't wastefully
+# re-run the ladder+bank+poll-booth leg for zero new progress; see
+# 09_banking.yaml's SECTION SPLIT header note.
+#
+# INCIDENT (attempt #8, run 20260720T020701Z, 2026-07-20): the account
+# resumed at varp-281 progress 525. 00_master.yaml's OLD single section-9
+# gate was 550 (the Prayer/Brother Brace boundary, driven by
+# 10_prayer_magic.yaml's own actions -- NOT reachable by this section's own
+# steps), so the chain correctly re-ran the whole banking leg from step 1
+# for zero new progress. The supervisor's manual salvage on the live lane
+# proved the ONLY remaining work at 525 is this door: `GOTO 3124,3124` then
+# `INTERACT_OBJECT Door Open` advanced varp 281 525 -> 530. This file is
+# exactly that salvage recipe, formalized with the door-crossing v2 doctrine
+# and an honest confirm gate, so 00_master.yaml's per-file progress_gate for
+# THIS file is 530 -- the value this section's own action actually produces
+# (mirrors the 05b/08b pattern: gate == what the section's final action
+# proves, not the next section's starting value). 550 (Prayer) is still the
+# correct completion value for the OLD combined section-9's scope, but that
+# scope now spans 09_banking.yaml (gate 525) + this file (gate 530); Prayer
+# itself (550) is 10_prayer_magic.yaml's own job, which already re-opens
+# this same door defensively (Tutorial Island doors auto-close) before
+# talking to the Account Guide.
+#
+# DOOR-CROSSING v2 (2026-07-20, see 05_cooking_to_quest_guide.yaml headers /
+# commit f5fc911): tutorial-island doors auto-close server-side ~5-7s after
+# Open. The fix pattern used below: exact seat on the threshold -> INTERACT
+# Open -> immediately (minimal delay padding) a PLAIN GOTO to a tile PAST
+# the threshold, never onto the door tile itself (exact mode's per-hop
+# "Walk here" refiner is BLOCKED once the door re-closes, spinning to a
+# ~53s timeout). Doors are also IDENTICAL objects (9ade455): the exact seat
+# confirmed by a location await is what pins INTERACT_OBJECT's name-only
+# nearest-match to THIS door.
+#
+# Previous section: 09_banking.yaml (ladder, bank booth, poll booth; ends at
+# varp >= 525)
+# Next section: 10_prayer_magic.yaml (Account Guide, Brother Brace/Prayer,
+# Magic, mainland exit)
+
+name: "Tutorial Island - Banking Exit to Account Guide"
+type: tutorial
+phase: 9
+
+# Key Locations
+locations:
+  exit_door_position: {x: 3124, y: 3124, plane: 0}  # Exact seat before opening door -- multiple doors nearby
+  exit_door: {x: 3125, y: 3124, plane: 0}           # CONFIRMED (Driver #4, defects log:216-218): door to Account Guide room
+  # Reused from 10_prayer_magic.yaml's `npcs.account_guide.location` (not an
+  # invented coordinate) -- the tile immediately past the door threshold,
+  # used as the plain through-walk target so the crossing lands the player
+  # right next to the NPC rather than stopping on the door tile itself.
+  account_guide_npc: {x: 3126, y: 3124, plane: 0}
+
+# STRICT-STEPS honesty gate (engine finding #1a): any failed step marks this
+# SECTION failed so the master chain STOPS instead of false-passing into the
+# next section on a desynced game.
+config:
+  strict_steps: true
+
+steps:
+  # DOOR = Account Guide room door at (3125,3124). Doors are IDENTICAL
+  # objects (9ade455) -- INTERACT_OBJECT resolves name-only nearest-match, so
+  # the exact seat on the threshold tile (3124,3124), location-await
+  # confirmed, is what guarantees nearest-match resolves to THIS door (also
+  # multiple doors are documented nearby -- old 09_banking.yaml step 10 note).
+  - id: 1
+    description: "Seat at the Account Guide door threshold (exact-mode seat)"
+    action: GOTO
+    args: "3124 3124 0 exact"
+    await_condition: "location:3124,3124"
+    timeout_ms: 60000
+    delay_before_ms: 500
+    on_failure: "retry:2"
+    notes: "Multiple doors nearby -- exact seat + confirmed arrival pins the next Open to this specific door (3125,3124), not a decoy."
+
+  - id: 2
+    description: "Open door to Account Guide room"
+    action: INTERACT_OBJECT
+    args: "Door Open"
+    delay_before_ms: 1000
+    notes: |
+      Door at (3125, 3124) leads to Account Guide -- CONFIRMED, Driver #4
+      (defects log:216-218). Passable only once varp >= 525 (poll booth
+      visited, verified by 09_banking.yaml step 9). DOOR-CROSSING v2: no
+      delay_after padding here -- minimize the gap before the through-walk
+      (step 3) so the crossing lands during the still-open window.
+
+  - id: 3
+    description: "Through-walk PAST the threshold to the Account Guide's tile (plain GOTO, not onto the door tile)"
+    action: GOTO
+    args: "3126 3124 0"
+    await_condition: "location:3126,3124"
+    timeout_ms: 60000
+    on_failure: "retry:2"
+    notes: |
+      DOOR-CROSSING v2: a PLAIN GOTO straight to a tile PAST the threshold
+      (reusing the already-declared `account_guide_npc` location, not an
+      invented coordinate) crosses the door with one through-click during
+      the still-open window, instead of stopping on the door tile itself
+      (which exact mode's per-hop refiner would target and which becomes
+      BLOCKED once the door auto-closes -- see 05_cooking_to_quest_guide.yaml
+      pitfall #8 for the identical failure mode this avoids).
+
+  # Honest confirm: the supervisor's live salvage receipt (run 20260720T020701Z)
+  # proved this door crossing advances varp 281 525 -> 530. Gate on the
+  # game's own counter, not the interact's own success flag (same doctrine as
+  # 09_banking.yaml step 9's poll-booth gate).
+  - id: 4
+    description: "VERIFY the Account Guide door was crossed -- varp advanced to 530"
+    action: WAIT
+    await_condition: "tutorial_progress:>=530"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      Live receipt (attempt #8, run 20260720T020701Z, supervisor manual
+      salvage): GOTO 3124,3124 then INTERACT_OBJECT Door Open advanced varp
+      281 from 525 to 530. This is this file's progress_gate in
+      00_master.yaml (530) -- a chain resume with progress >=530 skips this
+      section as already done. Full Prayer/Brother Brace credit (550) is
+      NOT this section's job; that is driven by 10_prayer_magic.yaml's own
+      Account Guide + Brother Brace dialogue, which re-opens this same door
+      defensively (auto-closes) before proceeding.
+
+# PITFALLS DISCOVERED:
+# 1. Doors are IDENTICAL objects (9ade455) -- multiple doors are documented
+#    nearby this one. Always seat exact-mode on the confirmed threshold
+#    before Open; never separate the seat from its Open.
+# 2. DOOR-CROSSING v2 (f5fc911 / MANNY_OVERSEER.md): never GOTO exact onto the
+#    door tile itself as the crossing step -- exact's per-hop "Walk here"
+#    refiner is BLOCKED once the door auto-closes (~5-7s after Open),
+#    spinning to a ~53s timeout. Cross with a PLAIN GOTO to a tile past the
+#    threshold instead.
+# 3. Progress does NOT reach Prayer's 550 from this section alone -- gate on
+#    tutorial_progress:>=530 (step 4), the value this section's own door
+#    crossing actually produces (live receipt, run 20260720T020701Z).
+# 4. 10_prayer_magic.yaml re-opens this same door and re-talks to the
+#    Account Guide from scratch at the start of its own steps -- this is
+#    intentional defensive redundancy (Tutorial Island doors auto-close),
+#    not a bug to dedupe.
+
+# WORKING PATTERNS:
+# - Door crossing: exact seat (location-await confirmed) -> INTERACT_OBJECT
+#   Door Open -> immediate PLAIN through-walk past the threshold.
+# - Verify a tutorial stage: WAIT + await_condition tutorial_progress:>=N
+
+# After this routine:
+# Player at (3126, 3124), inside the Account Guide room, varp 281 >= 530.
+# Ready for 10_prayer_magic.yaml.
