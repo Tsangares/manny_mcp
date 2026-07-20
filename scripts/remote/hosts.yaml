@@ -74,6 +74,7 @@ hosts:
       blast: ":3"
       new: ":4"          # BANNED alias — display for the zero-risk ban-detection login gate only
       punitpun: ":5"     # reserved clean spare — tutorial island launch lane
+      judeaislam: ":6"   # mainland lane (task #22) — mapped 2026-07-20; previously llama-only (:8)
     staging_dir: /home/wil/Desktop/manny_mcp
     runelite_libs: /home/wil/Desktop/runelite-client-libs
     venv_python: /home/wil/Desktop/manny_mcp/venv/bin/python
