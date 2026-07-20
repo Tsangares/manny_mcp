@@ -48,3 +48,14 @@ date,account,host,section,first_contact,failure_class,live_minutes,run_id
 2026-07-19,fishibis2800,llama,08_combat,NR,not-reached-DEFECT29-sword-shield-bow-STILL-unmeasured,0,20260719T231115Z_fishibis2800
 2026-07-19,fishibis2800,llama,09_banking,NR,not-reached-05b,0,20260719T231115Z_fishibis2800
 2026-07-19,fishibis2800,llama,10_prayer_magic,NR,not-reached-05b,0,20260719T231115Z_fishibis2800
+2026-07-19,karldakilla,llama,01_character_creation,P,,1,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,01b_experience_selection,P,,1,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,02_gielinor_guide,P,,1,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,03_survival_expert,P,,1,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,04_woodcutting_firemaking,P,,1,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,05_cooking,P,gate-fix-31504fb-WORKS;cooking-RAN-not-skipped;Master-Chef-dough-on-Range-success;progress-120-to-200;the-attempt3-4-killer-is-DEAD,2,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,05b_06_quest_guide_ladder,F,cook-exit-door-nav-stall-16min;legacy-follower-cannot-cross-Door-WallObject-3072-3090;wedged-3074-3091-2tiles-E-of-x3072-corridor;Door-Open-step-succeeded;quest-guide-arm-steps-fired-4x-while-stuck-south-all-failed-not-in-15tiles;ladder-REACHED-3088-3118-FIRST-EVER;Climb-down-primitive-HEALTHY-menu-match-strict-verified-3x;ladder-UN-ARMED-silent-noop-stayed-plane0-progress200;sequencing-desync;shadow-graph-FOUND-17of20-lines-stage2-would-clear;NO-ban;NO-freeze;9-step-errors,25,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,07_mining_smithing,NR,not-reached-05b-cook-door-stall-and-ladder-unarmed,0,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,08_combat,NR,not-reached-DEFECT29-sword-shield-bow-STILL-unmeasured,0,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,09_banking,NR,not-reached-05b,0,20260719T234922Z_karldakilla
+2026-07-19,karldakilla,llama,10_prayer_magic,NR,not-reached-05b,0,20260719T234922Z_karldakilla
