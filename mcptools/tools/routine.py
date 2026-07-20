@@ -1313,6 +1313,13 @@ async def handle_execute_routine(arguments: dict) -> dict:
     steps_since_health_check = 0
     outer_count = 0
     inner_count = 0
+    # Per-pass step failures that occurred INSIDE the active inner loop, deferred
+    # pending the loop's outcome (see the failure-accounting block below): the
+    # loop's contract is "retry until the exit condition holds", so a failure it
+    # is built to absorb must not doom the section on its own. On success-exit
+    # these become ABSORBED (visible, not counted); on exhaustion they merge into
+    # the section verdict as real failures. Reset each time the loop concludes.
+    inner_loop_pending_failures = []
     restart_attempts = 0
     max_restart_attempts = 3
     inner_consecutive_failures = 0
@@ -1406,13 +1413,29 @@ async def handle_execute_routine(arguments: dict) -> dict:
                                               results["abort_reason"])
                         return results
 
-                    # STRICT-STEPS: this failure took the default `continue`
-                    # policy. Under strict_steps we do NOT change control flow
-                    # (the runner still proceeds/restarts as before) but we DO
-                    # flip the section verdict to failed so the chain stops
-                    # instead of false-passing into the next section on a
-                    # desynced game. Records the first + all failing step ids.
-                    if strict_steps:
+                    # Is this failing step INSIDE the active inner retry loop?
+                    # An inner loop's contract is "retry until the exit condition
+                    # holds": a per-pass step failure it was BUILT to absorb must
+                    # not, on its own, doom the section (attempt-#12 receipt: a
+                    # pass-1 varp-verify timeout that the loop recovered from on
+                    # pass 2 still stopped the master chain at 10/13 despite the
+                    # game objective being met, varp 500->510). So defer the
+                    # accounting for inner-loop failures and let the loop's
+                    # OUTCOME decide: success-exit keeps them ABSORBED (below, at
+                    # the end_step exit check), exhaustion reclassifies the whole
+                    # batch as real failures (right here, at the failure bound).
+                    # The loop -- not the pass -- is the unit of accountability.
+                    in_inner_loop = (
+                        inner_start_idx is not None and inner_end_idx is not None
+                        and inner_start_idx <= current_step_idx <= inner_end_idx)
+
+                    # STRICT-STEPS: a failure OUTSIDE any inner loop took the
+                    # default `continue` policy. We do NOT change control flow
+                    # (the runner still proceeds as before) but we DO flip the
+                    # section verdict to failed so the chain stops instead of
+                    # false-passing into the next section on a desynced game.
+                    # Records the first + all failing step ids. (Unchanged.)
+                    if strict_steps and not in_inner_loop:
                         results["success"] = False
                         results["strict_failure"] = True
                         results.setdefault("first_failed_step", step_id)
@@ -1421,8 +1444,12 @@ async def handle_execute_routine(arguments: dict) -> dict:
                     # on_failure: continue (default) -- unchanged legacy behavior:
                     # inner-loop steps restart the iteration, everything else is
                     # logged and the runner proceeds to the next step.
-                    if (inner_start_idx is not None and inner_end_idx is not None
-                            and inner_start_idx <= current_step_idx <= inner_end_idx):
+                    if in_inner_loop:
+                        # Tentatively absorbed: remember it (kept visible in
+                        # results), but don't count it toward the verdict yet.
+                        inner_loop_pending_failures.append({
+                            "step_id": step_id, "action": action,
+                            "error": step_result.get('error', 'failed')})
                         inner_consecutive_failures += 1
                         _routine_logger.warning(
                             "[ROUTINE] Inner loop step %s failed (%d/%d). Restarting from step %s.",
@@ -1430,9 +1457,17 @@ async def handle_execute_routine(arguments: dict) -> dict:
                             inner_loop.get('start_step', 1))
 
                         if inner_consecutive_failures >= max_inner_consecutive_failures:
+                            # EXHAUSTION: the loop hit its failure bound without
+                            # ever meeting its exit condition. The deferred
+                            # failures are now real -> merge them into the section
+                            # verdict exactly as an outside-loop failure counts
+                            # (honest fail), then give up via on_exit.
                             _routine_logger.warning(
                                 "[ROUTINE] %d consecutive inner loop failures. Exiting via on_exit.",
                                 inner_consecutive_failures)
+                            _count_inner_failures(
+                                results, inner_loop_pending_failures, strict_steps)
+                            inner_loop_pending_failures = []
                             inner_consecutive_failures = 0
                             on_exit = inner_loop.get('on_exit', '')
                             if on_exit.startswith('goto_step:'):
@@ -1493,6 +1528,13 @@ async def handle_execute_routine(arguments: dict) -> dict:
                         inner_loop.get('exit_conditions', []), routine_config, account_id)
 
                     if inner_exit:
+                        # Inner loop exits via its SUCCESS path (exit_conditions
+                        # met after a full pass). Any per-pass failures we
+                        # deferred were exactly what the retry loop is built to
+                        # absorb -> reclassify them as ABSORBED: kept visible in
+                        # results, but NOT counted against the section verdict.
+                        _absorb_inner_failures(results, inner_loop_pending_failures)
+                        inner_loop_pending_failures = []
                         # Inner loop exits - jump to on_exit target
                         inner_count += 1
                         inner_consecutive_failures = 0
@@ -1554,7 +1596,53 @@ async def handle_execute_routine(arguments: dict) -> dict:
         else:
             break
 
+    # Run ended with an inner loop still mid-flight (e.g. outer max_loops hit
+    # before it concluded). It never exhausted, so its deferred failures were
+    # never established as real -> surface them as absorbed for visibility rather
+    # than failing the section on transients the loop might still have recovered.
+    _absorb_inner_failures(results, inner_loop_pending_failures)
+    inner_loop_pending_failures = []
+
     return results
+
+
+def _absorb_inner_failures(results, pending):
+    """Reclassify deferred inner-loop step failures as ABSORBED transients.
+
+    Called when an inner retry loop exits via its success path (exit_conditions
+    met). The per-pass failures it deferred were exactly what the loop is built
+    to absorb, so keep them VISIBLE -- a running ``absorbed_failures`` count plus
+    per-step ``absorbed_failure_detail`` plus a ``[LOOP]`` log line -- but do NOT
+    count them toward the section verdict. No-op when nothing was deferred."""
+    if not pending:
+        return
+    n = len(pending)
+    results["absorbed_failures"] = results.get("absorbed_failures", 0) + n
+    results.setdefault("absorbed_failure_detail", []).extend(pending)
+    _routine_logger.info(
+        "[LOOP] absorbed %d transient failure(s) (loop exited via success path): %s",
+        n, ", ".join("step %s (%s)" % (p["step_id"], p["action"]) for p in pending))
+
+
+def _count_inner_failures(results, pending, strict_steps):
+    """Merge deferred inner-loop failures into the section verdict on EXHAUSTION.
+
+    Called when an inner retry loop hits its failure bound
+    (``max_inner_consecutive_failures``) without ever meeting its exit condition:
+    the failures it was absorbing are real. Count them exactly as an
+    outside-a-loop ``continue`` failure would under ``strict_steps`` -- verdict
+    flips to failed, first + all failing step ids recorded. With ``strict_steps``
+    off the legacy verdict is unchanged (a ``continue`` failure never flipped
+    it); the failures stay visible via the ``errors`` list recorded at failure
+    time. No-op when nothing was deferred."""
+    if not pending:
+        return
+    if strict_steps:
+        results["success"] = False
+        results["strict_failure"] = True
+        for p in pending:
+            results.setdefault("first_failed_step", p["step_id"])
+            results.setdefault("failed_steps", []).append(p["step_id"])
 
 
 def _resolve_step_idx(step_id, step_id_to_idx: dict, default):

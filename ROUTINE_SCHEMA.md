@@ -69,6 +69,30 @@ chain marched into the next section on a desynced game. **Off by default** —
 legacy grind routines that tolerate transient step failures are unaffected.
 All `routines/tutorial_island/` sections opt in.
 
+> **`strict_steps` + inner loops — the loop, not the pass, is the unit of
+> accountability (2026-07-19, attempt-#12 fix).** A step failure that occurs
+> *inside* an active `inner` loop's `start_step..end_step` range is NOT counted
+> the instant it happens. An inner loop's contract is *retry until its exit
+> condition holds*, so a per-pass failure it was BUILT to absorb (e.g. a pass-1
+> varp-verify timeout because the target NPC wandered, recovered on pass 2) must
+> not, on its own, fail the section. The engine DEFERS these failures and lets
+> the loop's outcome decide:
+> - **Loop exits via its success path** (an `exit_conditions` atom matched at
+>   `end_step`) → the deferred failures are reclassified **ABSORBED**: kept
+>   VISIBLE (`results.absorbed_failures` count + `results.absorbed_failure_detail`
+>   per-step list + a `[LOOP] absorbed N transient failure(s)` log line) but they
+>   do **NOT** flip the section verdict. The section passes.
+> - **Loop exhausts** (`max_inner_consecutive_failures`, hardcoded 3, reached
+>   without ever meeting an exit condition) → the deferred failures are real and
+>   are merged into the verdict exactly as an outside-a-loop `continue` failure
+>   counts today (`success: False`, `strict_failure: true`, `first_failed_step` +
+>   `failed_steps` recorded), then the loop gives up via `on_exit`.
+>
+> Failures on steps **outside** any inner loop are unchanged — counted
+> immediately as before. This only relaxes the accounting for the transient class
+> the inner retry loop exists to swallow; a loop that genuinely can't reach its
+> exit condition still fails the section honestly.
+
 Related engine honesty change (no YAML key needed): a **no-await `GOTO`** that
 reports plugin-success but does not move the player one tile within ~4s (and
 was not already at the target) now FAILS the step
@@ -257,11 +281,14 @@ none match, it jumps back to `inner.start_step` (routine.py:1274-1279); if one
 matches, it jumps to the `goto_step:` target in `on_exit` (routine.py:1266-1272).
 The outer loop works the same way at the very end of the step list.
 
-**Inner-loop step failures don't just propagate** — 3 consecutive failures
-inside the `inner.start_step..end_step` range restart the inner loop from
-`start_step` (routine.py:1189-1212); after `max_inner_consecutive_failures`
-(hardcoded 3, routine.py:1136), it exits via `on_exit` instead of retrying
-forever (routine.py:1198-1209).
+**Inner-loop step failures don't just propagate** — a failure inside the
+`inner.start_step..end_step` range restarts the inner loop from `start_step`;
+after `max_inner_consecutive_failures` (hardcoded 3) consecutive failures it
+exits via `on_exit` instead of retrying forever. Under `config.strict_steps`,
+these deferred per-pass failures are **absorbed** when the loop exits via its
+success path (exit condition met) and only **counted** against the section
+verdict when the loop exhausts — see the `strict_steps` note in §(a). Absorbed
+failures stay visible via `results.absorbed_failures` and a `[LOOP]` log line.
 
 **Exclusivity note:** if both a flat `loop.enabled: true` block *and* an
 `inner`/`outer` block with `enabled: true` are present in the same YAML,
