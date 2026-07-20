@@ -430,6 +430,18 @@ class DryRunInterpreter:
                 need = target if op != ">" else target + 1
                 while len(m.items) < min(28, need):
                     m.items.append({"name": "Filler", "qty": 1})
+        elif ctype == "tutorial_progress":
+            # TUTORIAL: varbit-281 is game-truth (driven by dialogue/quest state),
+            # so NO simulated command can set it -- like an NPC-gather yielding an
+            # item. For an unmodeled command (e.g. a WAIT gate verifying the ladder
+            # is armed) the honest dry-run default is to assume the preceding
+            # arming steps achieved the declared progress, mirroring inventory_count.
+            if op == ">":
+                m.tutorial_progress = value + 1
+            elif op == "<":
+                m.tutorial_progress = max(0, value - 1)
+            else:  # ">=", "<=", "=="
+                m.tutorial_progress = value
         else:
             return False
         return True
