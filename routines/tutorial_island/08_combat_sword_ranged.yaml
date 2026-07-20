@@ -35,6 +35,35 @@
 # enclosure; the ONLY exit is the double gate on the x=3111 N-S fence, reached by
 # walking to (3109,9515) first. GOTO success flags here are unreliable
 # (DEFECT-7/DEFECT-10) -- location awaits gate arrival, not the GOTO flag.
+#
+# THE ATTEMPT-#11 RANGED-REPOSITION FIX (run 20260720T035248Z, journals/
+# 2026-07-20_tutorial_attempt11_malikreyes_llama.md, commit d270da3): the
+# ranged attack (then step 26) fired straight off the bow-handover dialogue
+# with NO GOTO in between -- nothing pinned the player back at a known tile
+# after steps 16-21 walk them out of the cage, back to Vannaka, and through
+# the handover. Equip was NOT the fault (state JSON confirmed Shortbow +
+# Bronze arrow x50 equipped); the click "succeeded" at the input level but the
+# player was standing wherever the dialogue left them (attempt #11 logged
+# (3104,9509), 7-13 tiles from the rat with no engagement), so the honest
+# WAIT gate (step 28) timed out at 45s. Contrast the melee leg (steps 12-15),
+# which opens the cage gate immediately before attacking; the ranged leg had
+# no equivalent.
+#
+# FIX: step 25b GOTOs back to (3104,9509) before every attack attempt.
+# Coordinate sources (identical-objects doctrine -- cite, don't invent):
+#   (1) journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md:174-178 -- the ORIGINAL
+#       hand-driven pass this whole file is descended from fired
+#       "INTERACT_NPC Giant_rat Attack from (3104,9509) -> ranged kill"
+#       successfully.
+#   (2) This is the file's own `combat_area_entrance` location constant
+#       (below) -- the same tile step 1 re-anchors to before the melee leg.
+# Note the failed attempt #11 click ALSO fired from (3104,9509) -- so the
+# tile isn't a new discovery, the MISSING GOTO is: nothing GUARANTEED arrival
+# there, and the giant rat wanders inside its small pen, so a single shot from
+# a fixed tile is a timing lottery against the rat's position/LOS through the
+# fence. Steps 25b/26/27/28 are wrapped in a bounded inner retry loop (EOF)
+# so a miss re-walks and re-fires instead of failing on the first attempt --
+# the db8db72 inner-loop precedent from 07_mining_smithing.yaml.
 
 name: "Tutorial Island - Combat (sword/shield + ranged)"
 type: tutorial
@@ -266,6 +295,23 @@ steps:
       item_name: "Bronze arrow"
     on_failure: "retry:2"
 
+  - id: 25b
+    description: "Reposition to the confirmed ranged-kill tile before attacking (attempt-#11 fix: no GOTO previously pinned the player here)"
+    action: GOTO
+    args: "3104 9509 0"
+    delay_before_ms: 500
+    await_condition: "location:3104,9509"
+    timeout_ms: 60000
+    notes: |
+      Loop start_step (see EOF `loop:`). SOURCES: (1) journals/
+      TUTORIAL_TEST_DEFECTS_2026-07-17.md:174-178 -- the original hand-driven
+      Driver #2 pass fired a successful ranged kill "from (3104,9509)". (2)
+      This file's own `combat_area_entrance` location constant / step-1
+      re-anchor tile. Re-run on every loop pass so a miss (rat wandered out
+      of range/LOS) gets a fresh walk-back before the next attack attempt,
+      not just one shot from wherever the dialogue happened to leave the
+      player.
+
   - id: 26
     description: "Attack giant rat (ranged) -- stage 480 action (hold through the kill)"
     action: INTERACT_NPC
@@ -287,8 +333,21 @@ steps:
     action: WAIT
     await_condition: "tutorial_progress:>=500"
     timeout_ms: 45000
-    on_failure: "abort"
-    notes: "Wiki: ranged attack (480) -> rat dies (490->500 'exit combat area')."
+    notes: |
+      Wiki: ranged attack (480) -> rat dies (490->500 'exit combat area').
+      Loop end_step (see EOF `loop:`). on_failure is intentionally the
+      default `continue` here (NOT `abort`, unlike the file's other verify
+      gates) -- an `abort` on_failure short-circuits the run immediately
+      (routine.py:1441) before the inner-loop restart logic ever runs, which
+      would defeat wrapping this in a retry loop. The bounded restart (below)
+      and `strict_steps` (header) together are the honest gate now: on a
+      timeout this step's failure is what drives the loop to re-walk +
+      re-attack (up to 3x, routine.py's hardcoded
+      max_inner_consecutive_failures); `strict_steps` still flags the SECTION
+      failed the moment any pass fails, so a 3x-exhausted give-up still stops
+      the master chain honestly -- same "no false pass" guarantee as before,
+      just after re-attempting the FULL [reposition -> attack -> verify]
+      sequence instead of one shot.
 
   # --- Stage 500 -> 510: exit the combat area via the ladder ---
   - id: 29
@@ -316,3 +375,47 @@ steps:
       section 09's start. Replaces the old always-true `plane:0` await (the combat
       area is underground but already plane 0 -- RISK-2 in the 0810 hardening
       journal) with a real varp check. Master gate for this sub-section is 510.
+
+# RANGED-ATTACK RETRY LOOP (attempt-#11 fix, db8db72 inner-loop precedent from
+# 07_mining_smithing.yaml): steps 25b -> 28 ([re-walk to (3104,9509)] -> [attack]
+# -> [dismiss stray modal] -> [verify varp >=500]) are re-attempted AS ONE UNIT
+# instead of firing the attack once from wherever the bow-handover dialogue left
+# the player. A failing verify (step 28) restarts from 25b (routine.py's inner-
+# loop failure counter, hardcoded cap 3 -- ROUTINE_SCHEMA.md (d)); this absorbs
+# both "player wasn't pinned at the shooting tile" AND "the rat wandered out of
+# range/LOS this instant" by giving the sequence up to 3 full passes instead of 1.
+#
+# exit_conditions CANNOT use `tutorial_progress:` -- that atom exists ONLY in
+# Grammar 1 (step-level await_condition, monitoring.py), NOT in Grammar 2 (loop
+# stop_conditions/exit_conditions, routine.check_stop_condition) -- see
+# ROUTINE_SCHEMA.md (c). Using it here would silently NEVER trigger (the dry-run
+# vets exactly this and would warn), so the loop would either spin forever on a
+# real success (exit_conditions checked at end_step ONLY on a step SUCCESS,
+# routine.py:1532-1558) or, on a real failure, correctly fall through to the
+# failure-counter path instead (that path is a separate branch that never reaches
+# exit_conditions at all, routine.py:1469-1491/1554-1558).
+#
+# `no_item:"Bronze arrow"` is used as the exit signal instead -- NOT because it
+# encodes "the rat died", but because it is a real, already-true-by-this-point
+# inventory fact usable as a Grammar-2 atom: steps 22-25 EQUIP the Shortbow +
+# Bronze arrow (ammo leaves the inventory list for the equipment/ammo slot on
+# equip -- standard OSRS behavior, confirmed live by attempt #11's own state JSON
+# showing `equipment.ammo: Bronze arrow qty=50` with none left in inventory), so
+# it is continuously true from step 25 onward. Because exit_conditions is only
+# ever evaluated when step 28 SUCCEEDS (a genuine timeout instead takes the
+# separate failure-restart branch above and never reaches this check), this
+# atom's job is purely "recognize we got here via a real success and stop",
+# not "detect the kill" -- the REAL honest verify remains step 28's own
+# `tutorial_progress:>=500` Grammar-1 await, which is what decides success vs.
+# failure in the first place. on_exit continues to step 29 (walk to the exit
+# ladder) either way, matching the mining_smithing precedent: even a 3x-exhausted
+# give-up still marches forward, but `strict_steps` (header) already flagged the
+# SECTION failed on the first bad pass, so the master chain stops honestly.
+loop:
+  inner:
+    enabled: true
+    start_step: 25b
+    end_step: 28
+    exit_conditions:
+      - "no_item:Bronze arrow"
+    on_exit: "goto_step:29"
