@@ -1,0 +1,244 @@
+# ============================================================================
+# combat_cows_hides.yaml -- mainland graduation step: cows -> cowhides -> bank
+# ============================================================================
+# GOAL (user's words): after chickens take attack/strength/defence to 10 (see
+#   combat_chickens_to_10s.yaml), "start working on cows." This kills cows,
+#   collects the 100%-drop Cowhide, banks it at the Lumbridge Castle bank, and
+#   repeats -- combat XP + early money in one loop, with the field<->bank round
+#   trip providing activity variety (the campaign's ban-risk mechanism; NOT
+#   humanization).
+#
+# WHAT IT DOES
+#   KILL_LOOP_CONFIG (configs/cows_hides.json) so the dropped Cowhide is looted
+#   -- a BARE KILL_LOOP loots only runes (ROUTINE_SCHEMA.md (h)). Cowhide is a
+#   ground item at the death tile; KILL_LOOP_CONFIG's loot step picks it up
+#   (the plugin's canonical ground-item pickup path, InteractionSystem /
+#   PickUpItemCommand). Cowhide is NON-stackable, so the 28-slot inventory fills
+#   as hides accumulate -- that full inventory is the banking trigger (inner-loop
+#   exit_conditions: inventory_full, Grammar 2). KILL_LOOP_CONFIG forces
+#   food="none" (KillLoopConfigCommand.java:101) so the 50%-HP safety stop
+#   applies -- harmless vs level-2 cows. Bones are always auto-buried (free
+#   Prayer XP) and cannot be kept by either command.
+#
+# PRIOR ART MINED (attic): the deleted-layer knowledge lives in the surviving
+#   Java command KillCowGetHidesCommand.java -- COW_PEN_CENTER = WorldPoint(
+#   3178,3327,0) (line 83), kill -> pick up "Cowhide" at the death tile ->
+#   bank, with resume-if-inventory-full logic. This routine reuses that pen
+#   coordinate but drives the loop from YAML via the active_loop-MANAGED
+#   KILL_LOOP_CONFIG (KillCowGetHidesCommand itself is uncapped/unmanaged and is
+#   NOT covered by the DEFECT-26 watchdog fix -- ROUTINE_SCHEMA.md (e.1) / the
+#   H-7 note in routines/combat/cow_killer_training.yaml -- so we do NOT call it).
+#   The castle-staircase geometry + bank booth below are reused verbatim from the
+#   collision-verified work in routines/money_making/cowhide_banking.yaml.
+#
+# BATCH SIZE kills=35: 28 free slots / ~80% assumed attempt-success rate (cows
+#   drop Cowhide 100%, but max_kills caps loop ATTEMPTS not confirmed kills --
+#   see the full math in cowhide_banking.yaml's header). Retune live.
+#
+# PRECONDITION: start with an EMPTY inventory (only equipped melee gear;
+#   food="none" is forced so no food is carried). BANK_DEPOSIT_ALL (step 10)
+#   self-heals inventory cleanliness from the 2nd cycle onward.
+#
+# ***** COORDINATES -- LIVE-VALIDATION STATUS (see README for the full list) ****
+#   COW PEN 3178,3327,0 ...... prior-art (KillCowGetHidesCommand.java:83). This
+#     pen sits WEST of the River Lum, same side as Lumbridge Castle, so unlike
+#     cowhide_banking.yaml there is NO bridge crossing. *** needs-live-receipt:
+#     confirm cows actually spawn here and the GOTO settles. ***
+#   COURTYARD 3221,3218,0 .... plausible (inside the castle-grounds polygon);
+#     DOOR RISK: a side-room door near ~3218,3217 may sit on the courtyard<->
+#     stair line (cowhide_banking.yaml audit finding 4). *** needs-live-receipt:
+#     get_transitions()/scan_tile_objects("door") near 3218,3217 before trusting
+#     the courtyard<->stair legs; insert INTERACT_OBJECT <Door> Open if closed.***
+#   STAIRCASE COLUMN 3205,3209 (planes 0/1/2) ... collision-verified in
+#     cowhide_banking.yaml (3205,3208 is BLOCKED; 3205,3209 is the walkable
+#     threshold). Reused verbatim.
+#   BANK BOOTH 3208,3220,2 ... CONFIRMED (OSRS wiki Lumbridge_Castle_bank +
+#     6 corpus routines); BANK_OPEN is the established booth pattern.
+#   FIELD<->CASTLE OUTDOOR WALK (steps 3 & 17): single long GOTO hops, no river
+#     to corner-cut here; *** needs-live-receipt: confirm each settles; if the
+#     pather stalls, break into shorter hops with per-hop location awaits. ***
+
+name: "Cows -> Cowhides -> Lumbridge Castle bank (mainland)"
+type: money_making
+skill: combat
+
+# Documentation-only (engine reads coords from step args, not this block).
+locations:
+  lumbridge_cow_pen:       # prior-art COW_PEN_CENTER
+    x: 3178
+    y: 3327
+    plane: 0
+  lumbridge_castle_bank:
+    x: 3208
+    y: 3220
+    plane: 2
+
+steps:
+  # ---- arrive at / confirm the cow pen (outer-loop start) -------------------
+  - id: 1
+    phase: "travel"
+    action: GOTO
+    args: "3178 3327 0"
+    description: "Walk to the prior-art cow pen (COW_PEN_CENTER 3178,3327). From
+      the chicken coop or Lumbridge spawn the live pathfinder routes here (west
+      of the river, no bridge). needs-live-receipt."
+    await_condition: "location:3178,3327"
+    timeout_ms: 120000
+
+  # ---- kill batch (inner loop: repeat until inventory full of hides) --------
+  - id: 2
+    phase: "combat"
+    action: KILL_LOOP_CONFIG
+    args: "/home/wil/Desktop/manny_mcp/routines/mainland/configs/cows_hides.json"
+    description: "Kill up to 35 cows, loot Cowhide (ground pickup at death tile);
+      bones auto-buried, food forced none (50% HP safety stop). Inner loop
+      re-runs this batch until the inventory fills with hides."
+    timeout_ms: 3600000   # blocking command (ROUTINE_SCHEMA.md (e)); NO await_condition
+
+  # ---- travel: cow pen -> Lumbridge Castle bank ----------------------------
+  - id: 3
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3221 3218 0"
+    description: "Walk south into the Lumbridge Castle courtyard (no river
+      crossing from this pen). needs-live-receipt; DOOR RISK near 3218,3217."
+    await_condition: "location:3221,3218"
+    timeout_ms: 120000
+
+  - id: 4
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3205 3209 0"
+    description: "Ground-floor staircase base inside the castle (collision-verified)"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 5
+    phase: "travel_to_bank"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb to 1st floor"
+    await_condition: "plane:1"
+    timeout_ms: 30000
+
+  - id: 6
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3205 3209 1"
+    description: "Reposition at the 1st-floor staircase"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 7
+    phase: "travel_to_bank"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-up"
+    description: "Climb to 2nd floor (bank floor)"
+    await_condition: "plane:2"
+    timeout_ms: 30000
+
+  - id: 8
+    phase: "travel_to_bank"
+    action: GOTO
+    args: "3208 3220 2"
+    description: "Walk to the Lumbridge Castle bank booth (confirmed)"
+    await_condition: "location:3208,3220"
+    timeout_ms: 60000
+
+  # ---- bank: deposit cowhides, keep equipment ------------------------------
+  - id: 9
+    phase: "banking"
+    action: BANK_OPEN
+    description: "Open the bank (no 'bank open' await atom exists -- guard with retry)"
+    on_failure: "retry:2"
+    delay_after_ms: 1000
+
+  - id: 10
+    phase: "banking"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit entire inventory (Cowhide + any junk); equipped gear
+      untouched (BankingSupport DEPOSIT_INVENTORY_BUTTON only targets the
+      inventory panel). Verified by the inventory_count:<=0 await."
+    await_condition: "inventory_count:<=0"
+    on_failure: "abort"
+    timeout_ms: 10000
+    delay_after_ms: 500
+
+  - id: 11
+    phase: "banking"
+    action: BANK_CLOSE
+    description: "Close the bank"
+    on_failure: "abort"
+    delay_after_ms: 500
+
+  # ---- return: bank -> cow pen ---------------------------------------------
+  - id: 12
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3205 3209 2"
+    description: "Reposition at the 2nd-floor staircase"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 13
+    phase: "travel_to_field"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Climb down to 1st floor"
+    await_condition: "plane:1"
+    timeout_ms: 30000
+
+  - id: 14
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3205 3209 1"
+    description: "Reposition at the 1st-floor staircase"
+    await_condition: "location:3205,3209"
+    timeout_ms: 60000
+
+  - id: 15
+    phase: "travel_to_field"
+    action: INTERACT_OBJECT
+    args: "Staircase Climb-down"
+    description: "Climb down to the ground floor"
+    await_condition: "plane:0"
+    timeout_ms: 30000
+
+  - id: 16
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3221 3218 0"
+    description: "Back through the castle courtyard. needs-live-receipt; same
+      DOOR RISK near 3218,3217 as the outbound leg."
+    await_condition: "location:3221,3218"
+    timeout_ms: 60000
+
+  - id: 17
+    phase: "travel_to_field"
+    action: GOTO
+    args: "3178 3327 0"
+    description: "Back to the cow pen. needs-live-receipt."
+    await_condition: "location:3178,3327"
+    timeout_ms: 120000
+
+# Nested inner/outer loop (ROUTINE_SCHEMA.md (d)):
+#   inner = the kill batch (step 2), re-run until the inventory fills with
+#           hides, then jump to the banking-travel sequence (goto_step:3).
+#   outer = the whole cow-pen <-> bank cycle (steps 1..17), repeating until the
+#           CLI --loops N backstop is exhausted (exit_conditions empty; the only
+#           real pass cap -- loop.max_iterations is dead, ROUTINE_SCHEMA.md (f)).
+# Intended invocation:
+#   ./run_routine.py routines/mainland/combat_cows_hides.yaml --loops 20 --account judeaislam
+loop:
+  inner:
+    enabled: true
+    start_step: 2
+    end_step: 2
+    exit_conditions:
+      - "inventory_full"
+    on_exit: "goto_step:3"
+  outer:
+    enabled: true
+    start_step: 1
+    end_step: 17
+    exit_conditions: []

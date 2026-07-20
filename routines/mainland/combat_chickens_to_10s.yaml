@@ -1,0 +1,201 @@
+# ============================================================================
+# combat_chickens_to_10s.yaml -- first post-tutorial mainland combat routine
+# ============================================================================
+# GOAL (user's words): "kill chickens until 10 att, def, str, then start
+#   working on cows." This file is the chicken phase; combat_cows_hides.yaml is
+#   the graduation target once all three melee skills reach 10.
+#
+# DESIGN -- honest level gates + activity variety (NOT humanization):
+#   The ban-risk mitigation here is *activity progression + combat-style
+#   rotation*, per the campaign doctrine (long single-activity grinds are the
+#   risk profile; variety is the mechanism). This routine ROTATES all three
+#   melee stances every pass instead of grinding one style for hundreds of
+#   kills, then GRADUATES to cows (combat_cows_hides.yaml).
+#
+#   LEVEL GATES ARE REAL IN THE GRAMMAR. The loop stop-condition vocabulary
+#   (Grammar 2, ROUTINE_SCHEMA.md (c)) supports `<skill>_level:N`
+#   (routine.py:2125-2132 -> skills[skill].level >= N). So `defence_level:10`
+#   below is an HONEST ground-truth stop read from the game's own skill export,
+#   not a kill-count approximation.
+#
+#   WHY ONE GATE, NOT THREE. A single flat loop has exactly ONE
+#   `repeat_from_step` + ONE ANY-match `stop_conditions` set (ROUTINE_SCHEMA.md
+#   (d)), so three *independent* sequential level-gated phases are not
+#   expressible in one file. Instead each pass trains attack -> strength ->
+#   defence with EQUAL small batches, and the loop stops on `defence_level:10`.
+#   Because defence is trained LAST in every pass, the instant defence reaches
+#   10 the same-pass attack and strength batches have already run at least as
+#   many times at equal XP rates -> all three are >= 10. This is the honest
+#   single-file realisation of "all three reach 10". (A truly independent
+#   three-phase gate would need either three separate files/a chain, or a
+#   runner extension for sequential multi-phase loops -- see README.)
+#
+#   NON-TERMINAL KILL_LOOPs ARE INTENTIONAL HERE. Steps 5 and 8 are KILL_LOOP
+#   steps that are NOT the last step of the pass. `validate_routine_deep` WARNS
+#   on that (ROUTINE_SCHEMA.md (e.1)) -- the warning exists because authors used
+#   to expect post-KILL_LOOP steps to run *concurrently* with a still-grinding
+#   loop. Under the DEFECT-26 fix, run_routine.py POLLS `active_loop` and BLOCKS
+#   until each KILL_LOOP truly finishes before sending the next command, so the
+#   three batches run strictly SEQUENTIALLY (attack batch fully completes ->
+#   switch to strength -> strength batch -> switch to defence -> defence batch).
+#   Sequential is exactly what a per-pass rotation needs; the single-loop guard
+#   never trips because no second KILL_LOOP is ever concurrent. The warning is
+#   expected and acceptable for this file.
+#
+# BONES / FEATHERS. Bare KILL_LOOP always auto-buries Bones every kill (free
+#   Prayer XP -- ROUTINE_SCHEMA.md (h)) and needs no inventory management, which
+#   is why this pure-combat file uses bare KILL_LOOP (not KILL_LOOP_CONFIG).
+#   Feathers are NOT looted here on purpose (looting them needs KILL_LOOP_CONFIG
+#   + banking + inventory management, which slows XP/hr). For the feather-money
+#   variant see routines/money_making/chicken_feathers.yaml.
+#
+# COORDINATE + STANCE-NAME PROVENANCE (see README for the full needs-live list):
+#   COOP 3235,3295,0 -- the LIVE-PROVEN grind pen (receipts in
+#     money_making/chicken_feathers.yaml, 2026-07-19); OSRS-wiki-consistent
+#     (chicken coop sits just west of the north end of the Lumbridge cow field).
+#   STANCE NAMES Stab/Slash/Block are the bronze-SWORD combat-interface (group
+#     593) button labels: Stab->Attack XP, Slash->Strength XP, Block->Defence XP
+#     (swords carry Stab/Lunge/Slash/Block; "Chop" is axe/scimitar vocabulary).
+#     *** needs-live-receipt: labels change with the EQUIPPED weapon *** -- if
+#     the account fights unarmed the labels are Punch/Kick/Block; a dagger
+#     differs again. Confirm against judeaislam's actual weapon at smoke time
+#     and edit config below in one place. A wrong label is non-fatal:
+#     SWITCH_COMBAT_STYLE logs a failure and the grind continues.
+
+name: "Chickens to 10 Attack/Strength/Defence (mainland, rotating stances)"
+type: combat
+skill: combat
+
+config:
+  # Bronze-sword combat-interface stance button labels. EDIT HERE after the
+  # live stance-label receipt (needs-live-receipt -- weapon-dependent).
+  style_attack: "Stab"     # accurate  -> Attack XP
+  style_strength: "Slash"  # aggressive -> Strength XP
+  style_defence: "Block"   # defensive -> Defence XP
+
+# Documentation-only (engine reads coords from step args, not this block).
+locations:
+  lumbridge_chicken_coop:
+    x: 3235
+    y: 3295
+    plane: 0
+
+steps:
+  # ---- one-time setup (runs once; repeat_from_step below skips it) ----------
+  - id: 1
+    phase: "setup"
+    action: EQUIP_BEST_MELEE
+    description: "Wield the best available melee weapon so the Stab/Slash/Block
+      stance labels apply. If nothing is equippable the account fights unarmed
+      -- then edit config styles to Punch/Kick/Block (needs-live-receipt)."
+    timeout_ms: 15000
+
+  # ---- travel to the coop (flat-loop re-entry point) ------------------------
+  - id: 2
+    phase: "travel"
+    action: GOTO
+    args: "3235 3295 0"
+    description: "Walk to the Lumbridge chicken coop (NE of the castle, west of
+      the cow field's north end). Plain GOTO per door-crossing doctrine: the
+      live-proven chicken_feathers.yaml reaches this pen with a plain GOTO and
+      no explicit fence-gate step -- do NOT add gate ceremony without a live
+      defect (strictness must be earned; MANNY_OVERSEER.md). needs-live-receipt."
+    await_condition: "location:3235,3295"
+    timeout_ms: 120000
+
+  # ---- PHASE 1: ACCURATE stance -> Attack XP --------------------------------
+  - id: 3
+    phase: "style_attack"
+    action: TAB_OPEN
+    args: "Combat"
+    description: "Open Combat tab first so SWITCH_COMBAT_STYLE's group-593 scan
+      finds the stance buttons (live 2026-07-19: the switch's own tab-open is
+      flaky as a first action -- see chicken_feathers.yaml)."
+    delay_before_ms: 400
+    timeout_ms: 8000
+
+  - id: 4
+    phase: "style_attack"
+    action: SWITCH_COMBAT_STYLE
+    args: "${style_attack}"
+    description: "Set accurate stance for Attack XP"
+    delay_before_ms: 600
+    timeout_ms: 15000
+
+  - id: 5
+    phase: "style_attack"
+    action: KILL_LOOP
+    args: "Chicken none 15"
+    description: "Attack-XP batch: 15 chickens on the accurate stance. Bones
+      auto-buried (free Prayer XP). Non-terminal KILL_LOOP is intentional --
+      see the header note; run_routine.py blocks to completion before step 6."
+    timeout_ms: 3600000   # KILL_LOOP floor (ROUTINE_SCHEMA.md (e)); no await_condition
+
+  # ---- PHASE 2: AGGRESSIVE stance -> Strength XP ----------------------------
+  - id: 6
+    phase: "style_strength"
+    action: TAB_OPEN
+    args: "Combat"
+    description: "Re-open Combat tab before the stance switch"
+    delay_before_ms: 400
+    timeout_ms: 8000
+
+  - id: 7
+    phase: "style_strength"
+    action: SWITCH_COMBAT_STYLE
+    args: "${style_strength}"
+    description: "Set aggressive stance for Strength XP"
+    delay_before_ms: 600
+    timeout_ms: 15000
+
+  - id: 8
+    phase: "style_strength"
+    action: KILL_LOOP
+    args: "Chicken none 15"
+    description: "Strength-XP batch: 15 chickens on the aggressive stance.
+      Non-terminal KILL_LOOP intentional (see header)."
+    timeout_ms: 3600000
+
+  # ---- PHASE 3: DEFENSIVE stance -> Defence XP (LAST -> drives the gate) -----
+  - id: 9
+    phase: "style_defence"
+    action: TAB_OPEN
+    args: "Combat"
+    description: "Re-open Combat tab before the stance switch"
+    delay_before_ms: 400
+    timeout_ms: 8000
+
+  - id: 10
+    phase: "style_defence"
+    action: SWITCH_COMBAT_STYLE
+    args: "${style_defence}"
+    description: "Set defensive stance for Defence XP"
+    delay_before_ms: 600
+    timeout_ms: 15000
+
+  - id: 11
+    phase: "style_defence"
+    action: KILL_LOOP
+    args: "Chicken none 15"
+    description: "Defence-XP batch: 15 chickens on the defensive stance. Trained
+      LAST every pass so `defence_level:10` is the honest all-three gate (attack
+      and strength were trained earlier this pass at equal XP). Terminal step."
+    timeout_ms: 3600000
+
+# Flat loop: after each 45-kill rotation (15 att + 15 str + 15 def) jump back to
+# step 2 and rotate again. Stops HONESTLY when Defence reaches 10 (Grammar 2
+# <skill>_level:N, ROUTINE_SCHEMA.md (c)); attack+strength are then also >= 10
+# (equal batches, defence trained last -- see header). The one-time
+# EQUIP_BEST_MELEE (step 1) is skipped on every subsequent pass.
+#
+# BOUND IT ON THE CLI. loop.max_iterations is a DEAD key (ROUTINE_SCHEMA.md
+# (d)/(f)); the only real pass cap is `--loops N`. A fresh post-tutorial account
+# needs ~1154 XP/skill for level 10 (~96 chicken kills/skill at ~12 XP/kill), so
+# ~7 rotations of 15/skill -- run with generous headroom for lower starts and
+# failed attempts:
+#   ./run_routine.py routines/mainland/combat_chickens_to_10s.yaml --loops 40 --account judeaislam
+loop:
+  enabled: true
+  repeat_from_step: 2
+  stop_conditions:
+    - "defence_level:10"
