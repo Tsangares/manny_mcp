@@ -1,16 +1,45 @@
 # Tutorial Island - Part 10: Account Guide, Prayer & Magic (final section)
-# STATUS: PARTIALLY VALIDATED -- BLOCKED at the Brother Brace prayer section
-# (steps 12/15). The Account Guide section and the chapel approach are
-# transcribed/validated, but a live blocker found 2026-07-19 stops an
-# end-to-end run: Brother Brace (id 3319) PACES a 2-3 tile radius and ~10
-# INTERACT_NPC/CLICK_NPC attempts from every adjacent tile all returned "I
-# can't reach that!" (resolve->click latency lands on his vacated tile). The
-# prayer section past step 12 -- and therefore the Magic section and mainland
-# exit downstream of it -- is NOT re-validated on this jar. See the "OPEN
-# BLOCKER" note above step 8 (~:153) for detail; a pacing-NPC-aware retry that
-# re-resolves the live tile per attempt is needed before this runs unattended.
-# (The earlier Driver #4 "CHAPEL/PRAYER SECTION PASSED" / Driver #5 "ISLAND
-# COMPLETE" notes predate the 2026-07-19 blocker and no longer hold end-to-end.)
+# STATUS: Account Guide + Account Management tab + east-door exit FIXED and
+# honest-gated 2026-07-20 (attempt #8, incident below). The Brother Brace
+# (Prayer), Magic Instructor, and mainland-exit phases are unchanged from the
+# prior pass and remain "validated live 2026-07-19" per their own headers,
+# EXCEPT for one still-OPEN blocker: Brother Brace (id 3319) PACES a 2-3 tile
+# radius and can return "I can't reach that!" on an interact whose
+# resolve->click latency lands on his vacated tile (see the note above the
+# Phase 3 steps). That blocker is NOT addressed by this pass -- out of scope,
+# left as documented.
+#
+# INCIDENT (attempt #8, runs 20260720T021142Z + 20260720T023314Z, supervisor
+# ground truth): the old step 5 did `CLICK_WIDGET 35913777` (Account
+# Management tab) as a hardcoded widget id. That id DOES NOT EXIST on the
+# current jar -- the click was a SILENT NO-OP (CLICK_WIDGET reports "sent"
+# regardless), varp 281 stalled at 530, and the section's later east-door
+# clicks were tutorial-blocked by an invisible queued modal ("You need to
+# talk to the Account Guide before you are allowed to proceed through this
+# door.") that never surfaces in the dialogue export.
+#
+# THE FIX -- what actually worked, hand-driven live with receipts:
+#   talk to Account Guide (varp 530->531)
+#   -> click the FLASHING Account Management tab: log-confirmed working
+#      mechanism was a canvas click at (597,477) whose menu OPTION read
+#      verbatim "Account Management" (varp 531->532)
+#   -> final talk round, 16 dialogue pages drained (532->540)
+#   -> east door open + immediate plain through-walk (540->550, player
+#      lands outside at ~3134,3124)
+# Encoded below as: `mcp_tool: click_widget` with `args: {action: "Account
+# Management"}` (step "Open Account Management tab", Phase 2) instead of a
+# hardcoded id -- see that step's notes for why this is the chosen mechanism
+# over a guessed new id or a raw coordinate click. Every stage transition
+# above now has an honest `WAIT tutorial_progress:>=N` gate (Grammar 1,
+# ROUTINE_SCHEMA.md (c)) instead of an assumption, so a wrong/failed action
+# aborts the chain (strict_steps) instead of silently marching a desynced
+# game into Brother Brace/Magic/mainland.
+#
+# Also discovered live (context only, NOT fixed in this YAML -- a Java-side
+# defect being ticketed separately): an "I can't reach that!" modal renders
+# in chatbox widget group 162, is invisible to the dialogue export, and
+# makes subsequent clicks register as Cancel. If a future run wedges with no
+# visible cause, suspect this.
 #
 # This routine handles the final sections:
 # 1. Account Guide section (account management explanation)
@@ -23,13 +52,14 @@
 # "Home Teleport" -- that widget is actually the MINIGAME Teleport icon.**
 # `CAST_SPELL Home_Teleport` and `TELEPORT_HOME` BOTH FAIL on this jar. The
 # CONFIRMED correct widget (via live SCAN_WIDGETS Teleport) is **14286854**
-# ("Lumbridge Home Teleport", canvas 554,305 40x40). Step 33 below uses
-# `CLICK_WIDGET 14286854` directly -- do NOT use CAST_SPELL/TELEPORT_HOME for
-# the mainland exit until the plugin-side id is fixed.
+# ("Lumbridge Home Teleport", canvas 554,305 40x40). The mainland-exit step
+# below uses `CLICK_WIDGET 14286854` directly -- do NOT use CAST_SPELL/
+# TELEPORT_HOME for the mainland exit until the plugin-side id is fixed.
 #
-# Engine predicates used below (dialogue/no_dialogue/location/plane) are all
-# implemented in mcptools/tools/monitoring.py -- see 04_woodcutting_firemaking.yaml
-# for the reference repeat_until pattern this file mirrors throughout.
+# Engine predicates used below (dialogue/no_dialogue/location/plane/
+# tutorial_progress) are all implemented in mcptools/tools/monitoring.py --
+# see 08_combat.yaml / 09_banking_to_account_guide.yaml for the reference
+# WAIT-gate pattern this file now mirrors throughout.
 
 name: "Tutorial Island - Account Guide, Prayer & Magic"
 type: tutorial
@@ -53,6 +83,9 @@ npcs:
 # Key Locations
 locations:
   account_guide_room: {x: 3125, y: 3124, plane: 0}
+  account_guide_door: {x: 3125, y: 3124, plane: 0}          # west/interior door, antechamber -> Account Guide room
+  east_door: {x: 3130, y: 3124, plane: 0}                    # east door, Account Guide room -> outside
+  east_door_outside: {x: 3134, y: 3124, plane: 0}            # LIVE RECEIPT (attempt #8, runs 20260720T021142Z/023314Z): through-walk landing tile after the east-door crossing, varp 540->550
   chapel_outdoor_waypoint: {x: 3128, y: 3110, plane: 0}  # CONFIRMED, Driver #4 (defects log:254 "GOTO 3128 3110 crossed 13 tiles of outdoor path fine")
   chapel: {x: 3125, y: 3107, plane: 0}
   chapel_exit_door: {x: 3122, y: 3102, plane: 0}  # From prior-session note: "leads west, need to go through it to reach Magic area"
@@ -61,7 +94,11 @@ locations:
 
 # Key Widgets
 widgets:
-  account_management_tab: 35913777  # Action: "Account Management"
+  # account_management_tab: NO LONGER A HARDCODED ID -- widget 35913777 does
+  # NOT EXIST on the current jar (attempt #8 incident, see header). The tab
+  # click below uses `mcp_tool: click_widget` with `args: {action: "Account
+  # Management"}` (live-scanned, group 160 minimap tab icons) instead. Do
+  # NOT reintroduce a hardcoded id here without a fresh live receipt.
   prayer_tab: 35913797              # Action: "Prayer"
   magic_tab: 35913798               # Action: "Magic" - opened during tutorial
   wind_strike_spell: 14286859       # CORRECTED live 2026-07-19 (newbakshesh, shadow-nav jar):
@@ -69,10 +106,10 @@ widgets:
                                     # "<col=00ff00>Wind Strike</col>", hasListener), NOT 14286856.
                                     # SpellWidgetHelper.getSpellWidgetId("Wind Strike") returns the
                                     # stale 14286856, so CAST_SPELL_NPC Wind_Strike FAILS ("Spell
-                                    # widget 14286856 not found") -- see step 25 for the manual cast.
+                                    # widget 14286856 not found") -- see the Magic phase for the manual cast.
   lumbridge_home_teleport: 14286854 # CONFIRMED CORRECT (Driver #5 + re-confirmed live 2026-07-19:
                                     # SCAN_WIDGETS -> group 218 child 3 "Lumbridge Home Teleport").
-                                    # Canvas 554,305 40x40. Only castable at the FINAL step (see step 32).
+                                    # Canvas 554,305 40x40. Only castable at the FINAL step (see mainland-exit phase).
   # DO NOT USE 14286855 -- that is "Minigame Teleport", not Home Teleport (DEFECT-13).
   # Dialogue-option parent (group 219): 14352385. Options are DYNAMIC children -- select via
   # CLICK_CHILD_WIDGET <14352385> <child#>, NOT CLICK_DIALOGUE (which clicks by raw bounds and
@@ -87,110 +124,206 @@ config:
   strict_steps: true
 
 steps:
-  # ===================== Phase 1: Account Guide =====================
+  # ===================== Phase 1: Account Guide (talk #1) =====================
+  # Defensive re-open: 09_banking_to_account_guide.yaml already crosses this
+  # SAME door and lands the player at (3126,3124), but Tutorial Island doors
+  # auto-close ~5-7s after Open (DOOR-CROSSING v2, MANNY_OVERSEER.md) -- a
+  # section restart or any gap before this file's own first step can find it
+  # closed again. Doors are IDENTICAL objects with others documented nearby
+  # (09b pitfall #1), so the exact seat + location-await is what pins the
+  # next Open to THIS door, not a decoy.
   - id: 1
-    description: "Walk to door in front of Account Guide room"
+    description: "Seat at the Account Guide door threshold (exact-mode seat, defensive re-open)"
     action: GOTO
-    args: "3124 3124 0"
-    delay_before_ms: 500
+    args: "3124 3124 0 exact"
     await_condition: "location:3124,3124"
     timeout_ms: 60000
-    notes: "Must walk to door position before clicking"
+    delay_before_ms: 500
+    on_failure: "retry:2"
+    notes: "Mirrors 09_banking_to_account_guide.yaml step 1 -- same door (3125,3124)."
 
   - id: 2
-    description: "Open door to Account Guide room"
+    description: "Open door to Account Guide room (defensive -- door may have auto-closed)"
     action: INTERACT_OBJECT
     args: "Door Open"
-    delay_before_ms: 1000
-    notes: "Door at (3125, 3124) -- CONFIRMED, Driver #4"
-
-  - id: 3
-    description: "Talk to Account Guide"
-    action: INTERACT_NPC
-    args: "Account_Guide Talk-to"
-    await_condition: "dialogue"
-
-  - id: 4
-    description: "Advance Account Guide dialogue"
-    action: KEY_PRESS
-    args: "space"
-    repeat_until: "no_dialogue"
-    notes: "Multiple space presses through intro"
-
-  - id: 5
-    description: "Open Account Management tab"
-    action: CLICK_WIDGET
-    args: "35913777"
     delay_before_ms: 1000
     notes: |
-      Driver #4 used a raw canvas coordinate click (~597,477) as a workaround
-      this run because account_management is not in TabOpenCommand's list --
-      but coordinate clicks are explicitly disallowed for Tutorial Island
-      (widget_reference.yaml: "Coordinate-based clicking causes server
-      disconnections"). Kept as the pre-existing validated widget ID
-      (35913777) instead; not contradicted by this run.
+      Door at (3125, 3124) -- CONFIRMED, Driver #4. DOOR-CROSSING v2: no
+      delay_after padding -- minimize the gap before the through-walk (next
+      step) so the crossing lands during the still-open window.
 
-  - id: 6
-    description: "Talk to Account Guide again"
+  - id: 3
+    description: "Through-walk PAST the threshold to the Account Guide's tile (plain GOTO, not onto the door tile)"
+    action: GOTO
+    args: "3126 3124 0"
+    await_condition: "location:3126,3124"
+    timeout_ms: 60000
+    on_failure: "retry:2"
+    notes: "DOOR-CROSSING v2: plain through-walk, never exact onto the door tile itself (exact's per-hop 'Walk here' refiner is BLOCKED once the door re-closes)."
+
+  - id: 4
+    description: "Talk to Account Guide (first round)"
     action: INTERACT_NPC
     args: "Account_Guide Talk-to"
     await_condition: "dialogue"
+    on_failure: "retry:2"
 
-  - id: 7
-    description: "Complete Account Guide dialogue"
+  - id: 5
+    description: "Advance Account Guide intro dialogue (until the Account Management tab starts flashing)"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
-    notes: "Many space presses through explanation"
+    notes: "Short intro before the flashing tab appears -- not the 16-page explanation (that's the second talk, Phase 3)."
 
-  # ===================== Phase 2: Exit to Chapel =====================
-  # CHOKEPOINT — RECIPE VALIDATED LIVE 2026-07-19 (Track live-lane, DEFECT-23 jar).
-  # History (Track E phase-1b, 2026-07-18): from the south account-guide antechamber
-  # (player parked ~3123-3124,3111-3113) NAV-DIRECT oscillates and reports
-  # "[NAV-DIRECT] Stuck at (x,y), N tiles from target" for EVERY direct target
-  # (chapel 3126,3107; outdoor 3128,3110). Root cause found live 2026-07-19: the
-  # antechamber is a walled box whose ONLY forward exit is a CLOSED interior Door
-  # at (3125,3124). The prior oscillation was the follower failing against that
-  # closed door + the DEFECT-7 short-hop no-op, NOT a general maze.
-  #
-  # VALIDATED WALK-THROUGH RECIPE (each GOTO uses DEFECT-23 `exact` mode, which
-  # landed ON-tile every time — hop 0/1: e.g. "[NAV-EXACT] On target tile
-  # (3129,3124,0) after 0 hop(s)"):
-  #   a. GOTO 3124 3124 0 exact           # settle onto the tile W of the interior door
-  #   b. INTERACT_OBJECT Door Open        # opens Door (3125,3124); player steps through,
-  #                                       #   door auto-closes behind (TI quirk)
-  #   c. GOTO 3129 3124 0 exact           # east-door approach — clean arrival
-  #   d. INTERACT_OBJECT Door Open        # opens east exit Door (3130,3124) -> OUTSIDE
-  #   e. GOTO 3128 3110 0 exact           # outdoor waypoint (validated on-tile)
-  #   f. GOTO 3130 3107 0 exact           # chapel EAST approach (validated)
-  # This clears the documented chapel-exit blocker end-to-end (player reaches the
-  # chapel interior, adjacent to Brother Brace).
-  #
-  # ⚠️ OPEN BLOCKER (NEW, found live 2026-07-19, downstream of the above):
-  # Brother Brace (id 3319, ~3125,3106) PACES a 2-3 tile wander radius. Every
-  # INTERACT_NPC/CLICK_NPC from an orthogonally-adjacent tile (tried W 3124,3106;
-  # E 3126,3106; diag 3126,3105/3126,3107) returns the game message "I can't reach
-  # that!" — the resolve→mouse-move→click latency (remote/diort IPC) lands on his
-  # vacated tile. ~10 attempts across INTERACT_NPC + CLICK_NPC all failed. The
-  # prayer section past step 12 is NOT re-validated on this jar; needs a
-  # pacing-NPC-aware interact (retry that re-resolves the NPC's live tile per
-  # attempt) before it can run unattended.
+  - id: 6
+    description: "VERIFY the first Account Guide talk registered -- varp advanced to 531"
+    action: WAIT
+    await_condition: "tutorial_progress:>=531"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      Live receipt (attempt #8, runs 20260720T021142Z + 20260720T023314Z,
+      supervisor ground truth): talking to Account Guide advances varp 281
+      from 530 to 531. Honest abort if the talk didn't register (strict_steps
+      stops the chain instead of marching a desynced game into the tab click).
+
+  # ===================== Phase 2: Account Management tab (THE FIX) =====================
+  - id: 7
+    description: "Open Account Management tab"
+    mcp_tool: click_widget
+    args:
+      action: "Account Management"
+    on_failure: "retry:2"
+    notes: |
+      REPLACES the stale `CLICK_WIDGET 35913777` (attempt #8 incident, see
+      file header): that hardcoded widget id does NOT EXIST on the current
+      jar -- CLICK_WIDGET reports "sent" regardless (silent no-op), varp
+      stalled at 530, and the east-door clicks downstream were
+      tutorial-blocked by an invisible queued modal.
+
+      CHOSEN MECHANISM, in the directive's own preference order:
+        (a) a CURRENT valid hardcoded id with a live receipt -- NONE EXISTS;
+            do not guess a replacement id.
+        (b) a menu/action-based click primitive -- USED HERE. The live
+            receipt's working click was a canvas click at (597,477) whose
+            menu OPTION read verbatim "Account Management". `mcp_tool:
+            click_widget` with `args: {action: "Account Management"}`
+            (handle_click_widget, mcptools/tools/routine.py:602) is the
+            canonical action-based click primitive: it runs `SCAN_WIDGETS
+            "Account Management"` live (matches on each widget's `actions[]`
+            array server-side, ScanWidgetsCommand.java addWidgetInfo
+            matchesAction check -- group 160 "Minimap (tab icons on Tutorial
+            Island)" is one of the default-scanned groups, exactly where a
+            flashing tutorial tab icon lives), then does an atomic CLICK_AT
+            at the LIVE-SCANNED widget's bounds center (or CLICK_WIDGET-by-id
+            if bounds aren't canvas-safe, DEFECT-29 guard). This is NOT a
+            raw/guessed coordinate click (which widget_reference.yaml bans
+            for Tutorial Island -- "coordinate-based clicking causes server
+            disconnections") -- it is the same fresh-scan-then-click path
+            already proven for `mcp_tool: click_widget` with `text: "Worn
+            Equipment"` in 08_combat.yaml step 5. Robust to widget-id drift
+            because it never hardcodes an id.
+        (c) a raw canvas coordinate click (597,477) as a last resort -- NOT
+            NEEDED, (b) is available and doctrinally preferred.
+      Citing run ids: attempt #8, runs 20260720T021142Z + 20260720T023314Z.
+
   - id: 8
-    description: "Walk to east door"
+    description: "VERIFY the Account Management tab click registered -- varp advanced to 532"
+    action: WAIT
+    await_condition: "tutorial_progress:>=532"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      Live receipt: clicking the flashing Account Management tab advances
+      varp 281 from 531 to 532. This is the gate that would have caught the
+      old stale-id no-op immediately instead of stalling silently through
+      the rest of the section.
+
+  # ===================== Phase 3: Account Guide (talk #2, full explanation) =====================
+  - id: 9
+    description: "Talk to Account Guide again (full account-management explanation)"
+    action: INTERACT_NPC
+    args: "Account_Guide Talk-to"
+    await_condition: "dialogue"
+    on_failure: "retry:2"
+
+  - id: 10
+    description: "Complete Account Guide dialogue -- blind Space drain"
+    action: KEY_PRESS
+    args: "space"
+    repeat: 18
+    delay_before_ms: 600
+    notes: |
+      Live receipt: 16 dialogue pages drained (varp 532->540). Was
+      `repeat_until: no_dialogue` -- DEFECT-31/DEFECT-24 (see 08_combat.yaml
+      step 3): repeat_until check-first no-ops on a modal/false-closed page,
+      so it can under-drain a long explanation. Blind fixed-count instead,
+      sized for the receipt's 16 pages plus margin (mirrors 08_combat.yaml's
+      dagger-handover drain sizing). Extra presses after dialogue closes are
+      inert on Tutorial Island.
+
+  - id: 11
+    description: "VERIFY the full Account Guide explanation credited -- varp advanced to 540"
+    action: WAIT
+    await_condition: "tutorial_progress:>=540"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: "Live receipt: the second talk + 16-page drain advances varp 281 from 532 to 540."
+
+  # ===================== Phase 4: East door exit (door-crossing v2) =====================
+  - id: 12
+    description: "Seat at the east door threshold (exact-mode seat)"
     action: GOTO
-    args: "3129 3124 0"
-    delay_before_ms: 500
+    args: "3129 3124 0 exact"
     await_condition: "location:3129,3124"
     timeout_ms: 60000
+    delay_before_ms: 500
+    on_failure: "retry:2"
+    notes: "East door at (3130,3124), leads outside. Exact seat pins the next Open to this door (doors are identical objects, 09b pitfall #1)."
 
-  - id: 9
-    description: "Open door to outside"
+  - id: 13
+    description: "Open east door to outside"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
-    notes: "Door at (3130, 3124) -- Driver #4 confirmed exiting here"
+    notes: |
+      DOOR-CROSSING v2: no delay_after padding -- minimize the gap before
+      the through-walk (next step) so the crossing lands during the
+      still-open window.
 
-  - id: 10
+  - id: 14
+    description: "Through-walk PAST the threshold to outside (plain GOTO, not onto the door tile)"
+    action: GOTO
+    args: "3134 3124 0"
+    await_condition: "location:3134,3124"
+    timeout_ms: 60000
+    on_failure: "retry:2"
+    notes: |
+      DOOR-CROSSING v2 rework (attempt #8 incident, see file header): the
+      OLD version of this section walked to a pre-door waypoint (3128,3110)
+      as its first post-door hop, which is 05b/09b's forbidden pattern of
+      GOTO'ing at/near the door tile as the crossing step itself. Live
+      receipt (runs 20260720T021142Z/023314Z): the working crossing is a
+      PLAIN GOTO straight to (3134,3124), the confirmed outside landing
+      tile, immediately after Open -- never exact onto the door tile (exact
+      mode's per-hop "Walk here" refiner is BLOCKED once the door
+      re-closes, spinning to a ~53s timeout).
+
+  - id: 15
+    description: "VERIFY the east-door crossing credited -- varp advanced to 550"
+    action: WAIT
+    await_condition: "tutorial_progress:>=550"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      Live receipt: the east-door crossing advances varp 281 from 540 to
+      550 (the Prayer/Brother Brace boundary -- see
+      09_banking_to_account_guide.yaml header for the wiki stage name). This
+      is the last receipt-covered stage; everything below (chapel approach,
+      Brother Brace, Magic, mainland exit) is unchanged from the prior
+      2026-07-19 pass and carries its own status notes.
+
+  - id: 16
     description: "Walk toward chapel (confirmed outdoor waypoint)"
     action: GOTO
     args: "3128 3110 0"
@@ -199,7 +332,7 @@ steps:
     delay_before_ms: 500
     notes: "CONFIRMED, Driver #4: crossed 13 tiles of outdoor path fine (GOTO reported 'failed' at 1-off -- DEFECT-10, treat as advisory and verify via location await)"
 
-  - id: 11
+  - id: 17
     description: "Walk to chapel"
     action: GOTO
     args: "3130 3107 0"
@@ -207,8 +340,20 @@ steps:
     await_condition: "location:3130,3107"
     timeout_ms: 60000
 
-  # ===================== Phase 3: Brother Brace (Prayer) =====================
-  - id: 12
+  # ===================== Phase 5: Brother Brace (Prayer) =====================
+  # ⚠️ OPEN BLOCKER (found live 2026-07-19, STILL OPEN -- out of scope for
+  # this pass): Brother Brace (id 3319, ~3125,3106) PACES a 2-3 tile wander
+  # radius. Every INTERACT_NPC/CLICK_NPC from an orthogonally-adjacent tile
+  # (tried W 3124,3106; E 3126,3106; diag 3126,3105/3126,3107) has returned
+  # "I can't reach that!" -- the resolve->mouse-move->click latency
+  # (remote/diort IPC) lands on his vacated tile. ~10 attempts across
+  # INTERACT_NPC + CLICK_NPC all failed on that pass. The `repeat: 8` below
+  # re-resolves the live tile on each attempt as a mitigation, but a
+  # pacing-NPC-aware retry (re-resolve immediately before each individual
+  # click, not just before each of 8 attempts) is the durable fix, not yet
+  # built. `on_failure: abort` so a miss doesn't march prayer-uncredited
+  # into Magic/mainland.
+  - id: 18
     description: "Talk to Brother Brace (pacing NPC — repeat re-resolves live tile; abort so a miss doesn't march prayer-uncredited into magic/mainland)"
     action: INTERACT_NPC
     args: "Brother_Brace Talk-to"
@@ -218,20 +363,20 @@ steps:
     delay_before_ms: 600
     on_failure: abort
 
-  - id: 13
+  - id: 19
     description: "Advance Brother Brace intro dialogue"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
 
-  - id: 14
+  - id: 20
     description: "Open Prayer tab"
     action: CLICK_WIDGET
     args: "35913797"
     delay_before_ms: 1000
     notes: "TAB_OPEN does not cover this on Tutorial Island (defects log:256-257) -- direct widget click used instead"
 
-  - id: 15
+  - id: 21
     description: "Talk to Brother Brace again (pacing NPC — repeat re-resolves live tile; abort so a miss doesn't march prayer-uncredited into magic/mainland)"
     action: INTERACT_NPC
     args: "Brother_Brace Talk-to"
@@ -241,14 +386,14 @@ steps:
     delay_before_ms: 600
     on_failure: abort
 
-  - id: 16
+  - id: 22
     description: "Complete Brother Brace dialogue (friends-list steps auto-credit during continues)"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
 
-  # ===================== Phase 4: Exit to Magic Area =====================
-  - id: 17
+  # ===================== Phase 6: Exit to Magic Area =====================
+  - id: 23
     description: "Walk to chapel exit door"
     action: GOTO
     args: "3122 3102 0"
@@ -257,13 +402,13 @@ steps:
     timeout_ms: 60000
     notes: "Door leads west toward the Magic area"
 
-  - id: 18
+  - id: 24
     description: "Exit chapel through door"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
 
-  - id: 19
+  - id: 25
     description: "Walk to Magic Instructor area"
     action: GOTO
     args: "3141 3088 0"
@@ -272,40 +417,40 @@ steps:
     delay_before_ms: 500
     notes: "CONFIRMED, Driver #5: Magic Instructor found here after a mid-run crash/relaunch"
 
-  # ===================== Phase 5: Magic Instructor (Wind Strike) =====================
-  - id: 20
+  # ===================== Phase 7: Magic Instructor (Wind Strike) =====================
+  - id: 26
     description: "Talk to Magic Instructor"
     action: INTERACT_NPC
     args: "Magic_Instructor Talk-to"
     await_condition: "dialogue"
 
-  - id: 21
+  - id: 27
     description: "Advance Magic Instructor intro dialogue (receive Air/Mind runes)"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
     notes: "Receive Air rune x4 and Mind rune x4"
 
-  - id: 22
+  - id: 28
     description: "Open Magic tab"
     action: CLICK_WIDGET
     args: "35913798"
     delay_before_ms: 1000
     notes: "Tutorial prompts to open magic tab"
 
-  - id: 23
+  - id: 29
     description: "Talk to Magic Instructor again"
     action: INTERACT_NPC
     args: "Magic_Instructor Talk-to"
     await_condition: "dialogue"
 
-  - id: 24
+  - id: 30
     description: "Advance dialogue (instructor explains Wind Strike)"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
 
-  - id: 25a
+  - id: "31a"
     description: "Approach the chicken pen (CAST_SPELL_NPC needs proximity/LOS)"
     action: GOTO
     args: "3138 3091 0"
@@ -314,7 +459,7 @@ steps:
     delay_before_ms: 500
     notes: "Chickens pen ~3138-3141,3092-3096. Confirmed live 2026-07-19."
 
-  - id: 25b
+  - id: "31b"
     description: "Select Wind Strike spell (CORRECTED widget 14286859)"
     action: CLICK_WIDGET
     args: "14286859"
@@ -323,9 +468,9 @@ steps:
       CAST_SPELL_NPC Wind_Strike is BROKEN on this jar: SpellWidgetHelper maps
       "Wind Strike" -> 14286856 (stale), and the command aborts with "Spell
       widget 14286856 not found". Select the spell directly via 14286859 (the
-      live-verified Wind Strike widget) instead. Magic tab must be open (step 22).
+      live-verified Wind Strike widget) instead. Magic tab must be open (step 28).
 
-  - id: 25c
+  - id: "31c"
     description: "Cast the selected spell on a chicken"
     action: CLICK_NPC
     args: "Chicken"
@@ -336,22 +481,23 @@ steps:
       Target:"Wind Strike -> Chicken"). INTERACT_NPC Chicken "Cast" does NOT work
       -- findNPCByNameAndAction scans the NPC's STATIC composition actions, and
       the dynamic "Cast" entry (spell-on-cursor) isn't among them. One successful
-      cast fires the "Learning the Ropes" completion scroll. Re-run 25b+25c up to
+      cast fires the "Learning the Ropes" completion scroll. Re-run 31b+31c up to
       ~3x if the first click misses (chicken paces).
 
-  - id: "25b2"
+  - id: "31d"
     description: "Re-select Wind Strike in case the first cast missed (a miss clicks ground and DESELECTS the spell)"
     action: CLICK_WIDGET
     args: "14286859"
     delay_before_ms: 1200
-  - id: "25c2"
+
+  - id: "31e"
     description: "Re-cast Wind Strike on the chicken"
     action: CLICK_NPC
     args: "Chicken"
     delay_before_ms: 1200
 
-  # ===================== Phase 6: Final dialogue, Ironman decline, mainland exit =====================
-  # FULLY RE-VALIDATED LIVE 2026-07-19 (newbakshesh, shadow-nav jar). Two hard-won corrections
+  # ===================== Phase 8: Final dialogue, Ironman decline, mainland exit =====================
+  # VALIDATED LIVE 2026-07-19 (newbakshesh, shadow-nav jar). Two hard-won corrections
   # vs Driver #5's notes:
   #   (A) OPTION SELECTION: CLICK_DIALOGUE "Yes"/"No" DOES NOT WORK here. It clicks by raw widget
   #       bounds, which map into the 3D viewport ("Walk here") -> the option menu closes, the player
@@ -367,14 +513,14 @@ steps:
   #   -> "Were you planning to become an Ironman?" (continue) -> ironman menu (child 3 = decline)
   #   -> info continues -> "use your Home Teleport spell" -> CLICK_WIDGET 14286854 -> arrive (3221,3218).
 
-  - id: 26
+  - id: 32
     description: "Talk to Magic Instructor (after Wind Strike cast)"
     action: INTERACT_NPC
     args: "Magic_Instructor Talk-to"
     await_condition: "dialogue"
     notes: "If a 'Learning the Ropes' completion scroll is still up, KEY_PRESS escape first (it is a modal, not reported in state)."
 
-  - id: 27
+  - id: 33
     description: "Advance the instructor intro ('Well, you're all finished here now...')"
     action: KEY_PRESS
     args: "space"
@@ -382,7 +528,7 @@ steps:
     repeat_until_timeout_ms: 4000
     notes: "Stops when the mainland Yes/No menu appears (state reports it as player_chat/empty -- DEFECT-6)."
 
-  - id: 28
+  - id: 34
     description: "Answer 'Do you want to go to the mainland?' -- Yes (dynamic child 1)"
     action: CLICK_CHILD_WIDGET
     args: "14352385 1"
@@ -393,13 +539,13 @@ steps:
       Verify by re-scanning group 219: after this fires, options change to the
       3-entry Ironman menu.
 
-  - id: 29
+  - id: 35
     description: "Advance to the Ironman menu ('Were you planning to become an Ironman?')"
     action: KEY_PRESS
     args: "space"
     repeat_until: "no_dialogue"
 
-  - id: 30
+  - id: 36
     description: "Decline Ironman -- 'No, I'm not planning to do that.' (dynamic child 3)"
     action: CLICK_CHILD_WIDGET
     args: "14352385 3"
@@ -409,7 +555,7 @@ steps:
       an Ironman.', 3="No, I'm not planning to do that.". Child 3 declines.
       Player line then reads "No, I'm not planning to do that." Confirmed live.
 
-  - id: 30b
+  - id: "36b"
     description: "Exhaust info continues until 'use your Home Teleport spell' instruction"
     action: KEY_PRESS
     args: "space"
@@ -424,20 +570,20 @@ steps:
       reads "When you're ready, use your Home Teleport spell" and the Home
       Teleport icon flashes.
 
-  - id: "30c"
+  - id: "36c"
     description: "Blind belt-and-braces space presses to reach the Home Teleport prompt (DEFECT-6 inter-page gap)"
     action: KEY_PRESS
     args: "space"
     repeat: 3
     delay_before_ms: 600
 
-  - id: 31
+  - id: 37
     description: "Re-open Magic tab before Home Teleport (tab may have closed)"
     action: CLICK_WIDGET
     args: "35913798"
     delay_before_ms: 1000
 
-  - id: 32
+  - id: 38
     description: "Cast Lumbridge Home Teleport (DEFECT-13 fix: widget click, NOT CAST_SPELL/TELEPORT_HOME)"
     action: CLICK_WIDGET
     args: "14286854"
@@ -450,16 +596,23 @@ steps:
       (DEFECT-13, defects log:285-292). 14286854 is the CONFIRMED correct
       "Lumbridge Home Teleport" widget (re-confirmed live 2026-07-19).
       Cast animation observed ~16-18s live (arrival at 3221,3218 after ~18s),
-      so timeout raised to 30s. ONLY fires after step 30b's "use your Home
+      so timeout raised to 30s. ONLY fires after step 36b's "use your Home
       Teleport spell" instruction -- earlier it returns "You cannot teleport
       from Tutorial Island just yet!".
 
 # PITFALLS DISCOVERED:
-# 1. Door navigation: walk to a tile directly in front of the door, then INTERACT_OBJECT Door Open
-# 2. Account Management tab widget ID: 35913777 (not in TAB_OPEN's supported list)
+# 1. Door navigation: exact seat on the threshold (location-await confirmed),
+#    then INTERACT_OBJECT Door Open, then a PLAIN through-walk PAST the
+#    threshold -- never exact onto the door tile itself (DOOR-CROSSING v2).
+# 2. Account Management tab: widget 35913777 is STALE on the current jar
+#    (attempt #8 incident) -- use `mcp_tool: click_widget` with
+#    `args: {action: "Account Management"}` instead of any hardcoded id.
 # 3. Prayer tab widget ID: 35913797 (also not in TAB_OPEN's supported list)
 # 4. Magic tab widget ID: 35913798
-# 5. Dialogue advancement: KEY_PRESS space + repeat_until: no_dialogue (self-terminating)
+# 5. Dialogue advancement: KEY_PRESS space. `repeat_until: no_dialogue` is
+#    fine for short intros; a long multi-page explanation (16+ pages) should
+#    be a blind fixed-count `repeat` instead (DEFECT-31/24 check-first no-op
+#    on a modal/false-closed page).
 # 6. Wind Strike CAST (CORRECTED 2026-07-19): CAST_SPELL_NPC is BROKEN (SpellWidgetHelper maps
 #    "Wind Strike" -> stale 14286856 -> "Spell widget not found"). Manual: CLICK_WIDGET 14286859
 #    (select) then CLICK_NPC Chicken (cast). INTERACT_NPC Chicken "Cast" fails (static-action scan).
@@ -472,19 +625,26 @@ steps:
 # 9. DEFECT-13 (CRITICAL): Home Teleport must be CLICK_WIDGET 14286854, never
 #    CAST_SPELL/TELEPORT_HOME (both hardcode the wrong widget 14286855).
 # 10. Chapel exit door at (3122, 3102) leads west toward the Magic area.
+# 11. Brother Brace (id 3319) PACES -- OPEN BLOCKER, see the note above Phase 5.
+#     An interact from an adjacent tile can miss with "I can't reach that!"
+#     because resolve->click latency lands on his vacated tile.
 
 # WORKING PATTERNS:
-# - Account Management / Prayer / Magic tabs: CLICK_WIDGET <id> (not in TAB_OPEN's list)
-# - Dialogue advancement: KEY_PRESS space + repeat_until: no_dialogue
-# - Door interaction: GOTO to door position, then INTERACT_OBJECT Door Open
+# - Account Management / Prayer / Magic tabs: Account Management now via
+#   `mcp_tool: click_widget` action-search (id 35913777 is stale); Prayer/
+#   Magic via CLICK_WIDGET <id> (not in TAB_OPEN's list).
+# - Dialogue advancement: KEY_PRESS space + repeat_until: no_dialogue for
+#   short intros; blind fixed-count repeat for long (16+ page) explanations.
+# - Door interaction (DOOR-CROSSING v2): exact seat -> INTERACT_OBJECT Door
+#   Open -> immediate plain through-walk past the threshold.
+# - Verify a tutorial stage: WAIT + await_condition tutorial_progress:>=N,
+#   on_failure: abort (strict_steps turns this into an honest chain stop).
 # - Dialogue options: on THIS jar's mainland/ironman panes, CLICK_DIALOGUE bounds-
-#   clicks land in the 3D viewport (walk-away); use CLICK_CHILD_WIDGET per the
-#   fix at steps ~:321-324 (M-15 corrected 2026-07-19 -- the old "works even when
-#   options[] is empty" claim contradicted that fix and invited a regression).
+#   clicks land in the 3D viewport (walk-away); use CLICK_CHILD_WIDGET per
+#   the mainland-exit phase.
 # - Spell casting on NPC: CAST_SPELL_NPC Wind_Strike is BROKEN on this jar's
-#   Magic-Instructor chicken (pitfall #6, steps 25a-25c) -- use manual
-#   CLICK_WIDGET 14286859 + CLICK_NPC instead (M-15 corrected 2026-07-19; the old
-#   CAST_SPELL_NPC recommendation contradicted that pitfall).
+#   Magic-Instructor chicken (pitfall #6) -- use manual
+#   CLICK_WIDGET 14286859 + CLICK_NPC instead.
 # - Home Teleport (mainland exit): CLICK_WIDGET 14286854 -- NOT CAST_SPELL Home_Teleport
 
 # FINAL DESTINATION:
