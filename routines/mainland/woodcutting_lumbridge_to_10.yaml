@@ -31,17 +31,74 @@
 #   registered single-fire command (ListCommandsCommand.java:84) with built-in
 #   ground validation -- it checks the current tile is walkable+empty and walks
 #   to a nearby valid tile first if not (CookingFiremakingSupport.
-#   handleLightFire:110-160), which is exactly the per-fire movement a burn
-#   loop needs. It burns ONE log per call, so the burn step is a
-#   `repeat_until: "no_item:Logs"` loop (check-first; generous max_iterations
-#   absorbs failed light attempts at Firemaking 1). DROP_ALL Logs is the
-#   cleanup fallback: if burning stalls out at max_iterations, the remaining
-#   logs are dropped so the next pass starts with a free inventory (its
-#   `no_item:Logs` await is already satisfied when the burn cleared them all).
-#   *** needs-live-receipt: LIGHT_FIRE has no mainland live receipt in the
-#   journals (the tutorial used raw USE_ITEM_ON_ITEM, a different path). If the
-#   burn loop misbehaves live, delete step 6 -- step 7's drop alone is the
-#   validated-simple policy. ***
+#   handleLightFire:110-237, mirrored in LightFireCommand.java:79-216), which
+#   is exactly the per-fire movement a burn loop needs.
+#
+#   PRIOR-ART RECEIPT (2026-07-19 archaeology, MANNY_OVERSEER.md Rule 0 --
+#   "you can't light a fire on certain tiles" was already solved once): this
+#   walkable+no-GameObjects check, then a 3-tile-radius scan for the nearest
+#   clear tile, then walk-there-before-lighting, is not new work. It
+#   originates in the old PlayerHelpers.java god-object, commit `94cfe1e`
+#   "Saving before Fuckup" (2025-10-30 22:04:53 -0700, William Wyatt
+#   <tsangares@gmail.com>) -- `git -C ~/Desktop/manny show 94cfe1e --
+#   utility/PlayerHelpers.java` shows the original "GROUND VALIDATION" block,
+#   byte-identical in structure to today's handler. It survived every
+#   PlayerHelpers-decomposition wave untouched (W6-J2-7 `ee525e1` extracted it
+#   verbatim into CookingFiremakingSupport; the command-registry migration
+#   `b31557e` gave it its own LightFireCommand.java wrapper) -- unlike most of
+#   the old god-object's per-object-type layering, this subsystem was never
+#   rewritten, only relocated. CONSEQUENCE: the "walk off a bad tile before
+#   lighting" behavior is ALREADY the current jar's default for every
+#   LIGHT_FIRE call -- there is no YAML-level walk-and-retry to add; the Java
+#   primitive already does it ahead of each attempt.
+#
+#   RESIDUAL GAP -- NOT solved by the old code either (confirmed:
+#   `git -C ~/Desktop/manny rev-list --all | xargs git grep -i "can't light"`
+#   across the ENTIRE manny history returns zero hits -- no chat-message
+#   detection was ever built). Neither era detects the in-game "You can't
+#   light a fire here" rejection reactively, and LIGHT_FIRE's success signal
+#   is click-dispatch-only, not ground-truthed: `ItemUseHelpers.useItemOnItem()`
+#   (utility/ItemUseHelpers.java:242-319) sets `success[0] = true` once the two
+#   mouse clicks are dispatched and a fixed 200ms animation wait elapses -- it
+#   never checks that a Logs item was actually consumed or that a Fire
+#   GameObject spawned. A LIGHT_FIRE call can therefore writeSuccess on a tile
+#   the pre-check missed: the ground-check only scans `Tile.getGameObjects()`
+#   (LightFireCommand.java:96-114), not WallObject/DecorativeObject/
+#   GroundObject -- the same object-type split InteractionSystem's
+#   findTileObjectByName() has to fall back through for every other
+#   interaction (ATTIC_INDEX.md #1) -- so a walkable, GameObject-free path or
+#   building-floor tile can pass the pre-check and still be server-rejected.
+#   This is a real false-pass risk (MANNY_OVERSEER.md #2, defect class #1) at
+#   the single-call level, and it is NOT fixable from YAML: the current
+#   Grammar-1 condition vocabulary (ROUTINE_SCHEMA.md (c)) has no
+#   nearby-object-presence atom (no `nearby_object:Fire` / `has_object:X`) to
+#   await a Fire GameObject appearing, and the state export the atoms read
+#   carries no tile-object data at all. JAR QUEUE ITEM (not attempted here):
+#   (1) have handleLightFire/useItemOnItem verify post-click that the Logs
+#   count actually dropped (or a Fire GameObject spawned near the target
+#   tile) before writeSuccess; (2) extend the pre-light ground-check to the
+#   WallObject/DecorativeObject/GroundObject types InteractionSystem already
+#   covers for interaction.
+#
+#   The best available ground truth expressible in YAML today is the OUTER
+#   loop: LIGHT_FIRE burns ONE log per call, so the burn step is a
+#   `repeat_until: "no_item:Logs"` loop (check-first; a generous but BOUNDED
+#   `max_iterations` absorbs failed light attempts at Firemaking 1 -- this is
+#   the routine-level "retry, bounded" since the Java retry already happens
+#   inside each call and the YAML retry happens across calls). DROP_ALL Logs
+#   is the cleanup fallback: if burning stalls out at max_iterations (e.g.
+#   every candidate tile in the 3-tile scan turns out unlightable), the
+#   remaining logs are dropped so the next pass starts with a free inventory
+#   (its `no_item:Logs` await is already satisfied when the burn cleared them
+#   all).
+#   *** needs-live-receipt: LIGHT_FIRE has no MAINLAND live receipt in the
+#   journals -- the tutorial firemaking receipt (04_woodcutting_firemaking.yaml)
+#   used raw USE_ITEM_ON_ITEM with no ground-validation at all, a different
+#   path. The ground-validation logic itself is desk-old (2025-10-30) and
+#   untouched since, but Lumbridge tree tiles (3163,3301) haven't been proven
+#   live through THIS command. If the burn loop misbehaves live (stalls at
+#   max_iterations, or false-passes with Logs count unchanged), delete step 7
+#   (LIGHT_FIRE) -- step 8's DROP_ALL alone is the validated-simple policy. ***
 #
 # Intended invocation (level gate stops it early and honestly):
 #   ./run_routine.py routines/mainland/woodcutting_lumbridge_to_10.yaml --loops 10 --account judeaislam
@@ -49,6 +106,17 @@
 name: "Starter woodcutting - Lumbridge trees to woodcutting 10 (chop and burn)"
 type: skilling
 skill: woodcutting
+
+# STRICT-STEPS honesty gate (doctrine MANNY_OVERSEER.md #2, defect class #1 --
+# the false-pass): LIGHT_FIRE's success signal is click-dispatch-only (see the
+# RESIDUAL GAP note below step 7), so a silently-failed light attempt must not
+# be swallowed. With strict_steps, if the LIGHT_FIRE repeat_until loop exhausts
+# max_iterations without clearing Logs, the step (and therefore this run) fails
+# honestly instead of marching into the next loop pass on a desynced inventory.
+# Matches the established pattern in routines/tutorial_island/
+# 04_woodcutting_firemaking.yaml (same command family, same false-pass risk).
+config:
+  strict_steps: true
 
 # Documentation-only (engine reads coords from step args, not this block).
 locations:
@@ -120,10 +188,17 @@ steps:
     action: LIGHT_FIRE
     args: "Logs"
     description: "Burn the logs one fire at a time (Firemaking XP). LIGHT_FIRE
-      validates/relocates to a clear tile itself per fire. CHECK-FIRST
-      repeat_until: runs zero times if there are no logs. Generous
-      max_iterations absorbs failed light attempts at Firemaking 1.
-      needs-live-receipt -- see BURN-OR-DROP POLICY in the header."
+      ground-validates/relocates to a clear tile itself per fire -- prior art:
+      git show 94cfe1e -- utility/PlayerHelpers.java (2025-10-30), unchanged
+      through every refactor into CookingFiremakingSupport.handleLightFire.
+      CHECK-FIRST repeat_until: runs zero times if there are no logs. This
+      no_item:Logs loop is also the ground-truth backstop for LIGHT_FIRE's
+      click-dispatch-only success signal (no post-hoc fire/consume check
+      exists in the Java command -- see RESIDUAL GAP in the header). Generous
+      but BOUNDED max_iterations absorbs failed light attempts at Firemaking
+      1; strict_steps (see config: above) fails this section honestly if the
+      cap is hit without clearing Logs. needs-live-receipt -- see
+      BURN-OR-DROP POLICY in the header."
     repeat_until: "no_item:Logs"
     max_iterations: 60
     repeat_until_timeout_ms: 10000
