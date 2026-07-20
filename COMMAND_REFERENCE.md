@@ -327,6 +327,16 @@ Clicks on an NPC's convex hull without action filtering. Useful after selecting 
   description: "Pick wheat from field"
 ```
 
+**Optional coordinate qualifier** (jar ≥ 421c03e9, manny commit `7f42b54`): `args: "<name> <action> [x y]"` —
+when the trailing world coordinates are given, the object NEAREST THAT POINT is targeted instead of
+nearest-to-player. Use for identical ambiguous objects (doors, ladders, gates — location is identity).
+The 2-arg form is unchanged. Resolution is logged as `[MENU-MATCH]` with the chosen object's coords.
+```yaml
+- action: INTERACT_OBJECT
+  args: "Ladder Climb-up 3123 3128"
+  description: "Climb the BANK ladder (not the 3116,3126 decoy)"
+```
+
 ### `MOUSE_CLICK`
 
 **Handler**: `handleMouseClick`
