@@ -124,10 +124,31 @@ chain:
     description: "Section 7: Mining + Smithing"
     progress_hint: 7
     progress_gate: 370      # wiki: combat section starts (370) = mining/smithing done. Prior (05b) 250 < 370.
+  # SPLIT 2026-07-20 (attempt #6, judeaislam): section 08 is now two chain
+  # sections (mirroring 05 / 05b) so a restart is idempotent by this gate
+  # mechanism, not a nonexistent per-step skip. See 08_combat.yaml header.
+  # ROOT CAUSE (attempt #6 live transcript journals/2026-07-20_tutorial_attempt6_judeaislam_llama.md
+  # + OSRS wiki varp-281 table): the combat section is a STRICT varp-gated action
+  # ladder. The wiki (same source as the 120/170/250 gates) documents it exactly:
+  #   370 talk Vannaka -> 390 open equipment tab -> 400 open equipment STATS ->
+  #   405 equip Bronze dagger -> 410 exit interface + talk Vannaka (get sword/
+  #   shield) -> 420 equip Wooden shield + Bronze sword -> 430 open combat styles
+  #   tab -> 440 enter Rat cage -> 450 attack (melee) -> 460/470 rat dies+exit+
+  #   talk -> 480 equip Shortbow+arrows+attack (ranged) -> 490/500 rat dies+exit
+  #   -> 510 open bank.
+  # The live run WEDGED at 400: it opened the worn-equipment TAB (390->400) then
+  # equipped the dagger, but stage 400 wants the equipment-STATS panel opened
+  # first -- an equip at 400 is a proven no-op (unequip/re-equip experiment kept
+  # varp at 400). The missing "open equipment stats" action (400->405) is now
+  # restored in 08_combat.yaml and every stage carries a wiki-varp verify-gate.
   - routine: 08_combat.yaml
-    description: "Section 8: Combat"
+    description: "Section 8a: Combat (equipment interface + dagger)"
     progress_hint: 8
-    progress_gate: 510      # wiki: banking starts (510) = combat done. Prior (07) 370 < 510.
+    progress_gate: 410      # wiki varp-281: dagger equipped advances 405->410 ("exit interface + talk Vannaka"). 08a is complete once the dagger is equipped (progress 410). Prior (07) 370 < 410. A restart at the 400 wedge (<410) RE-RUNS 08a, which opens equipment stats then equips.
+  - routine: 08_combat_sword_ranged.yaml
+    description: "Section 8b: Combat (sword/shield, melee, bow, ranged, exit)"
+    progress_hint: 8
+    progress_gate: 510      # wiki varp-281: banking starts (510) = combat done. Prior (08a) 410 < 510.
   - routine: 09_banking.yaml
     description: "Section 9: Banking"
     progress_hint: 9

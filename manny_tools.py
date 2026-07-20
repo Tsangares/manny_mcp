@@ -2570,6 +2570,7 @@ LIVE_LOOP_SUBKEYS_NESTED = frozenset({
 # Prefixed atoms take a `:value`; bare atoms stand alone.
 AWAIT_CONDITION_ATOMS = frozenset({
     "plane", "has_item", "no_item", "inventory_count", "location",  # prefixed
+    "tutorial_progress",                                            # prefixed (varbit-281 gate)
     "idle", "dialogue", "no_dialogue",                              # bare words
 })
 
@@ -2683,7 +2684,7 @@ def _condition_atom(condition: str) -> str:
 
 
 _AWAIT_VOCAB_HELP = ("plane:N, has_item:X, no_item:X, inventory_count:<op>N, "
-                     "location:X,Y, idle, dialogue, no_dialogue")
+                     "location:X,Y, tutorial_progress:<op>N, idle, dialogue, no_dialogue")
 _STOP_VOCAB_HELP = ("inventory_full, has_item:X, no_item:X, no_item_in_bank:X, "
                     "<skill>_level:N")
 

@@ -101,6 +101,26 @@ def _read_player_snapshot(account_id):
     }
 
 
+def _equipped_names(equipment):
+    """Lowercased names of items currently in equipment (worn) slots.
+
+    The state file's ``player.equipment`` is a dict keyed by slot, each value a
+    dict carrying at least ``name`` (same shape session.py reads at 245-249).
+    Returns [] for any non-dict / empty equipment so callers can membership-test
+    safely. Used by handle_equip_item to recognise an ALREADY-WORN item (which is
+    in the equipment container, not the inventory) instead of false-failing it.
+    """
+    if not isinstance(equipment, dict):
+        return []
+    names = []
+    for v in equipment.values():
+        if isinstance(v, dict):
+            n = v.get("name")
+            if n:
+                names.append(str(n).lower())
+    return names
+
+
 def _bounds_look_clickable(bounds):
     """True if a scanned widget's bounds are plausibly absolute screen coords
     that we can safely CLICK_AT.
@@ -666,6 +686,26 @@ async def handle_equip_item(arguments: dict) -> dict:
                 "error": "Item found but its widget bounds are not on-canvas "
                          "(interface-relative/stale); refusing to click to avoid a world misclick",
                 "bounds": any_match.get("bounds"),
+            }
+        # ALREADY-WORN honest success (attempt #6, judeaislam, 2026-07-20):
+        # equip_item's intent is "ensure this item is equipped". An item that is
+        # ALREADY WORN is in the EQUIPMENT container (action "Remove"), NOT the
+        # inventory, so the widget scan above finds nothing and the old code
+        # false-failed with "not found in inventory" -- which aborted a chain
+        # restart of section 08 at progress 400 (the bronze dagger, already worn,
+        # re-equip step). Per the honest-primitive doctrine (report what actually
+        # happened; the intent here is satisfied), check the live equipment state
+        # BEFORE failing: if the named item is already in a worn slot, return an
+        # honest SUCCESS with a distinct note. Genuine not-found (neither in
+        # inventory nor equipped) still falls through to the failure below.
+        if pre_snap is not None and target in _equipped_names(pre_snap.get("equipment")):
+            return {
+                "success": True,
+                "item_name": item_name,
+                "already_equipped": True,
+                "verified": True,
+                "action": "none",
+                "note": "already equipped (no action taken)",
             }
         return {
             "success": False,

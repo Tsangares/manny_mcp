@@ -1,88 +1,77 @@
-# Tutorial Island - Part 8: Combat
-# STATUS: VALIDATED (coords/steps transcribed 2026-07-18 from
-# journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md, Driver #2 ~00:15-00:40 PT --
-# "COMBAT SECTION PASSED" after a documented 40-minute navigation saga)
+# Tutorial Island - Part 8a: Combat (equipment interface + dagger)
+# STATUS: REBUILT 2026-07-20 (attempt #6, judeaislam) against the OSRS wiki
+# varp-281 action ladder + the attempt-#6 live transcript
+# (journals/2026-07-20_tutorial_attempt6_judeaislam_llama.md).
 #
-# This routine handles the Combat section:
-# 1. Talk to Combat Instructor (receive dagger)
-# 2. Equip bronze dagger
-# 3. Talk to Combat Instructor again (receive sword/shield)
-# 4. Equip sword + shield
-# 5. Open combat-options tab
-# 6. Enter rat cage, kill Giant rat with melee
-# 7. Exit rat cage via the x=3111 double gate (the hard-won route)
-# 8. Talk to Combat Instructor (receive bow/arrows)
-# 9. Equip bow + arrows, kill Giant rat with ranged
-# 10. Exit to banking section (ladder)
+# WHY THIS WAS REBUILT -- the varp-400 wedge, fully explained:
+# The combat section is a STRICT varp-281-gated action ladder. The OSRS wiki
+# (RuneScape:Varplayer/281 -- the SAME source the 120/170/250 gates came from)
+# documents the exact sequence; the relevant slice for THIS sub-section is:
+#   370  talk to Vannaka (Combat Instructor)      -> 390
+#   390  open the equipment (Worn) tab            -> 400
+#   400  open the equipment STATS panel           -> 405   <-- the missing action
+#   405  equip the Bronze dagger                  -> 410
+#   410  exit the interface + talk to Vannaka     -> 420 (handled in 08b)
+# The attempt-#6 live run WEDGED at 400: it opened the worn-equipment TAB
+# (390->400) and then equipped the dagger -- but stage 400 is waiting for the
+# equipment-STATS panel to be opened, NOT for an equip. A live experiment proved
+# it decisively: with varp at 400, a clean unequip + canonical re-equip of the
+# dagger kept varp AT 400 (equip events do not advance stage 400). The old YAML
+# had NO "open equipment stats" step, so it could never leave 400. Prior art
+# confirms the missing action existed once: the old Driver #2
+# (journals/TUTORIAL_TEST_DEFECTS_2026-07-17.md:145) did "equipment tab +
+# equip-stats panel + dagger equip (via panel)".
 #
-# ROOT CAUSE OF THE 40-MIN SAGA (defects log:142-186), now encoded as fixes:
-# - DEFECT-7: GOTO tolerance no-ops at distance <=3 ("Already at ... distance: N
-#   tiles" without moving). Short precision GOTOs below intentionally target
-#   the confirmed exit-gate waypoint (3109,9515) rather than the instructor's
-#   tile directly, and use await_condition (location-based, NOT the GOTO
-#   command's own unreliable success flag -- DEFECT-10) to verify arrival.
-# - DEFECT-8: "I can't reach that!" is a MODAL that blocks ALL movement.
-#   CLICK_CONTINUE does NOT dismiss it; KEY_PRESS Space does. A defensive
-#   `repeat_until: no_dialogue` KEY_PRESS Space step follows every
-#   INTERACT_NPC attack/talk in this file (same pattern as 04's gate-refusal
-#   fix) so a stray modal self-clears instead of stalling the routine.
-# - The critical missing knowledge: the (3105,9511) pocket + rat pen are ONE
-#   enclosure; the ONLY exit is the double gate on the x=3111 N-S fence,
-#   reachable by walking to (3109,9515) first (defects log:167-173). The old
-#   version of this file had no explicit exit-gate step and relied on blind
-#   INTERACT_NPC retries back to the instructor -- that IS the saga. Fixed
-#   below with an explicit GOTO(3109,9515) -> Gate Open -> GOTO(3106,9505)
-#   sequence.
-# - equip_item pitfall (defects log:146-147, widget_reference.yaml): equipping
-#   an item switches the side panel back to the "worn equipment" view --
-#   MUST re-click the backpack/inventory tab before the next equip_item call
-#   or the widget scan won't find the next item. Explicit re-click steps added
-#   between every pair of equips below.
+# THE ENCODING (per overseer directive): each stage does its wiki-documented
+# action, then a WAIT gate VERIFIES varp-281 advanced to the expected band before
+# the next action (the Quest-Guide arming pattern, 05b step 12f). A wrong/failed
+# action therefore ABORTS HONESTLY at its verify gate instead of silently wedging
+# -- strict_steps turns that into a chain stop the overseer/watchdog catches.
+#
+# SPLIT (mirrors 05 / 05b): section 08 is two chain sections so a restart is
+# idempotent via the EXISTING progress_gate mechanism (00_master.yaml), not a
+# nonexistent per-step skip. THIS file = the equipment-interface + dagger ladder
+# (master gate 410 = dagger equipped). 08_combat_sword_ranged.yaml = everything
+# after (master gate 510). A restart at the 400 wedge (<410) RE-RUNS this file,
+# which this time opens the equipment-stats panel and clears the wedge.
+#
+# ONE OFFLINE-UNVERIFIABLE PIECE (flagged, self-verified): the exact widget for
+# the "View equipment stats" button is not recorded anywhere offline (the journals
+# document the panel's BEHAVIOUR -- dynamic -1,-1-bounds widgets, close with
+# Escape -- but no widget id). Step 7 opens it with a text-matched click_widget;
+# its verify gate (step 8, WAIT tutorial_progress:>=405) is what actually proves it
+# worked. If a live find_widget shows a different handle, only step 7's args change.
 
-name: "Tutorial Island - Combat"
+name: "Tutorial Island - Combat (equipment interface + dagger)"
 type: tutorial
 phase: 8
 
 # Key NPCs
 npcs:
   combat_instructor:
-    name: "Combat Instructor"
+    name: "Combat Instructor"   # Vannaka
     id: 3307
     location: {x: 3104, y: 9508, plane: 0}
-  giant_rat:
-    name: "Giant rat"
-    id: 3313
-    action: "Attack"
-    combat_level: 3
 
 # Key Locations
 locations:
   combat_area_entrance: {x: 3104, y: 9509, plane: 0}
-  rat_pen_pocket: {x: 3105, y: 9511, plane: 0}  # Post-melee-kill parking spot (Driver #2)
-  exit_gate_approach: {x: 3109, y: 9515, plane: 0}  # CONFIRMED: "Open Gate" hotspot found here (defects log:169-173)
-  post_gate_waypoint: {x: 3106, y: 9505, plane: 0}  # CONFIRMED: routes back toward instructor (defects log:174-176)
-  exit_ladder: {x: 3111, y: 9526, plane: 0}
 
 # Key Widgets
 widgets:
-  continue_button: 12648448
-  equipment_tab: 35913771       # find_and_click_widget(text="Worn Equipment")
-  combat_options_tab: 35913792  # Action "Combat Options"
-  inventory_tab: 35913795       # Action "Inventory" -- MUST re-click between equips (see header)
-  inventory_container: 9764864  # Group 149 << 16
+  equipment_tab: 35913771       # find_and_click_widget(text="Worn Equipment") -- VALIDATED
+  inventory_tab: 35913795       # Action "Inventory"
 
 
-# STRICT-STEPS honesty gate (engine finding #1a): any failed step marks this
-# SECTION failed so the master chain STOPS instead of false-passing into the
-# next section on a desynced game. Attempt #1's cascade came from a section
-# that logged failed steps yet exited runner-status SUCCESS.
+# STRICT-STEPS honesty gate: any failed step marks this SECTION failed so the
+# master chain STOPS instead of false-passing into the next section on a desynced
+# game. Every varp verify gate below relies on this to convert a stalled stage
+# into an honest chain stop.
 config:
   strict_steps: true
 
 steps:
-  # Phase 0: Safety approach (mining section 07 ends on an untranscribed
-  # gate/waypoint -- see 07's step 15 TODO). Re-anchor position here so this
-  # section is robust to wherever 07 actually left the player.
+  # Phase 0: re-anchor (mining section 07 ends on an untranscribed waypoint).
   - id: 1
     description: "Walk to Combat Instructor / rat-cage entrance"
     action: GOTO
@@ -91,216 +80,110 @@ steps:
     await_condition: "location:3104,9509"
     timeout_ms: 120000
 
-  # Phase 1: Initial dialogue and equipment tab
+  # --- Stage 370 -> 390: talk to Vannaka (receives the bronze dagger) ---
   - id: 2
-    description: "Talk to Combat Instructor"
+    description: "Talk to Combat Instructor (Vannaka) -- stage 370"
     action: INTERACT_NPC
     args: "Combat_Instructor Talk-to"
     await_condition: "dialogue"
-    notes: "Player receives bronze dagger automatically"
+    on_failure: "retry:2"
+    notes: "Player receives the bronze dagger during this dialogue."
 
   - id: 3
-    description: "Advance dialogue (receive bronze dagger)"
+    description: "Advance the handover dialogue -- blind Space drain"
     action: KEY_PRESS
     args: "Space"
-    repeat_until: "no_dialogue"
+    repeat: 8
+    delay_before_ms: 700
+    notes: |
+      DEFECT-31/DEFECT-24: was `repeat_until: no_dialogue`, which check-first
+      no-ops on a modal/false-closed page. Blind fixed-count drain instead
+      (journals/2026-07-19_tutorial_0810_hardening.md root pattern #1). Extra
+      presses after the dialogue closes are inert on Tutorial Island.
 
   - id: 4
-    description: "Open equipment/worn-equipment tab"
+    description: "VERIFY varp advanced to the 'open equipment tab' stage (>=390)"
+    action: WAIT
+    await_condition: "tutorial_progress:>=390"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: "Wiki: talking to Vannaka (370) advances to 390. Honest abort if the talk didn't register."
+
+  # --- Stage 390 -> 400: open the equipment (Worn) tab ---
+  - id: 5
+    description: "Open the equipment (Worn Equipment) tab -- stage 390 action"
     mcp_tool: click_widget
     args:
       text: "Worn Equipment"
-    notes: "Widget 35913771"
+    on_failure: "retry:2"
+    notes: "Widget 35913771. Opening the worn tab advances 390->400."
 
-  - id: 5
-    description: "Equip bronze dagger"
+  - id: 6
+    description: "VERIFY varp advanced to the 'open equipment stats' stage (>=400)"
+    action: WAIT
+    await_condition: "tutorial_progress:>=400"
+    timeout_ms: 15000
+    on_failure: "abort"
+
+  # --- Stage 400 -> 405: open the equipment STATS panel (THE MISSING ACTION) ---
+  - id: 7
+    description: "Open the equipment STATS panel -- stage 400 action (the wedge fix)"
+    mcp_tool: click_widget
+    args:
+      text: "Equipment Stats"
+    on_failure: "retry:2"
+    notes: |
+      THE ROOT FIX (attempt #6). Stage 400 is waiting for the equipment-STATS
+      panel to be opened, NOT for an equip (proven: unequip/re-equip kept varp at
+      400). This restores the "equip-stats panel" step the old Driver #2 used
+      (TUTORIAL_TEST_DEFECTS_2026-07-17.md:145).
+      TODO(live-confirm): the exact "View equipment stats" widget is not recorded
+      offline. This text-matched click is the best offline guess; step 8's verify
+      gate proves whether it worked. If a live find_widget(text="...stats") shows a
+      different handle/action, change ONLY this step's args (e.g. to a CLICK_WIDGET
+      <id> or an action match). Do NOT delete the step -- the varp ladder requires it.
+
+  - id: 8
+    description: "VERIFY varp advanced past the equipment-stats stage (>=405)"
+    action: WAIT
+    await_condition: "tutorial_progress:>=405"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      Wiki: opening equipment stats (400) advances to 405. This is the gate that
+      catches a wrong step-7 widget: if the stats panel never opened, varp stays at
+      400, this WAITs to timeout, and the section aborts honestly (strict_steps)
+      instead of marching into the old silent wedge.
+
+  # --- Stage 405 -> 410: equip the Bronze dagger ---
+  - id: 9
+    description: "Close the equipment-stats panel so inventory items are clickable"
+    action: KEY_PRESS
+    args: "Escape"
+    delay_after_ms: 600
+    notes: |
+      The equipment-stats panel uses dynamic widgets that make inventory items
+      report -1,-1 bounds (journals/quests/tutorial_island_automation_lessons_2026-01-18.md
+      item #6). Escape closes it BEFORE the equip so equip_item can find the dagger.
+
+  - id: 10
+    description: "Equip the Bronze dagger -- stage 405 action"
     mcp_tool: equip_item
     args:
       item_name: "Bronze dagger"
     on_failure: "retry:2"
-
-  # Phase 2: Get sword and shield
-  - id: 6
-    description: "Talk to Combat Instructor (get sword/shield)"
-    action: INTERACT_NPC
-    args: "Combat_Instructor Talk-to"
-    await_condition: "dialogue"
-
-  - id: 7
-    description: "Advance dialogue (receive sword and shield)"
-    action: KEY_PRESS
-    args: "Space"
-    repeat_until: "no_dialogue"
-
-  - id: 8
-    description: "Re-open inventory tab before equipping (panel reset after step 5's equip)"
-    action: CLICK_WIDGET
-    args: "35913795"
-    delay_before_ms: 500
-    notes: "Equipping switches the side panel to worn-equipment view -- must re-open backpack tab before the next equip_item scan (defects log:146-147)"
-
-  - id: 9
-    description: "Equip bronze sword"
-    mcp_tool: equip_item
-    args:
-      item_name: "Bronze sword"
-    on_failure: "retry:2"
-
-  - id: 10
-    description: "Re-open inventory tab before equipping shield"
-    action: CLICK_WIDGET
-    args: "35913795"
-    delay_before_ms: 500
+    notes: |
+      equip_item is now idempotent for chain restarts: an ALREADY-WORN dagger
+      (worn slot, not inventory) returns success "already equipped (no action
+      taken)" instead of the old false "not found in inventory" abort (attempt #6).
 
   - id: 11
-    description: "Equip wooden shield"
-    mcp_tool: equip_item
-    args:
-      item_name: "Wooden shield"
-    on_failure: "retry:2"
-
-  # Phase 3: Combat tab and melee
-  - id: 12
-    description: "Open combat options tab"
-    action: CLICK_WIDGET
-    args: "35913792"
-    notes: "Found via find_widget with action 'Combat Options'"
-
-  - id: 13
-    description: "Enter rat cage through gate"
-    action: INTERACT_OBJECT
-    args: "Gate Open"
-    delay_before_ms: 1000
-    # TODO: verify coord -- the journal only recorded a screen-relative
-    # hover-sweep pixel offset (259,161) for this ENTRY gate, not a world
-    # coordinate. Range-based INTERACT_OBJECT is left as-is (matches the
-    # pre-existing file); the CONFIRMED coordinate in this file is the EXIT
-    # gate approach (3109,9515), used below after the kill.
-
-  - id: 14
-    description: "Attack giant rat (melee) (hold through kill -- no Grammar-1 'target dead' atom)"
-    action: INTERACT_NPC
-    args: "Giant_rat Attack"
-    delay_before_ms: 1000
-    delay_after_ms: 12000
-    notes: "Wait for combat to complete, rat will die (\"Well done, you've made your first kill!\")"
-
-  - id: 15
-    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none). DEFECT-31: modal renders dialogue.open:false so repeat_until:no_dialogue no-ops -- press blind"
-    action: KEY_PRESS
-    args: "Space"
-    repeat: 3
-    delay_after_ms: 500
-    delay_before_ms: 500
-
-  # Phase 3b: Exit the rat pen via the CONFIRMED double-gate route
-  # (defects log:167-173 -- this is the fix for the 40-min saga).
-  - id: 16
-    description: "Walk to the confirmed exit-gate approach tile"
-    action: GOTO
-    args: "3109 9515 0"
-    await_condition: "location:3109,9515"
-    timeout_ms: 60000
-    delay_before_ms: 500
-    notes: "The (3105,9511) pocket and the rat pen are ONE enclosure; this is the only exit -- the double gate on the x=3111 N-S fence."
-
-  - id: 17
-    description: "Open the exit gate"
-    action: INTERACT_OBJECT
-    args: "Gate Open"
-    delay_before_ms: 1000
-
-  - id: 18
-    description: "Walk back toward the Combat Instructor"
-    action: GOTO
-    args: "3106 9505 0"
-    await_condition: "location:3106,9505"
-    timeout_ms: 60000
-    delay_before_ms: 500
-    notes: "GOTO result reporting is unreliable here (DEFECT-10 -- reports 'failed' but moves); await_condition (location, not the command's own success flag) is what actually gates this step."
-
-  # Phase 4: Ranged combat
-  - id: 19
-    description: "Talk to Combat Instructor (get bow)"
-    action: INTERACT_NPC
-    args: "Combat_Instructor Talk-to"
-    await_condition: "dialogue"
-    notes: "Exit rat cage first if still inside"
-
-  - id: 20
-    description: "Advance dialogue (receive bow and arrows)"
-    action: KEY_PRESS
-    args: "Space"
-    repeat_until: "no_dialogue"
-
-  - id: 21
-    description: "Re-open inventory tab before equipping bow"
-    action: CLICK_WIDGET
-    args: "35913795"
-    delay_before_ms: 500
-
-  - id: 22
-    description: "Equip shortbow"
-    mcp_tool: equip_item
-    args:
-      item_name: "Shortbow"
-    on_failure: "retry:2"
-
-  - id: 23
-    description: "Re-open inventory tab before equipping arrows"
-    action: CLICK_WIDGET
-    args: "35913795"
-    delay_before_ms: 500
-
-  - id: 24
-    description: "Equip bronze arrows"
-    mcp_tool: equip_item
-    args:
-      item_name: "Bronze arrow"
-    on_failure: "retry:2"
-
-  - id: 25
-    description: "Attack giant rat (ranged) (hold through kill -- no Grammar-1 'target dead' atom)"
-    action: INTERACT_NPC
-    args: "Giant_rat Attack"
-    delay_before_ms: 1000
-    delay_after_ms: 12000
-    notes: "Stay outside cage, attack through fence. \"Moving on: click the indicated ladder.\""
-
-  - id: 26
-    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8; no-op if none). DEFECT-31: modal renders dialogue.open:false so repeat_until:no_dialogue no-ops -- press blind"
-    action: KEY_PRESS
-    args: "Space"
-    repeat: 3
-    delay_after_ms: 500
-    delay_before_ms: 500
-
-  # Phase 5: Exit to banking
-  - id: 27
-    description: "Walk to exit ladder"
-    action: GOTO
-    args: "3111 9525 0"
-    delay_before_ms: 500
-    await_condition: "location:3111,9525"
-    timeout_ms: 60000
-
-  - id: 28
-    description: "Climb up ladder"
-    action: INTERACT_OBJECT
-    args: "Ladder Climb-up"
-    await_condition: "plane:0"
-    delay_after_ms: 3000
-    notes: "Exits to surface, continue to banking section"
-
-# WORKING PATTERNS SUMMARY (updated 2026-07-18):
-# - Dialogue: KEY_PRESS Space + repeat_until: no_dialogue (self-terminating, timing-independent)
-# - Modal recovery: same repeat_until: no_dialogue pattern doubles as DEFECT-8 cleanup
-# - Equipment tab: click_widget(text="Worn Equipment")
-# - Combat tab: CLICK_WIDGET 35913792
-# - Equipping: mcp_tool equip_item(item_name="X") -- MUST re-click inventory_tab (35913795)
-#   before each call after the first equip (panel resets to worn view)
-# - Attacking: INTERACT_NPC Giant_rat Attack
-# - Object interaction: INTERACT_OBJECT Gate Open
-# - Exit-gate route (CONFIRMED, defects log:167-173): GOTO (3109,9515) -> Gate Open -> GOTO (3106,9505)
-# - Short-distance GOTOs: verify via await_condition location:X,Y (state-based), not the
-#   GOTO command's own success flag (DEFECT-7/DEFECT-10 make that flag unreliable)
+    description: "VERIFY the dagger equip registered -- varp advanced to 410"
+    action: WAIT
+    await_condition: "tutorial_progress:>=410"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      Wiki: equipping the dagger at stage 405 advances to 410 ("exit interface and
+      talk to Vannaka"). Reaching 410 is THIS sub-section's completion (master gate
+      410). Continue in 08_combat_sword_ranged.yaml for the sword/shield handover.

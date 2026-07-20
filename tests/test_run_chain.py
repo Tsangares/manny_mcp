@@ -197,23 +197,24 @@ class TestMasterChainFile:
                               "routines", "tutorial_island", "00_master.yaml")
         entries, base = run_routine.resolve_chain(master)
         names = [os.path.basename(e["routine"]) for e in entries]
-        # 11 section files (two 01_* and two 05_*), in tutorial order.
+        # 12 section files (two 01_*, two 05_*, two 08_*), in tutorial order.
         #
-        # NOT 12: as of the DOUBLE-RUN FIX (2026-07-18, Track D, commit
-        # e17123a), 06_quest_guide.yaml is deliberately NOT chained.
-        # 05_cooking_to_quest_guide.yaml is the merged bridge that now performs
-        # the entire Quest Guide segment itself (it ported 06's "Quest Guide"
-        # dialogue option CLICK_WIDGET 15138820 step -- see 00_master.yaml's
-        # DOUBLE-RUN FIX comment). Chaining 06 after it re-ran the whole
-        # segment on an already-underground player and desynced the
-        # Tutorial-progress gate. 06 stays on disk only as a standalone
-        # reference; it is intentionally excluded from 00_master.yaml's
-        # `chain:` list (an explicit list, not a directory glob, so the
-        # duplicate 01_*/05_* numeric prefixes are non-ambiguous here).
+        # 06_quest_guide.yaml is deliberately NOT chained (DOUBLE-RUN FIX,
+        # 2026-07-18, commit e17123a): 05_cooking_to_quest_guide.yaml is the
+        # merged bridge that performs the whole Quest Guide segment itself.
+        #
+        # Section 08 is SPLIT into two chained sub-sections (2026-07-20, attempt
+        # #6): 08_combat.yaml (equipment interface + dagger, gate 410) and
+        # 08_combat_sword_ranged.yaml (sword/shield/melee/bow/ranged, gate 510),
+        # mirroring the 05/05b split so a chain restart is idempotent by the
+        # progress_gate mechanism (the varp-400 wedge fix). Both are in the
+        # master's explicit chain list.
         assert names[0] == "01_character_creation.yaml"
         assert names[-1] == "10_prayer_magic.yaml"
         assert "06_quest_guide.yaml" not in names
-        assert len(entries) == 11
+        assert "08_combat.yaml" in names
+        assert "08_combat_sword_ranged.yaml" in names
+        assert len(entries) == 12
         # Every referenced section actually exists on disk.
         for e in entries:
             assert os.path.exists(e["routine"]), e["routine"]
@@ -222,15 +223,15 @@ class TestMasterChainFile:
         # Glob-resolving the tutorial_island directory itself (not the master
         # file) must detect the authoritative 00_master.yaml (which has a
         # `chain:` key) and use ITS explicit chain instead of the raw glob.
-        # The raw directory glob would otherwise pick up 12 *.yaml files
-        # (both 01_* variants, both 05_* variants, AND the superseded
-        # 06_quest_guide.yaml) -- the master's curated chain resolves to 11
-        # and never includes 06.
+        # The raw directory glob would otherwise pick up all *.yaml files
+        # (both 01_* variants, both 05_* variants, both 08_* variants, AND the
+        # superseded 06_quest_guide.yaml) -- the master's curated chain resolves
+        # to 12 and never includes 06.
         tutorial_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                     "routines", "tutorial_island")
         entries, base = run_routine.resolve_chain(tutorial_dir)
         names = [os.path.basename(e["routine"]) for e in entries]
-        assert len(entries) == 11
+        assert len(entries) == 12
         assert "06_quest_guide.yaml" not in names
         assert names[0] == "01_character_creation.yaml"
         assert names[-1] == "10_prayer_magic.yaml"

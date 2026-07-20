@@ -1,0 +1,318 @@
+# Tutorial Island - Part 8b: Combat (sword/shield, melee, bow, ranged, exit)
+# STATUS: REBUILT 2026-07-20 (attempt #6, judeaislam) against the OSRS wiki
+# varp-281 action ladder + the attempt-#6 live transcript
+# (journals/2026-07-20_tutorial_attempt6_judeaislam_llama.md).
+#
+# This is the SECOND half of section 08 (see 08_combat.yaml for the split
+# rationale + the full wiki varp table). 08_combat.yaml drives the account to
+# varp 410 (dagger equipped); on a chain restart the master SKIPS it (gate 410)
+# and resumes HERE. The wiki varp-281 ladder for this sub-section:
+#   410  exit interface + talk to Vannaka  -> 420  (he hands over sword + shield)
+#   420  equip Wooden shield + Bronze sword -> 430
+#   430  open combat styles tab            -> 440
+#   440  enter Rat cage                    -> 450
+#   450  attack Rat with melee             -> 460
+#   460  (rat dies)                        -> 470
+#   470  exit Rat cage + talk to Vannaka   -> 480  (he hands over bow + arrows)
+#   480  equip Shortbow + Bronze arrow + attack Rat -> 490
+#   490  (rat dies)                        -> 500
+#   500  exit combat area (ladder)         -> 510  (banking; section 09)
+#
+# ENCODING (per overseer directive): each stage does its wiki-documented action,
+# then a WAIT gate VERIFIES varp-281 reached the expected band before the next
+# action (the Quest-Guide arming pattern). A stalled stage ABORTS HONESTLY at its
+# verify gate (strict_steps) instead of marching on desynced.
+#
+# THE ATTEMPT-#6 HANDOVER FIX: step 3 (sword/shield) and step 20 (bow) are the
+# multi-page HANDOVER dialogues that killed attempt #6 -- a `repeat_until:
+# no_dialogue` drain fired only ~2 Spaces (DEFECT-31/DEFECT-24: handover pages
+# render dialogue.open:false, so the check-first loop stops early), the items
+# never dispensed, and the equip aborted. Both are now BLIND fixed-count Space
+# drains, and each handover is confirmed by a varp verify gate (>=420 / >=480).
+#
+# NAV NOTE: the post-melee-kill return to Vannaka uses the hard-won exit-gate
+# route (defects log:167-173): the (3105,9511) pocket + rat pen are ONE
+# enclosure; the ONLY exit is the double gate on the x=3111 N-S fence, reached by
+# walking to (3109,9515) first. GOTO success flags here are unreliable
+# (DEFECT-7/DEFECT-10) -- location awaits gate arrival, not the GOTO flag.
+
+name: "Tutorial Island - Combat (sword/shield + ranged)"
+type: tutorial
+phase: 8
+
+# Key NPCs
+npcs:
+  combat_instructor:
+    name: "Combat Instructor"   # Vannaka
+    id: 3307
+    location: {x: 3104, y: 9508, plane: 0}
+  giant_rat:
+    name: "Giant rat"
+    id: 3313
+    action: "Attack"
+    combat_level: 3
+
+# Key Locations
+locations:
+  combat_area_entrance: {x: 3104, y: 9509, plane: 0}
+  exit_gate_approach: {x: 3109, y: 9515, plane: 0}   # CONFIRMED "Open Gate" hotspot (defects log:169-173)
+  post_gate_waypoint: {x: 3106, y: 9505, plane: 0}   # routes back toward Vannaka (defects log:174-176)
+  exit_ladder: {x: 3111, y: 9525, plane: 0}
+
+# Key Widgets
+widgets:
+  combat_options_tab: 35913792  # Action "Combat Options" (the combat styles tab) -- VALIDATED
+  inventory_tab: 35913795       # Action "Inventory"
+
+
+# STRICT-STEPS honesty gate: any failed step (including a stalled varp verify
+# gate) marks this SECTION failed so the master chain STOPS.
+config:
+  strict_steps: true
+
+steps:
+  # Phase 0: re-anchor. On a restart at varp 410 the master SKIPS 08_combat.yaml
+  # and resumes here, so the player may be anywhere -- walk back to Vannaka.
+  - id: 1
+    description: "Re-anchor at Combat Instructor (robust to a skip-08a resume)"
+    action: GOTO
+    args: "3104 9509 0"
+    delay_before_ms: 500
+    await_condition: "location:3104,9509"
+    timeout_ms: 120000
+
+  # --- Stage 410 -> 420: talk to Vannaka; he hands over the sword + shield ---
+  - id: 2
+    description: "Talk to Combat Instructor for sword + shield -- stage 410"
+    action: INTERACT_NPC
+    args: "Combat_Instructor Talk-to"
+    await_condition: "dialogue"
+    on_failure: "retry:2"
+
+  - id: 3
+    description: "Advance the sword/shield handover dialogue -- blind Space drain (attempt-#6 fix)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 10
+    delay_before_ms: 700
+    notes: |
+      THE ATTEMPT-#6 FIX. Was `repeat_until: no_dialogue`, which under-ran this
+      multi-page handover (only ~2 Spaces; sword/shield never dispensed). Blind
+      fixed-count drain (journals/2026-07-19_tutorial_0810_hardening.md root
+      pattern #1; same as 05b steps 11/12c). Extra presses after close are inert.
+
+  - id: 4
+    description: "VERIFY the sword/shield were dispensed -- varp advanced to 420"
+    action: WAIT
+    await_condition: "tutorial_progress:>=420"
+    timeout_ms: 20000
+    on_failure: "abort"
+    notes: "Wiki: talking to Vannaka at 410 hands over sword+shield and advances to 420. This is the gate the attempt-#6 handover silently failed."
+
+  # --- Stage 420 -> 430: equip the Wooden shield + Bronze sword ---
+  - id: 5
+    description: "Re-open inventory tab before equipping"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+    notes: "Belt-and-braces; equip_item re-opens the inventory tab itself (DEFECT-29)."
+
+  - id: 6
+    description: "Equip Bronze sword"
+    mcp_tool: equip_item
+    args:
+      item_name: "Bronze sword"
+    on_failure: "retry:2"
+
+  - id: 7
+    description: "Re-open inventory tab before equipping shield"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+
+  - id: 8
+    description: "Equip Wooden shield"
+    mcp_tool: equip_item
+    args:
+      item_name: "Wooden shield"
+    on_failure: "retry:2"
+
+  - id: 9
+    description: "VERIFY sword + shield equipped -- varp advanced to 430"
+    action: WAIT
+    await_condition: "tutorial_progress:>=430"
+    timeout_ms: 15000
+    on_failure: "abort"
+
+  # --- Stage 430 -> 440: open the combat styles tab ---
+  - id: 10
+    description: "Open the combat styles (Combat Options) tab -- stage 430 action"
+    action: CLICK_WIDGET
+    args: "35913792"
+
+  - id: 11
+    description: "VERIFY combat styles tab opened -- varp advanced to 440"
+    action: WAIT
+    await_condition: "tutorial_progress:>=440"
+    timeout_ms: 15000
+    on_failure: "abort"
+
+  # --- Stage 440 -> 470: enter rat cage, kill the giant rat with melee ---
+  - id: 12
+    description: "Enter rat cage through the gate -- stage 440 action"
+    action: INTERACT_OBJECT
+    args: "Gate Open"
+    delay_before_ms: 1000
+    delay_after_ms: 1000
+    # TODO(live): the ENTRY gate coord was never world-confirmed (the live pass used
+    # a screen-pixel hover-sweep). Range-based INTERACT_OBJECT as in the prior file.
+
+  - id: 13
+    description: "Attack giant rat (melee) -- stage 450 action (hold through the kill)"
+    action: INTERACT_NPC
+    args: "Giant_rat Attack"
+    delay_before_ms: 1000
+    delay_after_ms: 12000
+    notes: "No Grammar-1 'target dead' atom -- hold via delay_after. Entering the cage advances 440->450, the attack 450->460, the kill 460->470."
+
+  - id: 14
+    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8/DEFECT-31; blind press, no-op if none)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 3
+    delay_before_ms: 500
+    delay_after_ms: 500
+
+  - id: 15
+    description: "VERIFY the melee kill completed -- varp advanced to 470"
+    action: WAIT
+    await_condition: "tutorial_progress:>=470"
+    timeout_ms: 45000
+    on_failure: "abort"
+    notes: "Wiki: enter cage (440) -> attack (450) -> rat dies (460->470). Generous timeout covers rat search/path/kill. Honest abort if the rat never died."
+
+  # --- Stage 470 -> 480: exit the rat pen, talk to Vannaka for the bow ---
+  - id: 16
+    description: "Walk to the confirmed exit-gate approach tile"
+    action: GOTO
+    args: "3109 9515 0"
+    await_condition: "location:3109,9515"
+    timeout_ms: 60000
+    delay_before_ms: 500
+    notes: "The pocket + rat pen are ONE enclosure; this is the only exit -- the double gate on the x=3111 N-S fence."
+
+  - id: 17
+    description: "Open the exit gate"
+    action: INTERACT_OBJECT
+    args: "Gate Open"
+    delay_before_ms: 1000
+
+  - id: 18
+    description: "Walk back toward the Combat Instructor"
+    action: GOTO
+    args: "3106 9505 0"
+    await_condition: "location:3106,9505"
+    timeout_ms: 60000
+    delay_before_ms: 500
+    notes: "GOTO success flag unreliable here (DEFECT-10 -- reports 'failed' but moves); the location await is what gates arrival."
+
+  - id: 19
+    description: "Talk to Combat Instructor for bow + arrows -- stage 470 action"
+    action: INTERACT_NPC
+    args: "Combat_Instructor Talk-to"
+    await_condition: "dialogue"
+    on_failure: "retry:2"
+    notes: "Exit the rat cage first if still inside (steps 16-18)."
+
+  - id: 20
+    description: "Advance the bow/arrows handover dialogue -- blind Space drain (attempt-#6 fix)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 10
+    delay_before_ms: 700
+    notes: "Same DEFECT-31/DEFECT-24 fix as step 3: the bow handover is a multi-page monologue a no_dialogue drain under-runs. Blind fixed-count drain."
+
+  - id: 21
+    description: "VERIFY the bow/arrows were dispensed -- varp advanced to 480"
+    action: WAIT
+    await_condition: "tutorial_progress:>=480"
+    timeout_ms: 20000
+    on_failure: "abort"
+
+  # --- Stage 480 -> 500: equip bow + arrows, kill the giant rat with ranged ---
+  - id: 22
+    description: "Re-open inventory tab before equipping bow"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+
+  - id: 23
+    description: "Equip Shortbow"
+    mcp_tool: equip_item
+    args:
+      item_name: "Shortbow"
+    on_failure: "retry:2"
+
+  - id: 24
+    description: "Re-open inventory tab before equipping arrows"
+    action: CLICK_WIDGET
+    args: "35913795"
+    delay_before_ms: 500
+
+  - id: 25
+    description: "Equip Bronze arrows"
+    mcp_tool: equip_item
+    args:
+      item_name: "Bronze arrow"
+    on_failure: "retry:2"
+
+  - id: 26
+    description: "Attack giant rat (ranged) -- stage 480 action (hold through the kill)"
+    action: INTERACT_NPC
+    args: "Giant_rat Attack"
+    delay_before_ms: 1000
+    delay_after_ms: 12000
+    notes: "Stay outside the cage, attack through the fence. Attack advances 480->490, the kill 490->500."
+
+  - id: 27
+    description: "Dismiss any stray 'I can't reach that!' modal (DEFECT-8/DEFECT-31; blind press, no-op if none)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 3
+    delay_before_ms: 500
+    delay_after_ms: 500
+
+  - id: 28
+    description: "VERIFY the ranged kill completed -- varp advanced to 500"
+    action: WAIT
+    await_condition: "tutorial_progress:>=500"
+    timeout_ms: 45000
+    on_failure: "abort"
+    notes: "Wiki: ranged attack (480) -> rat dies (490->500 'exit combat area')."
+
+  # --- Stage 500 -> 510: exit the combat area via the ladder ---
+  - id: 29
+    description: "Walk to the exit ladder"
+    action: GOTO
+    args: "3111 9525 0"
+    delay_before_ms: 500
+    await_condition: "location:3111,9525"
+    timeout_ms: 60000
+
+  - id: 30
+    description: "Climb up the ladder -- stage 500 action (exit combat area)"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    delay_after_ms: 3000
+
+  - id: 31
+    description: "VERIFY the combat area exit registered -- varp advanced to 510 (banking)"
+    action: WAIT
+    await_condition: "tutorial_progress:>=510"
+    timeout_ms: 20000
+    on_failure: "abort"
+    notes: |
+      Wiki: exiting the combat area (500) advances to 510 ("open bank"), which is
+      section 09's start. Replaces the old always-true `plane:0` await (the combat
+      area is underground but already plane 0 -- RISK-2 in the 0810 hardening
+      journal) with a real varp check. Master gate for this sub-section is 510.
