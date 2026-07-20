@@ -1,332 +1,359 @@
-# Cook's Assistant Quest Routine
-# Quest Requirements: None
-# Items Needed: Bucket of milk, Pot of flour, Egg (all obtainable during quest)
-# Starting Location: Lumbridge Castle Kitchen
+# Cook's Assistant  (F2P novice quest, 1 QP)
+# =============================================================================
+# Reward: 1 Quest Point + 300 COOKING XP (NOT coins -- the "300 coins" premise is
+#   wrong; verified oldschool.runescape.wiki/w/Cook's_Assistant, 2026-07-19) +
+#   permission to use the Lumbridge Castle range.
+# Requirements: none. Needs an EMPTY Pot and an EMPTY Bucket to gather flour/milk.
+# Start/end: Lumbridge Castle kitchen (Cook at 3208,3216 plane 0).
+#
+# QUEST-STATE GATING (design decision, 2026-07-19)
+#   Cook's Assistant progress lives in VarPlayer 29 (0=not started, 1=started,
+#   2=complete -- wiki-confirmed). The plugin state export does NOT surface it:
+#   GameEngine.StateExporter hard-codes only `tutorial.progress`
+#   (client.getVarpValue(281), GameEngine.java:5787-5866) -- there is no generic
+#   varp field, and neither routine condition grammar has a varp/quest atom
+#   (ROUTINE_SCHEMA.md (c)). GET_QUEST_STATUS exists only as a *command response*
+#   (GetQuestStatusCommand.java, RuneLite QuestState), not a step-gatable state
+#   atom. So this routine gates on GROUND-TRUTH ITEM FACTS (has_item:Egg /
+#   has_item:Bucket of milk / has_item:Pot of flour) + dialogue-drain completion
+#   evidence -- honest, just coarser than a varp read. See the Java follow-up
+#   spec in the build report (a generic `varp <id>` export would serve all future
+#   quests; NOT implemented here -- Python/Java track).
+#
+# STRUCTURE: single linear file (no mini-chain). A 00_master chain buys restart
+#   safety only when each leg can self-gate its own skip on a progress varp; with
+#   no quest-varp export that sub-gating is impossible here, so a chain would add
+#   files without adding safety. Matches the sibling F2P quest routines
+#   (restless_ghost / sheep_shearer / imp_catcher are all single-file). Resume a
+#   partial run with `--start-step N`; the per-leg has_item awaits make a resume
+#   land honestly.
+#
+# DOCTRINE APPLIED
+#   * config.strict_steps: true  -- any continue-failed step marks the whole run
+#     FAILED at completion (ROUTINE_SCHEMA.md (a)), so a silently-skipped leg
+#     can't report success.
+#   * Object names use UNDERSCORES (Large_door / Hopper_controls / Flour_bin) --
+#     INTERACT_OBJECT splits on spaces, so "Hopper controls Operate" parses as
+#     object="Hopper", action="controls Operate" and FAILS (CLAUDE.md Object
+#     Naming Rules; journals/cooks_assistant_flour_interaction_2026-01-26.md).
+#   * Dialogue: blind FIXED-COUNT CLICK_CONTINUE drains between each
+#     CLICK_DIALOGUE option pick -- if a narrative page is showing, the option
+#     text isn't present and CLICK_DIALOGUE silently no-ops. NOT
+#     repeat_until:no_dialogue (DEFECT-24 mid-monologue false-close). Extra
+#     continue presses after the dialogue closes are inert.
+#   * Windmill door: door-crossing v2 (MANNY_OVERSEER.md 117-133) -- open pinned
+#     by coordinate via the INTERACT_OBJECT [x y] qualifier
+#     (COMMAND_REFERENCE.md "Interaction / INTERACT_OBJECT", jar >= 421c03e9 /
+#     manny 7f42b54), then the ladder's plane await polices that we actually got
+#     inside. Kitchen needs NO door step: cooking_lumbridge.yaml reaches the
+#     ground-floor range/kitchen by plain GOTO through the open doorway.
+#   * Windmill floors follow the validated flour_milling.yaml: INTERACT_OBJECT
+#     Ladder Climb-up/down with plane:N awaits (honest per-floor verify), not a
+#     blind CLIMB_LADDER_UP repeat:2.
+#
+# ⚠️ NEEDS-LIVE-RECEIPT (offline-authored; confirm on first supervised run):
+#   1. START DIALOGUE OPTION TEXT (highest risk). CLICK_DIALOGUE matches EXACT
+#      text and silently no-ops on a mismatch. Wiki transcript (2026-07-19) says
+#      the accept option is "Yes, I'll help you." The previous version of this
+#      file used "I'm always happy to help a cook in distress." -- if the quest
+#      doesn't start, swap step 12's text to that (and/or check step 10/14).
+#   2. Windmill Large_door: existence, exact threshold seat tile, and
+#      already-open handling (a closed->open door has only a "Close" action; the
+#      Open no-ops and strict_steps then flags the step even though the ladder
+#      still gets us in). Pin coords 3166,3306 are the building centre, not the
+#      door tile.
+#   3. Flour bin verb: this file uses INTERACT_OBJECT Flour_bin Empty (the game
+#      auto-uses the held pot) per the direct receipt in
+#      cooks_assistant_flour_interaction_2026-01-26.md, which found
+#      USE_ITEM_ON_OBJECT Pot Flour_bin TIMES OUT. flour_milling.yaml still uses
+#      the timing-out form -- if Empty fails live, try
+#      `USE_ITEM_ON_OBJECT Pot Flour_bin` (and fix flour_milling.yaml too).
+#   4. USE_ITEM_ON_NPC Bucket Dairy_cow: confirm a "Dairy cow" NPC (cowbell) is
+#      at 3253,3266 and the item/npc arg split resolves (Bucket is one token).
+#   5. Empty-container fallback: if the account has NO Pot/Bucket in inventory OR
+#      bank, the withdraw awaits fail honestly. Cellar-bucket / general-store
+#      (SHOP_BUY) acquisition is out of offline scope -- add live if needed.
+#   6. Windmill ladder count (2 up to plane 2) and hopper/lever object names.
+#
+# Sources: oldschool.runescape.wiki Cook's_Assistant + /Quick_guide +
+#   /Transcript + Varplayer/29; routines/skilling/flour_milling.yaml;
+#   routines/combat/chicken_killer_training.yaml (coop 3235,3295);
+#   routines/money_making/cowhide_banking.yaml (cow field 3253,3266 CONFIRMED);
+#   journals/cooks_assistant_flour_interaction_2026-01-26.md.
+# =============================================================================
 
 name: "Cook's Assistant"
 type: quest
-difficulty: novice
-quest_points: 1
 
-# Quest item requirements
-items_needed:
-  - bucket_of_milk
-  - pot_of_flour
-  - egg
+config:
+  strict_steps: true
 
-# Locations used
-locations:
-  lumbridge_kitchen:
-    x: 3208
-    y: 3216
-    plane: 0
-    description: "Lumbridge Castle kitchen, Cook location"
-
-  lumbridge_bank:
-    x: 3208
-    y: 3220
-    plane: 2
-    description: "Lumbridge Castle bank (top floor)"
-
-  cow_pen:
-    x: 3253
-    y: 3270
-    plane: 0
-    description: "Cow pen east of Lumbridge (for milk)"
-
-  chicken_coop:
-    x: 3180
-    y: 3288
-    plane: 0
-    description: "Chicken coop north of Lumbridge (for egg)"
-
-  windmill:
-    x: 3166
-    y: 3306
-    plane: 0
-    description: "Lumbridge windmill (for flour)"
-
-  wheat_field:
-    x: 3162
-    y: 3293
-    plane: 0
-    description: "Wheat field south of windmill"
-
-# Step-by-step routine
 steps:
-  # ========== PHASE 0: TRAVEL TO START ==========
-  - id: 0
-    phase: "preparation"
+  # ========== PHASE 0: EMPTY CONTAINERS (idempotent) ==========
+  # Bank in OSRS is SHARED across all branches, so a Pot/Bucket the arrival
+  # ritual banked at Draynor is withdrawable here at Lumbridge. DEPOSIT_ALL first
+  # unifies the two starting cases: a container already in the inventory
+  # (tutorial leftover) is deposited then re-withdrawn; one sitting in the bank
+  # is withdrawn. The has_item awaits are the honest verify -- they pass whether
+  # the container was already held (withdraw no-ops, item still present) or newly
+  # withdrawn, and fail loudly if it exists in neither place.
+  - id: 1
+    phase: "containers"
     action: GOTO
     args: "3208 3220 2"
-    description: "Walk to Lumbridge Castle bank (top floor) before opening it - starting position unknown/unverified"
-    location: lumbridge_bank
+    description: "Lumbridge Castle bank (top floor, plane 2)"
     await_condition: "location:3208,3220"
     timeout_ms: 120000
-    notes: "Cross-checked against woodcutting_lumbridge.yaml and cooking_lumbridge.yaml, both of which use this exact 3208,3220,plane2 coordinate as their validated Lumbridge bank GOTO target."
-
-  # ========== PHASE 1: PREPARATION ==========
-  - id: 1
-    phase: "preparation"
-    action: BANK_OPEN
-    description: "Bank items to make inventory space"
-    location: lumbridge_bank
-    notes: "Need empty inventory for quest items"
 
   - id: 2
-    phase: "preparation"
-    action: BANK_DEPOSIT_ALL
-    description: "Deposit all items"
-    expected_result: "Empty inventory"
+    phase: "containers"
+    action: BANK_OPEN
+    description: "Open the bank"
+    timeout_ms: 15000
 
   - id: 3
-    phase: "preparation"
-    action: BANK_WITHDRAW
-    args: "Bucket 1"
-    description: "Withdraw bucket for milk"
-    notes: "If no bucket, buy from general store or find spawn"
+    phase: "containers"
+    action: BANK_DEPOSIT_ALL
+    description: "Deposit everything (clears tutorial junk; normalises both start cases)"
+    timeout_ms: 15000
 
   - id: 4
-    phase: "preparation"
+    phase: "containers"
     action: BANK_WITHDRAW
     args: "Pot 1"
-    description: "Withdraw pot for flour"
-    notes: "If no pot, spawn in Lumbridge kitchen"
+    description: "Withdraw the empty Pot (for flour). No-op if already held."
+    await_condition: "has_item:Pot"
+    timeout_ms: 15000
 
   - id: 5
-    phase: "preparation"
-    action: BANK_CLOSE
-    description: "Close bank interface"
+    phase: "containers"
+    action: BANK_WITHDRAW
+    args: "Bucket 1"
+    description: "Withdraw the empty Bucket (for milk). No-op if already held."
+    await_condition: "has_item:Bucket"
+    timeout_ms: 15000
 
-  # ========== PHASE 2: START QUEST ==========
   - id: 6
+    phase: "containers"
+    action: BANK_CLOSE
+    description: "Close the bank"
+    timeout_ms: 15000
+
+  # ========== PHASE 1: START QUEST ==========
+  - id: 7
     phase: "start_quest"
     action: GOTO
     args: "3208 3216 0"
-    description: "Walk to Lumbridge kitchen"
-    location: lumbridge_kitchen
+    description: "Lumbridge Castle kitchen (Cook). Plain GOTO through the open doorway -- no door step (cooking_lumbridge.yaml reaches the range the same way)."
     await_condition: "location:3208,3216"
     timeout_ms: 120000
-
-  - id: 7
-    phase: "start_quest"
-    action: INTERACT_NPC
-    args: "Cook Talk-to"
-    description: "Talk to Cook to start quest"
-    await_condition: "dialogue"
-    timeout_ms: 15000
-    notes: "await dialogue added 2026-07-19 (M-7) so the drains below start on an
-      open conversation."
-
-  # M-7 FIX (2026-07-19): the three CLICK_DIALOGUE option picks below (8/8b/8c)
-  # previously ran back-to-back with NO interleaved continue drains -- if any
-  # intermediate narrative page renders, the next option's text is not present
-  # and CLICK_DIALOGUE silently no-ops, stalling the quest-accept (everything
-  # downstream then runs pointlessly). Each option pick is now preceded by a
-  # short BLIND CLICK_CONTINUE drain that clears any narrative page so the option
-  # list is showing; continues are inert if the options are already up
-  # (ClickContinueCommand no-ops when no continue button is visible). Blind
-  # fixed-count, not repeat_until:no_dialogue (DEFECT-24 mid-monologue
-  # false-close -- see restless_ghost.yaml step 15 / 05_cooking LANE-2).
-  - id: 7b
-    phase: "start_quest"
-    action: CLICK_CONTINUE
-    repeat: 3
-    delay_before_ms: 700
-    description: "Drain any Cook opener page before the first option"
 
   - id: 8
     phase: "start_quest"
-    action: CLICK_DIALOGUE
-    args: "What's wrong?"
-    description: "Ask the Cook what's wrong"
-    expected_result: "Cook explains the problem"
-
-  - id: 8a
-    phase: "start_quest"
-    action: CLICK_CONTINUE
-    repeat: 3
-    delay_before_ms: 700
-    description: "Drain the Cook's explanation before the next option"
-
-  - id: 8b
-    phase: "start_quest"
-    action: CLICK_DIALOGUE
-    args: "I'm always happy to help a cook in distress."
-    description: "Agree to help the Cook"
-    expected_result: "Quest progresses"
-
-  - id: 8b2
-    phase: "start_quest"
-    action: CLICK_CONTINUE
-    repeat: 3
-    delay_before_ms: 700
-    description: "Drain any narrative page before the accept option"
-
-  - id: 8c
-    phase: "start_quest"
-    action: CLICK_DIALOGUE
-    args: "Actually, I know where to find this stuff."
-    description: "Accept the quest"
-    expected_result: "Quest started"
-
-  - id: 8d
-    phase: "start_quest"
-    action: CLICK_CONTINUE
-    repeat: 3
-    delay_before_ms: 700
-    description: "Drain the post-accept dialogue"
-
-  # ========== PHASE 3: GET EGG ==========
-  - id: 9
-    phase: "get_egg"
-    action: GOTO
-    args: "3180 3288 0"
-    description: "Walk to chicken coop north of Lumbridge"
-    location: chicken_coop
-    await_condition: "location:3180,3288"
-    timeout_ms: 120000
-
-  - id: 10
-    phase: "get_egg"
-    action: PICK_UP_ITEM
-    args: "Egg"
-    description: "Pick up egg from ground"
-    await_condition: "has_item:Egg"
-    timeout_ms: 15000
-    expected_result: "Egg in inventory"
-    notes: "Egg spawns inside chicken coop fence. await added 2026-07-19 (M-7)
-      to verify pickup before travelling on."
-
-  # ========== PHASE 4: GET MILK ==========
-  - id: 11
-    phase: "get_milk"
-    action: GOTO
-    args: "3253 3270 0"
-    description: "Walk to cow pen east of Lumbridge"
-    location: cow_pen
-    await_condition: "location:3253,3270"
-    timeout_ms: 120000
-
-  - id: 12
-    phase: "get_milk"
-    action: USE_ITEM_ON_NPC
-    args: "Bucket Dairy cow"
-    description: "Use bucket on dairy cow to get milk"
-    await_condition: "has_item:Bucket of milk"
-    timeout_ms: 15000
-    expected_result: "Bucket of milk in inventory"
-    notes: "Dairy cow has 'Milk' option, not regular cows. await added
-      2026-07-19 (M-7) to verify the milk before travelling on."
-
-  # ========== PHASE 5: GET FLOUR ==========
-  - id: 13
-    phase: "get_flour"
-    action: GOTO
-    args: "3162 3293 0"
-    description: "Walk to wheat field south of windmill"
-    location: wheat_field
-    await_condition: "location:3162,3293"
-    timeout_ms: 120000
-
-  - id: 14
-    phase: "get_flour"
-    action: INTERACT_OBJECT
-    args: "Wheat Pick"
-    description: "Pick wheat from field"
-    await_condition: "has_item:Grain"
-    timeout_ms: 15000
-    expected_result: "Grain in inventory"
-    notes: "await added 2026-07-19 (M-7) to verify the grain before entering the windmill."
-
-  - id: 15
-    phase: "get_flour"
-    action: GOTO
-    args: "3166 3306 0"
-    description: "Walk to windmill"
-    location: windmill
-    await_condition: "location:3166,3306"
-    timeout_ms: 60000
-
-  - id: 16
-    phase: "get_flour"
-    action: INTERACT_OBJECT
-    args: "Large door Open"
-    description: "Enter windmill"
-
-  - id: 17
-    phase: "get_flour"
-    action: CLIMB_LADDER_UP
-    description: "Climb to top floor of windmill"
-    repeat: 2
-    notes: "Need to climb 2 ladders to reach hopper"
-
-  - id: 18
-    phase: "get_flour"
-    action: USE_ITEM_ON_OBJECT
-    args: "Grain Hopper"
-    description: "Put grain in hopper"
-    await_condition: "no_item:Grain"
-    timeout_ms: 15000
-    notes: "await added 2026-07-19 (M-7): grain is consumed into the hopper;
-      verify it left the inventory before operating the controls."
-
-  - id: 19
-    phase: "get_flour"
-    action: INTERACT_OBJECT
-    args: "Hopper controls Operate"
-    description: "Operate hopper to grind grain"
-
-  - id: 20
-    phase: "get_flour"
-    action: CLIMB_LADDER_DOWN
-    description: "Climb back to ground floor"
-    repeat: 2
-
-  - id: 21
-    phase: "get_flour"
-    action: USE_ITEM_ON_OBJECT
-    args: "Pot Flour bin"
-    description: "Use pot on flour bin to collect flour"
-    await_condition: "has_item:Pot of flour"
-    timeout_ms: 15000
-    expected_result: "Pot of flour in inventory"
-    notes: "await added 2026-07-19 (M-7) to verify the flour before returning to the Cook."
-
-  # ========== PHASE 6: COMPLETE QUEST ==========
-  - id: 22
-    phase: "complete_quest"
-    action: GOTO
-    args: "3208 3216 0"
-    description: "Return to Lumbridge kitchen"
-    location: lumbridge_kitchen
-    await_condition: "location:3208,3216"
-    timeout_ms: 120000
-
-  - id: 23
-    phase: "complete_quest"
     action: INTERACT_NPC
     args: "Cook Talk-to"
-    description: "Talk to Cook with all items"
+    description: "Talk to the Cook to open the quest dialogue"
     await_condition: "dialogue"
     timeout_ms: 15000
 
+  - id: 9
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain the Cook's opener page so the first option list shows"
+
+  - id: 10
+    phase: "start_quest"
+    action: CLICK_DIALOGUE
+    args: "What's wrong?"
+    description: "Ask the Cook what's wrong (option 1)"
+
+  - id: 11
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain the Cook's explanation before the accept option"
+
+  - id: 12
+    phase: "start_quest"
+    action: CLICK_DIALOGUE
+    args: "Yes, I'll help you."
+    description: "Accept the quest -- varp29 -> 1. LIVE-RECEIPT #1: if the quest does not start, the option text may be 'I'm always happy to help a cook in distress.' (older transcript)."
+
+  - id: 13
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain any narrative before the info menu"
+
+  - id: 14
+    phase: "start_quest"
+    action: CLICK_DIALOGUE
+    args: "Actually, I know where to find this stuff."
+    description: "Close the where-to-find-ingredients info menu (inert if it isn't showing)"
+
+  - id: 15
+    phase: "start_quest"
+    action: CLICK_CONTINUE
+    repeat: 3
+    delay_before_ms: 700
+    description: "Drain any remaining post-accept page"
+
+  # ========== PHASE 2: EGG ==========
+  - id: 16
+    phase: "get_egg"
+    action: GOTO
+    args: "3235 3295 0"
+    description: "Chicken coop NE of the castle, east of the river (matches wiki 'north of Fred the Farmer'; coop coord from chicken_killer_training.yaml)"
+    await_condition: "location:3235,3295"
+    timeout_ms: 120000
+
+  - id: 17
+    phase: "get_egg"
+    action: PICK_UP_ITEM
+    args: "Egg"
+    description: "Pick up an Egg ground-spawn inside the coop"
+    await_condition: "has_item:Egg"
+    timeout_ms: 20000
+
+  # ========== PHASE 3: MILK ==========
+  - id: 18
+    phase: "get_milk"
+    action: GOTO
+    args: "3253 3266 0"
+    description: "Dairy cow field east of Lumbridge (Gillie Groats'; CONFIRMED tile from cowhide_banking.yaml). NOT the NW combat cow field."
+    await_condition: "location:3253,3266"
+    timeout_ms: 120000
+
+  - id: 19
+    phase: "get_milk"
+    action: USE_ITEM_ON_NPC
+    args: "Bucket Dairy_cow"
+    description: "Use the empty Bucket on the Dairy cow (the cowbell one -- regular Cows can't be milked)"
+    await_condition: "has_item:Bucket of milk"
+    timeout_ms: 20000
+
+  # ========== PHASE 4: FLOUR (windmill) ==========
+  - id: 20
+    phase: "get_flour"
+    action: GOTO
+    args: "3162 3293 0"
+    description: "Wheat field SW of the Mill Lane windmill"
+    await_condition: "location:3162,3293"
+    timeout_ms: 120000
+
+  - id: 21
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Wheat Pick"
+    description: "Pick wheat -> the inventory item is 'Grain' (not 'Wheat')"
+    await_condition: "has_item:Grain"
+    timeout_ms: 20000
+
+  - id: 22
+    phase: "get_flour"
+    action: GOTO
+    args: "3166 3306 0"
+    description: "Walk to the windmill exterior (door threshold seat -- approximate; see LIVE-RECEIPT #2)"
+    await_condition: "location:3166,3306"
+    timeout_ms: 60000
+
+  - id: 23
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Large_door Open 3166 3306"
+    description: "Door-v2: open the windmill door, pinned to the windmill by the INTERACT_OBJECT [x y] qualifier (nearest Large_door to 3166,3306). The ladder plane await below is the real 'did we get inside' check."
+    on_failure: "retry:2"
+    timeout_ms: 15000
+
   - id: 24
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb ground -> 1st floor"
+    await_condition: "plane:1"
+    timeout_ms: 20000
+
+  - id: 25
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-up"
+    description: "Climb 1st -> top floor (hopper + lever)"
+    await_condition: "plane:2"
+    timeout_ms: 20000
+
+  - id: 26
+    phase: "get_flour"
+    action: USE_ITEM_ON_OBJECT
+    args: "Grain Hopper"
+    description: "Put the grain in the hopper (consumed from inventory)"
+    await_condition: "no_item:Grain"
+    timeout_ms: 20000
+
+  - id: 27
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Hopper_controls Operate"
+    description: "Operate the lever/hopper controls -- grain grinds to flour in the bin below"
+    delay_after_ms: 4000
+    notes: "No inventory signal exists (flour lands in the bin, not the inventory), and the player is already stationary at the controls so an 'idle' await would fire instantly without the grind running -- a calibrated delay is the honest wait here (flour_milling.yaml M-13)."
+
+  - id: 28
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb top -> 1st floor"
+    await_condition: "plane:1"
+    timeout_ms: 20000
+
+  - id: 29
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Ladder Climb-down"
+    description: "Climb 1st -> ground floor (flour bin)"
+    await_condition: "plane:0"
+    timeout_ms: 20000
+
+  - id: 30
+    phase: "get_flour"
+    action: INTERACT_OBJECT
+    args: "Flour_bin Empty"
+    description: "Empty the flour bin into the held Pot -> Pot of flour. LIVE-RECEIPT #3: if this times out, use USE_ITEM_ON_OBJECT Pot Flour_bin."
+    await_condition: "has_item:Pot of flour"
+    timeout_ms: 20000
+
+  # ========== PHASE 5: COMPLETE ==========
+  - id: 31
+    phase: "complete_quest"
+    action: GOTO
+    args: "3208 3216 0"
+    description: "Return to the Cook in the Lumbridge kitchen"
+    await_condition: "location:3208,3216"
+    timeout_ms: 120000
+
+  - id: 32
+    phase: "complete_quest"
+    action: INTERACT_NPC
+    args: "Cook Talk-to"
+    description: "Hand in -- the Cook auto-takes Egg + Bucket of milk + Pot of flour"
+    await_condition: "dialogue"
+    timeout_ms: 15000
+
+  - id: 33
     phase: "complete_quest"
     action: CLICK_CONTINUE
     repeat: 6
     delay_before_ms: 800
-    description: "Drain the completion dialogue (blind fixed-count)"
-    notes: "M-7 FIX (2026-07-19): added a completion drain -- the turn-in step
-      had no dialogue exhaustion at all. Blind fixed-count (extra presses inert)."
-    expected_result: "Quest complete!"
+    description: "Drain the completion dialogue (Cook: 'You've brought me everything I need!' -> quest complete graphic, varp29 -> 2). Blind fixed-count; extra presses inert."
 
-# Rewards
-rewards:
-  - quest_points: 1
-  - cooking_xp: 300
-  - access_to_cook_range: true
-  - sardine: 1
-
-# Execution log (filled during runtime)
-execution_log: []
+  # ========== PHASE 6: STEP BACK OUTSIDE THE KITCHEN ==========
+  - id: 34
+    phase: "finish"
+    action: GOTO
+    args: "3214 3216 0"
+    description: "Step east out of the kitchen into the castle hall (end state: quest complete, player outside the kitchen)"
+    await_condition: "location:3214,3216"
+    timeout_ms: 30000

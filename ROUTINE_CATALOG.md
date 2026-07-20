@@ -24,7 +24,7 @@ validation/run history, not aspiration.
 
 | Routine | Purpose | Status |
 |---|---|---|
-| `cooks_assistant.yaml` | Cook's Assistant | ✅ Complete — dialogue-drain fix: monologues use fixed-count repeat + `await:dialogue`, not `repeat_until:no_dialogue` (86ac7b4) |
+| `cooks_assistant.yaml` | Cook's Assistant | ⚠️ Offline-rebuilt (validate_routine_deep valid + `--dry-run` PASS); NOT yet live-completed. Full rewrite: `config.strict_steps`, corrected coords (egg coop 3235,3295, dairy cow 3253,3266), underscore object names (`Large_door`/`Hopper_controls`/`Flour_bin`), windmill door-v2 via INTERACT_OBJECT `[x y]` qualifier, flour-bin `Empty` verb (per 2026-01-26 journal), wiki-transcript dialogue options, item-fact gating (quest varp 29 is not state-exported). Carries a NEEDS-LIVE-RECEIPT list in its header (dialogue option text is #1 risk). |
 | `sheep_shearer.yaml` | Sheep Shearer (shear 20 wool, spin, deliver) | ✅ Complete — dialogue-drain fix + `inventory_count` off-by-one corrected (shears occupy a slot → `>=21`) (86ac7b4) |
 | `restless_ghost.yaml` | The Restless Ghost | ✅ Complete — dialogue-drain fix (86ac7b4) |
 | `imp_catcher.yaml` | Imp Catcher (4 beads → Wizard Mizgog) | ✅ Complete — dialogue-drain fix (86ac7b4) |
