@@ -150,8 +150,26 @@ the other's slot fails, sometimes silently.
 > | `inventory_full` | `inventory_full` | `used >= 28` slots (1661-1669) |
 > | `has_item:X` | `has_item:Coins` | inverse of `no_item:X` (1695-1698) |
 > | `no_item:X` | `no_item:Raw lobster` | item `X` absent, own implementation (NOT the monitoring.py one) (1672-1692) |
-> | `<skill>_level:N` | `mining_level:60` | `skills[skill].level >= N` — note the `_level:` suffix pattern, not a `skill:` prefix (1723-1729) |
+> | `<skill>_level:N` | `mining_level:60` | `skills[skill].level >= N` — absolute BASE-level target. Note the `_level:` suffix pattern, not a `skill:` prefix. **`>=` only** (no other operator). A skill absent from a stale/partial state read defaults to level 0 (so the gate simply never fires — safe for a `>=` target). (`check_stop_condition`, `routine.py`) |
+> | `skill_diff:<a>-<b>:<op>N` | `skill_diff:attack-strength:>=3` | signed BASE-level difference `level(a) − level(b)` vs `N`; ops `>=`, `<=`, `>`, `<`, or bare `==`. **Sign is load-bearing:** `a` ahead of `b` is POSITIVE, so `attack-strength:>=3` means "attack is ≥ 3 levels ABOVE strength". Balanced-training gate — see the worked example in (j.4). (`check_stop_condition` → `parse_skill_diff`, `routine.py`) |
 > | `no_item_in_bank:X` | `no_item_in_bank:Coal` | **raises `NotImplementedError`** — bank contents aren't in the state snapshot; this deliberately fails loudly rather than silently returning `False` forever (1700-1720) |
+>
+> **BASE vs. BOOSTED (both skill atoms).** `<skill>_level:N` and
+> `skill_diff:` both read `skills[skill].level`, which the plugin populates from
+> `client.getRealSkillLevel()` (`GameEngine.buildSkillsInfo`) — the **base/real**
+> level, NOT `.boostedLevel` (`getBoostedSkillLevel`). A combat potion, prayer,
+> or other temporary boost therefore **never** moves these gates: training
+> targets are base levels, so this is the correct, non-false-triggering behavior.
+>
+> **HONESTY on a missing skill differs between the two atoms — deliberately.**
+> `<skill>_level:N` defaults an absent skill to 0 (a never-fire for a `>=`
+> target). `skill_diff:` instead treats an absent skill as UNKNOWN → the
+> condition is `False` (the loop does NOT stop): defaulting a missing operand to
+> 0 inside a *difference* would fabricate a huge signed gap and could switch
+> combat styles prematurely on a partial state read. A malformed `skill_diff:`
+> atom likewise returns `False` at runtime (never a silent stop) and is rejected
+> by `validate_routine_deep` before a run (unknown skill name or bad comparison
+> → an ERROR, not a silent no-op).
 >
 > Anything else falls through to `return False` at the end of
 > `check_stop_condition` (routine.py:1731) — i.e. an unrecognized loop
@@ -344,6 +362,7 @@ anywhere in the execution path.
 | `location:` (step-level) | Point a step at a named `locations:` entry | Never read — see (b). Coordinates must live in `args` directly. | Yes — `routines/combat/chicken_killer_loop.yaml:26`. |
 | `threshold_percent`, `eating:`, `loot:` blocks | Combat food/loot tuning, by analogy with `execute_combat_routine`'s YAML | **This schema's engine (`handle_execute_routine`) never reads `routine.get('loot')`/`routine.get('eating')` — only `steps`, `loop`, `config`, `name` are read (routine.py:1091-1120).** These keys are real and functional, but only in the *separate* `execute_combat_routine` MCP tool's YAML dialect (`mcptools/tools/commands.py:659-676`), which is not what `run_routine.py` executes. In a `steps:`-based routine they are inert. | Yes — `routines/combat/cow_killer_no_bones.yaml` and `routines/combat/hill_giants.yaml` use exactly this shape, which is also *why* both files have no `steps:` key and are non-runnable stubs (see ROUTINE_CATALOG.md) — deleted as part of this cleanup. |
 | `no_item_in_bank:X` (as a Grammar 1 `await_condition`) | "wait until the bank has no more X" | It's a Grammar 2 atom (loop conditions only) and even there it deliberately `raise`s `NotImplementedError` rather than silently no-op (routine.py:1700-1720) — bank contents aren't in the state snapshot. Not usable in either grammar today. | No current routine uses it. |
+| `skill:<name>:<op>N` (e.g. `skill:attack:>=10`) | An absolute skill-level loop gate, by false analogy with the `skill_diff:` prefix | **There is no `skill:` atom — deliberately.** Absolute level gating is already `<skill>_level:N` (e.g. `attack_level:10`); a `skill:` prefix would be a duplicate mechanism (canonical-path rule: fix/extend the one path, never add a variant). As an unrecognized Grammar-2 atom it falls through to `return False` and the loop **silently never stops**, but `validate_routine_deep` catches it pre-run (`_stop_condition_error`). Use `<skill>_level:N` for an absolute target, `skill_diff:<a>-<b>:<op>N` for a relative one. | No current routine uses it. |
 
 **Correction to a prior claim:** the earlier audit asserted one existing
 routine uses a bare `mcp_tool: key` shorthand that isn't wired up. Grepping
@@ -710,6 +729,79 @@ loop:
     end_step: 13
     exit_conditions: []                   # runs until `--loops N` is exhausted
 ```
+
+### 4. Balanced-combat training (`skill_diff:` + the three-phase rotation)
+
+**Goal:** keep attack, strength and defence within ~3 levels of each other,
+switching combat style whenever the skill being trained gets too far ahead of
+the laggard.
+
+**Combine semantics you must design around:** every `stop_conditions:` /
+`exit_conditions:` list is **ANY-of** — the loop stops the instant *any one*
+listed atom is true (flat loop: `routine.py` flat branch breaks on the first
+match; nested: `_check_conditions` returns on the first true). There is no
+AND-of list. This is exactly what makes a single balanced-training phase
+expressible: **"attack is ≥ 3 levels above the *lowest* of (strength, defence)"
+is `max(attack−strength, attack−defence) ≥ 3`, which equals `(attack−strength ≥
+3) OR (attack−defence ≥ 3)`** — an ANY-of of two `skill_diff:` atoms:
+
+```yaml
+# Phase A: train ATTACK until it is 3 levels ahead of the laggard.
+name: "Balanced combat — phase A (accurate/attack)"
+type: combat
+steps:
+  - id: 1
+    action: SWITCH_COMBAT_STYLE
+    args: "accurate"                 # train Attack
+    description: "Melee style -> Attack"
+  - id: 2
+    action: KILL_LOOP
+    args: "Chicken none 100"         # food=none per (h); blocking, see (e)
+    description: "Kill chickens (trains Attack)"
+    timeout_ms: 3600000              # 1hr ceiling, NO await_condition
+loop:
+  enabled: true
+  repeat_from_step: 1
+  stop_conditions:                   # ANY-of: attack 3 ahead of the LOWER of str/def
+    - "skill_diff:attack-strength:>=3"
+    - "skill_diff:attack-defence:>=3"
+```
+
+Phase B is the same file with `accurate`→`aggressive` and the atoms rewritten
+around `strength` (`skill_diff:strength-attack:>=3`,
+`skill_diff:strength-defence:>=3`); phase C uses `defensive` and `defence-…`.
+
+**Structural limit — why this is three files, not one.** A flat loop has exactly
+**one** `repeat_from_step` and **one** `stop_conditions` set, so a single file
+cannot express three *sequentially-gated* phases (train attack → switch → train
+strength → switch → train defence → repeat). That is a real limitation of the
+loop schema, not a `skill_diff:` shortcoming. **The blessed pattern is one
+routine file per phase, sequenced by the existing chain/master mechanism** — no
+new loop syntax (features must be earned; the chain runner already does this).
+Write a `00_*.yaml` master with a `chain:` list (or drop the phase files in a
+directory and let the sorted-glob order them — see `run_routine.py:resolve_chain`
+and (a)); run the whole rotation with:
+
+```bash
+./run_routine.py routines/combat/balanced_rotation/ --loops 40
+```
+
+`--loops N` bounds **each** section's flat loop (see (d) — there is no in-file
+cap), and each phase exits on its own ANY-of `skill_diff:` gate, then the next
+phase's `SWITCH_COMBAT_STYLE` re-targets training. Re-running the chain repeats
+the rotation, keeping the three stats bunched. (Considered and rejected:
+teaching the flat loop a list of per-phase `stop_conditions` blocks — a
+meaningfully larger executor + validator + dry-run change for a pattern the
+chain mechanism already expresses honestly today.)
+
+> **Dry-run note (k.1):** `--dry-run` models a melee `KILL_LOOP` with a
+> **coarse** +1-base-level-per-pass training bump to the skill(s) implied by the
+> most recent `SWITCH_COMBAT_STYLE` (accurate→attack, aggressive→strength,
+> defensive→defence, controlled→all three, +hitpoints), applied only to skills
+> already present in the fixture. This is NOT XP-accurate — it exists purely so a
+> `skill_diff:`/`<skill>_level:`-gated loop can be *exercised* offline (reach its
+> gate) instead of always running to `--loops`. Do not read a dry-run
+> "stop_reason: skill_diff…" as a claim about real training time.
 
 ---
 
