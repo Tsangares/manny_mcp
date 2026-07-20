@@ -48,10 +48,12 @@
 #   GATE 3 display          : <account> MUST have an explicit account_displays
 #                             mapping in hosts.yaml (never the :2 physical-desktop
 #                             fallback that hijacked the real desktop in #3b/#4).
-#   GATE 4 provision        : git-stash the parked humanize paths, provision, pop,
-#                             VERIFY the pop restored them; then assert on-host: jar
-#                             sha pin matches the host jar, routine.py has 0 humanize
-#                             refs, the routine file exists.
+#   GATE 4 provision        : FIRST assert the build-path jar == the reviewed sha in
+#                             scripts/remote/jar_pin.yaml (fail-closed; --accept-new-jar
+#                             <prefix> to adopt+repin), THEN git-stash the parked
+#                             humanize paths, provision, pop, VERIFY the pop restored
+#                             them; then assert on-host: jar sha pin matches the host
+#                             jar, routine.py has 0 humanize refs, the routine exists.
 #   GATE 5 launch           : client_remote.sh start on the hosts.yaml display with
 #                             NAV_BACKEND (default shadow), then a DEFECT-32 login
 #                             gate (abort on >3 world-hops / terminal-ban latch);
@@ -545,7 +547,7 @@ win_abort() {
 
 do_window() {
   # Parse: <account> <routine> [--loops N] [--nav-backend X] [--dry]
-  local acct="" routine="" loops="" nav="shadow" dry="" pos=()
+  local acct="" routine="" loops="" nav="shadow" dry="" accept_jar="" pos=()
   while [ $# -gt 0 ]; do
     case "$1" in
       --dry|--dry-run) dry=1; shift ;;
@@ -553,7 +555,9 @@ do_window() {
       --nav-backend) nav="${2:?--nav-backend needs shadow|legacy|graph}"; shift 2 ;;
       --loops=*) loops="${1#--loops=}"; shift ;;
       --nav-backend=*) nav="${1#--nav-backend=}"; shift ;;
-      -h|--help) echo "usage: mannyctl $HOST window <account> <routine> [--loops N] [--nav-backend shadow|legacy|graph] [--dry]"; return 0 ;;
+      --accept-new-jar) accept_jar="${2:?--accept-new-jar needs a sha-prefix}"; shift 2 ;;
+      --accept-new-jar=*) accept_jar="${1#--accept-new-jar=}"; shift ;;
+      -h|--help) echo "usage: mannyctl $HOST window <account> <routine> [--loops N] [--nav-backend shadow|legacy|graph] [--accept-new-jar <sha-prefix>] [--dry]"; return 0 ;;
       --*) die "window: unknown flag '$1'" ;;
       *) pos+=("$1"); shift ;;
     esac
@@ -635,6 +639,22 @@ do_window() {
   win_gate 3 display PASS "'$acct' -> display $disp (explicit hosts.yaml mapping)"
 
   # ---- GATE 4: provision with parked-file discipline -----------------------
+  # 4.0 JAR PIN (DEFECT attempt #12): BEFORE any provision ships the jar, assert
+  # the build-path *shaded.jar == the reviewed sha in scripts/remote/jar_pin.yaml.
+  # Runs LOCALLY on the orchestrator (build path + pin live here), fail-closed.
+  # Also enforced inside provision.sh, but surfaced here as a numbered gate so a
+  # surprise rebuild aborts the ceremony with both shas printed, not a buried log.
+  # --accept-new-jar <prefix> adopts the build jar (rewrites the pin + logs it),
+  # after which provision.sh's own copy of this gate passes cleanly.
+  local jp_libs="$REPO_DIR/../runelite/runelite-client/build/libs"
+  local jp_out jp_rc
+  jp_out="$("$PYBIN" "$SCRIPT_DIR/window_checks.py" jar-pin --libs "$jp_libs" --pin "$SCRIPT_DIR/jar_pin.yaml" ${accept_jar:+--accept-new-jar "$accept_jar"})"; jp_rc=$?
+  case "$jp_out" in
+    JARPIN_OK*)       ;;
+    JARPIN_ACCEPTED*) echo "-- GATE 4: jar pin UPDATED via --accept-new-jar ($jp_out) --" ;;
+    *) [ "$jp_rc" -eq 0 ] || win_abort 4 provision "JAR PIN mismatch — build-path jar != scripts/remote/jar_pin.yaml (${jp_out#JARPIN_ERR }); resolve: (a) restore the pinned jar from backup, or (b) --accept-new-jar <sha-prefix> for a reviewed pin update. See the JAR PIN GATE block above." ;;
+  esac
+
   # Real mode: git-stash the parked humanize paths so provision ships a CLEAN
   # routine.py (0 humanize refs) + no humanize.py, run provision, pop, VERIFY the
   # pop restored every parked path (loud fail if a stash pop is lost/conflicted).

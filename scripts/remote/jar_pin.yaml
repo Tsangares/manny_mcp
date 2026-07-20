@@ -1,0 +1,27 @@
+# jar_pin.yaml — the EXPECTED sha256 of the RuneLite shaded client jar that
+# provision is allowed to ship to a run host.
+#
+# WHY THIS FILE EXISTS (the defect it prevents — attempt #12, 2026-07-20):
+#   provision.sh blindly copies whatever *shaded.jar sits at the canonical build
+#   path (runelite/runelite-client/build/libs/) to the run host and then STAMPS
+#   that jar's own sha into the host config.yaml as "trusted". That is circular:
+#   it trusts whatever it happens to ship. So ANY desk agent's rebuild silently
+#   becomes the deployed client on the very next provision, unreviewed. During
+#   attempt #12 gate 4 shipped a rebuilt jar (sha 421c03e9…) to llama with no
+#   expectation check; we adopted it after the fact, but the failure mode is real.
+#
+#   This pin is the EXPECTATION. provision.sh (Step 2) and `mannyctl window`
+#   Gate 4 hash the build-path jar and REFUSE to ship anything whose sha256 does
+#   not equal `sha256` below. A surprise rebuild fails LOUD instead of shipping.
+#
+# TWO LEGITIMATE RESOLUTIONS on a mismatch (never edit this to silence a surprise):
+#   (a) restore the pinned jar from its backup (…/*.backup-<prefix>) into the
+#       build-libs dir so the build-path jar matches this pin again, OR
+#   (b) DELIBERATELY update this pin as part of a reviewed deploy: back up the
+#       OLD pinned jar first, then either hand-edit `sha256` + `provenance` here,
+#       or run `mannyctl <host> window … --accept-new-jar <sha-prefix>` which
+#       rewrites this file to the new sha and appends a line to
+#       scripts/remote/jar_pin_changelog.txt. Either way the change is reviewed.
+#
+# provenance: manny commit 7f42b54, adopted 2026-07-20 (attempt #12, malikreyes/llama).
+sha256: 421c03e91ff9e82b52abe2ccc2cb2bbbaa1970eaf5fb0e74d0eebc9fc0a98c7f
