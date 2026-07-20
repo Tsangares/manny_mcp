@@ -5,6 +5,8 @@
 #   permission to use the Lumbridge Castle range.
 # Requirements: none. Needs an EMPTY Pot and an EMPTY Bucket to gather flour/milk.
 # Start/end: Lumbridge Castle kitchen (Cook at 3208,3216 plane 0).
+# Dialogue: every CLICK_DIALOGUE option text below verified verbatim against
+#   oldschool.runescape.wiki/w/Transcript:Cook's_Assistant, 2026-07-19.
 #
 # QUEST-STATE GATING (design decision, 2026-07-19)
 #   Cook's Assistant progress lives in VarPlayer 29 (0=not started, 1=started,
@@ -53,10 +55,15 @@
 #
 # ⚠️ NEEDS-LIVE-RECEIPT (offline-authored; confirm on first supervised run):
 #   1. START DIALOGUE OPTION TEXT (highest risk). CLICK_DIALOGUE matches EXACT
-#      text and silently no-ops on a mismatch. Wiki transcript (2026-07-19) says
-#      the accept option is "Yes, I'll help you." The previous version of this
-#      file used "I'm always happy to help a cook in distress." -- if the quest
-#      doesn't start, swap step 12's text to that (and/or check step 10/14).
+#      text and silently no-ops on a mismatch. RESOLVED offline 2026-07-19: all
+#      three option texts used below ("What's wrong?" / "Yes, I'll help you." /
+#      "Actually, I know where to find this stuff.") are confirmed verbatim
+#      against oldschool.runescape.wiki/w/Transcript:Cook's_Assistant (the
+#      "I'm always happy to help a cook in distress." variant from an earlier
+#      draft is NOT present on the current transcript -- dropped). Still an
+#      offline (wiki) receipt, not a live one -- first supervised run should
+#      still watch steps 10/12/14 for silent no-ops from any client-side text
+#      drift the wiki hasn't caught.
 #   2. Windmill Large_door: existence, exact threshold seat tile, and
 #      already-open handling (a closed->open door has only a "Close" action; the
 #      Open no-ops and strict_steps then flags the step even though the ladder
@@ -345,9 +352,9 @@ steps:
   - id: 33
     phase: "complete_quest"
     action: CLICK_CONTINUE
-    repeat: 6
+    repeat: 12
     delay_before_ms: 800
-    description: "Drain the completion dialogue (Cook: 'You've brought me everything I need!' -> quest complete graphic, varp29 -> 2). Blind fixed-count; extra presses inert."
+    description: "Drain the completion dialogue -- quest complete, varp29 -> 2. Wiki transcript 'Talking to the Cook again' (2026-07-19) is a fully linear 9-line scripted exchange, no player choice: Cook opener -> 'Here's a bucket of milk.' -> 'Here's a pot of flour.' -> 'Here's a fresh egg.' -> Cook 'You've brought me everything I need! I am saved! Thank you!' -> Player 'So do I get to go to the Duke's Party?' -> Cook decline -> Player closing line -> Cook closing line (End of dialogue). That's ~8-9 continues, plus the quest-complete reward screen -- repeat raised from 6 to 12 for margin (was previously undercounting the Duke's Party tail; extra presses are inert per doctrine above)."
 
   # ========== PHASE 6: STEP BACK OUTSIDE THE KITCHEN ==========
   - id: 34
