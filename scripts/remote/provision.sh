@@ -77,8 +77,19 @@ else
   fi
 
   # ---- Step 2: shaded jar --------------------------------------------------
+  # JAR PIN GATE (DEFECT attempt #12): before shipping ANY jar, assert the
+  # build-path *shaded.jar matches the reviewed sha in scripts/remote/jar_pin.yaml.
+  # This runs on EVERY provision path (mannyctl provision AND window Gate 4, both
+  # funnel through here), so a surprise rebuild fails LOUD instead of shipping.
+  # No override lives here on purpose: to adopt a new jar you go through
+  # `mannyctl <host> window … --accept-new-jar <prefix>` (reviewed) or hand-edit
+  # the pin — either rewrites the pin, after which this gate passes cleanly.
+  local_libs="$REPO_DIR/../runelite/runelite-client/build/libs"
+  "$PYBIN" "$SCRIPT_DIR/window_checks.py" jar-pin --libs "$local_libs" --pin "$SCRIPT_DIR/jar_pin.yaml" \
+    || die "jar pin gate FAILED — refusing to ship (see the JAR PIN GATE block above)"
+
   echo "[2/5] syncing shaded jar -> $H_LIBS ..."
-  local_jar="$(find "$REPO_DIR/../runelite/runelite-client/build/libs" -maxdepth 1 -iname '*shaded.jar' 2>/dev/null | head -1)"
+  local_jar="$(find "$local_libs" -maxdepth 1 -iname '*shaded.jar' 2>/dev/null | head -1)"
   [ -n "$local_jar" ] || die "no local *shaded.jar to ship (build it first on the orchestrator)"
   onhost "mkdir -p $(printf %q "$H_LIBS")"
   rsync -az --info=progress2 "$local_jar" "$H_SSH:$H_LIBS/" || die "jar rsync failed"
