@@ -117,7 +117,7 @@ def _is_known_grammar2(cond: str) -> bool:
     cond = cond.strip()
     if cond == "inventory_full":
         return True
-    for prefix in ("has_item:", "no_item:", "no_item_in_bank:"):
+    for prefix in ("has_item:", "no_item:", "no_item_in_bank:", "skill_diff:"):
         if cond.startswith(prefix):
             return True
     return "_level:" in cond
@@ -131,6 +131,17 @@ _STACKABLE_LOOT = {
     "feather", "coins", "law rune", "nature rune", "fire rune", "water rune",
     "air rune", "mind rune", "chaos rune", "death rune", "blood rune",
     "cosmic rune", "astral rune", "ashes",
+}
+
+# Melee combat styles -> the BASE skill(s) a kill loop in that style trains.
+# Used only by the COARSE combat-training model in _apply_kill_loop so that a
+# skill_diff:/<skill>_level: gated loop can be *exercised* offline (reach its
+# gate) instead of only ever running to max_loops. NOT XP-accurate.
+_COMBAT_STYLE_SKILLS = {
+    "accurate": ("attack",),
+    "aggressive": ("strength",),
+    "defensive": ("defence",),
+    "controlled": ("attack", "strength", "defence"),
 }
 
 # Coarse per-command duration estimates (ms). NOT timing-accurate -- see the
@@ -163,6 +174,10 @@ class StateModel:
         self.dialogue_open = dialogue_open
         self.is_moving = is_moving
         self.bank_open = False
+        # Most-recent SWITCH_COMBAT_STYLE arg (lowercased), driving which base
+        # skill(s) the COARSE kill-loop training model advances. None -> default
+        # to all three melee skills.
+        self.combat_style = None
         # TUTORIAL: game-truth Tutorial Island progress (varbit 281). None means
         # "not on the island / not exported", matching the plugin emitting
         # progress: null when logged out -- so a tutorial_progress: await against
@@ -365,6 +380,13 @@ class DryRunInterpreter:
         if a == "BANK_CLOSE":
             self.model.bank_open = False
             return "bank closed", True
+        if a == "SWITCH_COMBAT_STYLE":
+            # Record the style so the coarse kill-loop training model knows which
+            # base skill(s) to advance (see _apply_kill_loop). Effect is otherwise
+            # unmodeled (no state postcondition to assert).
+            style = args.split()[0].lower() if args.split() else ""
+            self.model.combat_style = style or None
+            return f"combat style -> {style or '?'}", False
         if a in KILL_LOOP_COMMANDS:
             return self._apply_kill_loop(a, args), True
         if a in ("CLICK_CONTINUE", "CLICK_DIALOGUE", "CLICK_TEXT", "KEY_PRESS"):
@@ -378,7 +400,7 @@ class DryRunInterpreter:
             # satisfied strictly by the modeled close.
             self.model.dialogue_open = False
             return "dialogue advanced/closed", False
-        if a in ("SWITCH_COMBAT_STYLE", "TAB_OPEN", "WAIT", "INTERACT_NPC",
+        if a in ("TAB_OPEN", "WAIT", "INTERACT_NPC",
                  "INTERACT_OBJECT", "EQUIP_ITEM", "CAST_SPELL_NPC",
                  "CAST_SPELL_ON_INVENTORY_ITEM", "PICK_UP_ITEM"):
             return "ok (assumed success at declared await, if any)", False
@@ -457,9 +479,30 @@ class DryRunInterpreter:
                 self.model.fill_inventory(item)
                 filled = True
             looted.append(item)
+
+        # COARSE combat-training model (optimistic, in the same spirit as the loot
+        # model above and the tutorial_progress arming assumption): a melee kill
+        # loop trains the base skill(s) implied by the current combat style
+        # (default: all three melee if no SWITCH_COMBAT_STYLE was seen) plus
+        # hitpoints, +1 base level per loop pass. This is NOT XP-accurate -- it
+        # exists only so a `skill_diff:`/`<skill>_level:` gated loop can be
+        # *exercised* offline (reach its gate) instead of always running to
+        # max_loops. Only skills already PRESENT in the fixture are advanced, so a
+        # routine whose fixture omits skills is unaffected (no spurious levels).
+        trained = _COMBAT_STYLE_SKILLS.get(self.model.combat_style,
+                                           ("attack", "strength", "defence"))
+        bumped = []
+        for sk in list(dict.fromkeys(trained + ("hitpoints",))):
+            info = self.model.skills.get(sk)
+            if isinstance(info, dict) and info.get("level") is not None:
+                info["level"] = info["level"] + 1
+                bumped.append(sk)
+
         note = f"killed up to {kills} {npc}; looted {looted or 'runes'}"
         if filled:
             note += " (inventory filled -> inventory_full)"
+        if bumped:
+            note += f"; +1 base level to {'/'.join(bumped)} (coarse training model)"
         return note
 
     # -- step execution -----------------------------------------------------

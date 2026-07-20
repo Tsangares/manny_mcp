@@ -2580,7 +2580,26 @@ AWAIT_CONDITION_ATOMS = frozenset({
 STOP_CONDITION_ATOMS = frozenset({
     "inventory_full",                       # bare word
     "has_item", "no_item", "no_item_in_bank", "_level",  # prefixed / suffixed
+    "skill_diff",                           # skill_diff:<a>-<b>:<op>N (signed BASE-level diff)
 })
+
+# Canonical OSRS skill names for validating `skill_diff:`/`<skill>_level:` atoms.
+# Single source of truth is routine.VALID_SKILL_NAMES (the plugin's StateExporter
+# keys); imported lazily in _skill_diff_error to avoid any import-order coupling.
+def _valid_skill_names() -> frozenset:
+    try:
+        from mcptools.tools.routine import VALID_SKILL_NAMES
+        return VALID_SKILL_NAMES
+    except Exception:
+        # Fallback copy (kept in lockstep with routine.VALID_SKILL_NAMES) so the
+        # validator still works if the import path is unavailable.
+        return frozenset({
+            "attack", "strength", "defence", "hitpoints", "ranged", "prayer",
+            "magic", "cooking", "woodcutting", "fletching", "fishing",
+            "firemaking", "crafting", "smithing", "mining", "herblore",
+            "agility", "thieving", "slayer", "farming", "runecraft", "hunter",
+            "construction",
+        })
 
 # Atoms shared by both vocabularies -- cross-use of these is NOT an error.
 _SHARED_CONDITION_ATOMS = frozenset({"has_item", "no_item"})
@@ -2686,7 +2705,38 @@ def _condition_atom(condition: str) -> str:
 _AWAIT_VOCAB_HELP = ("plane:N, has_item:X, no_item:X, inventory_count:<op>N, "
                      "location:X,Y, tutorial_progress:<op>N, idle, dialogue, no_dialogue")
 _STOP_VOCAB_HELP = ("inventory_full, has_item:X, no_item:X, no_item_in_bank:X, "
-                    "<skill>_level:N")
+                    "<skill>_level:N, skill_diff:<a>-<b>:<op>N")
+
+
+def _skill_diff_error(cond: str) -> Optional[str]:
+    """Validate a ``skill_diff:<a>-<b>:<op>N`` atom (format + real skill names).
+
+    Unknown skill = ERROR, not a silent never-fire: at runtime an unknown skill
+    is simply absent from the state export, so the diff evaluates UNKNOWN ->
+    False and the loop could never stop on it -- precisely the bug class this
+    validator exists to catch before a live run.
+    """
+    body = cond[len("skill_diff:"):]
+    if ":" not in body:
+        return (f"stop/exit condition '{cond}' is missing its comparison -- "
+                f"expected skill_diff:<a>-<b>:<op>N (e.g. skill_diff:attack-strength:>=3)")
+    pair, comp = body.split(":", 1)
+    if "-" not in pair:
+        return (f"stop/exit condition '{cond}' must name two skills as <a>-<b> "
+                f"(e.g. skill_diff:attack-strength:>=3)")
+    skill_a, skill_b = (s.strip().lower() for s in pair.split("-", 1))
+    valid = _valid_skill_names()
+    unknown = [s for s in (skill_a, skill_b) if s not in valid]
+    if unknown:
+        return (f"stop/exit condition '{cond}' references unknown skill(s) "
+                f"{unknown} -- an unknown skill is absent from the state export, "
+                f"so the diff evaluates UNKNOWN and the loop could never stop. "
+                f"Valid skills: {', '.join(sorted(valid))}")
+    comp = comp.strip()
+    if not re.match(r'^(>=|<=|==|>|<)?\s*-?\d+$', comp):
+        return (f"stop/exit condition '{cond}' has an invalid comparison '{comp}' "
+                f"-- expected <op>N with op in >=, <=, >, <, == (or a bare integer)")
+    return None
 
 
 def _await_condition_error(cond: str) -> Optional[str]:
@@ -2717,6 +2767,10 @@ def _stop_condition_error(cond: str) -> Optional[str]:
     never stop -- so ANY unrecognized stop/exit condition is an ERROR.
     """
     atom = _condition_atom(cond)
+    if atom == "skill_diff":
+        # Known atom, but its skill names + comparison still need validating
+        # (a typo'd skill silently never fires -- see _skill_diff_error).
+        return _skill_diff_error(cond)
     if atom in STOP_CONDITION_ATOMS:
         return None
     if atom in AWAIT_CONDITION_ATOMS:

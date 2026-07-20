@@ -2054,6 +2054,84 @@ async def _execute_mcp_tool_step(step: dict, mcp_tool: str, account_id: str) -> 
     return step_result
 
 
+# Canonical OSRS skill names (RuneLite `Skill.values()`, lowercased) -- exactly
+# the keys the plugin's StateExporter emits (GameEngine.buildSkillsInfo:
+# `skills.put(skill.getName().toLowerCase(), info)`). BOTH loop-level skill
+# gates -- the existing `<skill>_level:N` and the new `skill_diff:<a>-<b>:<op>N`
+# -- read from this same `player.skills` export, so this is the single source of
+# truth for skill-name validation (deep validator imports it).
+VALID_SKILL_NAMES = frozenset({
+    "attack", "strength", "defence", "hitpoints", "ranged", "prayer", "magic",
+    "cooking", "woodcutting", "fletching", "fishing", "firemaking", "crafting",
+    "smithing", "mining", "herblore", "agility", "thieving", "slayer",
+    "farming", "runecraft", "hunter", "construction",
+})
+
+# Comparison operators the `skill_diff:` atom accepts, mirroring Grammar-1's
+# inventory_count/tutorial_progress operator set (>=, <=, >, <, ==; bare == ).
+_SKILL_DIFF_OPS = {
+    ">=": (lambda a, b: a >= b),
+    "<=": (lambda a, b: a <= b),
+    ">": (lambda a, b: a > b),
+    "<": (lambda a, b: a < b),
+    "==": (lambda a, b: a == b),
+}
+
+
+def _split_skill_comparison(text: str):
+    """Split a comparison tail like '>=3' -> ('>=', 3); bare '3' -> ('==', 3).
+
+    Accepts negative targets (e.g. '>=-2'). Raises ValueError on anything that
+    isn't <op?>N.
+    """
+    text = text.strip()
+    for op in (">=", "<=", "==", ">", "<"):
+        if text.startswith(op):
+            return op, int(text[len(op):])
+    return "==", int(text)
+
+
+def parse_skill_diff(condition: str):
+    """Parse ``skill_diff:<a>-<b>:<op>N`` -> ``(skill_a, skill_b, op, value)``.
+
+    The signed difference evaluated by the atom is ``level(a) - level(b)`` on
+    BASE (real) skill levels -- e.g. ``skill_diff:attack-strength:>=3`` means
+    "attack is at least 3 levels ABOVE strength". Sign is load-bearing: a>b is
+    positive. Raises ``ValueError`` on any malformed atom so the deep validator
+    can surface it pre-run rather than the loop silently never firing.
+    """
+    body = condition[len("skill_diff:"):]
+    if ":" not in body:
+        raise ValueError(
+            f"skill_diff atom '{condition}' is missing its comparison -- expected "
+            f"skill_diff:<a>-<b>:<op>N (e.g. skill_diff:attack-strength:>=3)")
+    pair, comp = body.split(":", 1)
+    if "-" not in pair:
+        raise ValueError(
+            f"skill_diff atom '{condition}' must name two skills as <a>-<b> "
+            f"(e.g. skill_diff:attack-strength:>=3)")
+    skill_a, skill_b = pair.split("-", 1)
+    skill_a, skill_b = skill_a.strip().lower(), skill_b.strip().lower()
+    if not skill_a or not skill_b:
+        raise ValueError(f"skill_diff atom '{condition}' has an empty skill name")
+    op, value = _split_skill_comparison(comp)
+    return skill_a, skill_b, op, value
+
+
+def _skill_base_level(skills: dict, name: str):
+    """BASE (real) level for `name` from the skills export, or None if absent.
+
+    Reads `.level` (getRealSkillLevel, NOT the boosted level), so potion/prayer
+    boosts never move the value -- the correct behavior for training-target
+    gates. Returns None when the skill is missing from a stale/partial state
+    read so callers can treat it as UNKNOWN rather than a real 0.
+    """
+    info = skills.get(name)
+    if not isinstance(info, dict):
+        return None
+    return info.get("level")
+
+
 async def check_stop_condition(condition: str, account_id: str = None) -> bool:
     """Check if a loop stop condition is met."""
     state = await get_game_state(account_id)
@@ -2121,6 +2199,32 @@ async def check_stop_condition(condition: str, account_id: str = None) -> bool:
         )
         _routine_logger.error("[ROUTINE] %s", msg)
         raise NotImplementedError(msg)
+
+    # skill_diff:<a>-<b>:<op>N - signed BASE-level difference level(a) - level(b).
+    #
+    # Balanced-training gate: e.g. skill_diff:attack-strength:>=3 == "stop once
+    # attack is >= 3 levels ABOVE strength". Reads the SAME `.level` (base/real,
+    # NOT boosted) as `<skill>_level:N` below, so a combat potion or prayer boost
+    # can never false-trigger a style switch mid-fight.
+    #
+    # HONESTY: if EITHER skill is absent from the state's skills export (a stale
+    # or partial state read), the difference is UNKNOWN and we return False -- the
+    # loop does NOT stop. This is deliberately STRICTER than `<skill>_level:N`
+    # (which defaults a missing skill to level 0): defaulting a missing skill to 0
+    # in a *difference* would fabricate a huge signed gap and could switch styles
+    # prematurely on a bad read. A malformed atom likewise returns False at
+    # runtime (never a silent stop); the deep validator rejects it pre-run.
+    if condition.startswith("skill_diff:"):
+        try:
+            skill_a, skill_b, op, target = parse_skill_diff(condition)
+        except ValueError:
+            return False
+        skills = state.get("player", {}).get("skills", {})
+        a_level = _skill_base_level(skills, skill_a)
+        b_level = _skill_base_level(skills, skill_b)
+        if a_level is None or b_level is None:
+            return False
+        return _SKILL_DIFF_OPS[op](a_level - b_level, target)
 
     # skill_level:N - Skill reached level N
     if "_level:" in condition:
