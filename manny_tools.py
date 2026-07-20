@@ -2571,6 +2571,7 @@ LIVE_LOOP_SUBKEYS_NESTED = frozenset({
 AWAIT_CONDITION_ATOMS = frozenset({
     "plane", "has_item", "no_item", "inventory_count", "location",  # prefixed
     "tutorial_progress",                                            # prefixed (varbit-281 gate)
+    "varp", "varbit",                       # prefixed (task #26 generic var gate)
     "idle", "dialogue", "no_dialogue",                              # bare words
 })
 
@@ -2703,7 +2704,8 @@ def _condition_atom(condition: str) -> str:
 
 
 _AWAIT_VOCAB_HELP = ("plane:N, has_item:X, no_item:X, inventory_count:<op>N, "
-                     "location:X,Y, tutorial_progress:<op>N, idle, dialogue, no_dialogue")
+                     "location:X,Y, tutorial_progress:<op>N, varp:<id>:<op>N, "
+                     "varbit:<id>:<op>N, idle, dialogue, no_dialogue")
 _STOP_VOCAB_HELP = ("inventory_full, has_item:X, no_item:X, no_item_in_bank:X, "
                     "<skill>_level:N, skill_diff:<a>-<b>:<op>N")
 
@@ -2739,6 +2741,33 @@ def _skill_diff_error(cond: str) -> Optional[str]:
     return None
 
 
+def _var_atom_error(cond: str) -> Optional[str]:
+    """Validate a ``varp:<id>:<op>N`` / ``varbit:<id>:<op>N`` atom (task #26).
+
+    Format only -- whether `<id>` is actually allowlisted in the plugin's
+    VARP_ALLOWLIST/VARBIT_ALLOWLIST is a Java-side, runtime concern (an
+    un-allowlisted id is absent from the export and the atom evaluates
+    UNKNOWN/False at runtime, never raises -- see monitoring._check_condition).
+    A malformed atom (non-integer id, missing/invalid comparison) currently
+    raises ValueError only at runtime (monitoring._parse_condition); flag it
+    here as a pre-run ERROR instead, mirroring `_skill_diff_error`.
+    """
+    prefix = cond.split(":", 1)[0] + ":"
+    body = cond[len(prefix):]
+    if ":" not in body:
+        return (f"await_condition '{cond}' is missing its comparison -- "
+                f"expected {prefix}<id>:<op>N (e.g. {prefix}29:>=1)")
+    id_str, comp = body.split(":", 1)
+    if not re.match(r'^-?\d+$', id_str.strip()):
+        return (f"await_condition '{cond}' has a non-integer id '{id_str}' -- "
+                f"expected {prefix}<id>:<op>N")
+    comp = comp.strip()
+    if not re.match(r'^(>=|<=|==|>|<)?\s*-?\d+$', comp):
+        return (f"await_condition '{cond}' has an invalid comparison '{comp}' "
+                f"-- expected <op>N with op in >=, <=, >, <, == (or a bare integer)")
+    return None
+
+
 def _await_condition_error(cond: str) -> Optional[str]:
     """Return an error string if `cond` is not a valid step await_condition, else None.
 
@@ -2747,6 +2776,11 @@ def _await_condition_error(cond: str) -> Optional[str]:
     it, and specifically call out when it looks like the loop-stop vocabulary.
     """
     atom = _condition_atom(cond)
+    if atom in ("varp", "varbit"):
+        # Known atom, but id/comparison format still needs validating (a
+        # malformed atom otherwise only fails loudly at runtime -- see
+        # _var_atom_error).
+        return _var_atom_error(cond)
     if atom in AWAIT_CONDITION_ATOMS:
         return None
     if atom in STOP_CONDITION_ATOMS:

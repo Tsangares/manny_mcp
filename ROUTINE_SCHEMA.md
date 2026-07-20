@@ -157,6 +157,15 @@ the other's slot fails, sometimes silently.
 > | `location:X,Y` | `location:3208,3216` | within 3 tiles of `(X,Y)`, Chebyshev distance (569-571, 621-627) |
 > | `idle` | `idle` | `not player.isMoving` (535-536, 629-632) |
 > | `dialogue` / `no_dialogue` | `dialogue` | top-level `dialogue.open` is True/False (542-545, 634-640) — **NARROW, tutorial-only**, reads a different state-file key (`dialogue`, not `player.dialogue`) |
+> | `tutorial_progress:<op>N` | `tutorial_progress:>=250` | Tutorial Island varbit-281 progress `<op>` `N` (0..1000); ops `<=`, `>=`, `<`, `>`, or bare `==`. Reads top-level `tutorial.progress`; **absent `tutorial` section (old jar) or `null` progress (logged out) → not satisfied, never raises.** |
+> | `varp:<id>:<op>N` | `varp:29:>=1` | VarPlayer `<id>` value `<op>` `N`; ops `<=`, `>=`, `<`, `>`, or bare `==`. Reads `vars.varps["<id>"]`; **unknown id → not satisfied, never raises**. Requires the id be allowlisted in the plugin's `VARP_ALLOWLIST`. (task #26) |
+> | `varbit:<id>:<op>N` | `varbit:3550:==1` | as `varp:` but reads `vars.varbits["<id>"]` via `client.getVarbitValue`. Namespace is **NOT interchangeable** with `varp:` — a varbit id read through `varp:` (or vice versa) silently reads the wrong, usually-permanent-`0` slot. (task #26) |
+>
+> `tutorial_progress:`/`varp:`/`varbit:` are **Grammar-1 only** (step
+> `await_condition:` / `repeat_until:`) — they are NOT in the loop
+> `stop_conditions:`/`exit_conditions:` vocabulary (`STOP_CONDITION_ATOMS`) and
+> will silently no-op (never stop the loop) if used there. See the trap note
+> below.
 >
 > Any other string raises `ValueError: Unknown condition type` (monitoring.py:573)
 > or `Invalid condition format` (546) — for `repeat_until` this is caught and
@@ -205,7 +214,8 @@ the other's slot fails, sometimes silently.
 > exist in *both* grammars with the same string syntax but *different,
 > independently-maintained implementations* reading slightly different
 > inventory shapes. `plane:N`/`inventory_count:N`/`location:X,Y`/`idle`/
-> `dialogue` exist **only** in Grammar 1 and will silently no-op if used in
+> `dialogue`/`tutorial_progress:N`/`varp:<id>:N`/`varbit:<id>:N` exist **only**
+> in Grammar 1 and will silently no-op if used in
 > `stop_conditions:`/`exit_conditions:`. `inventory_full`/`<skill>_level:N`/
 > `no_item_in_bank:X` exist **only** in Grammar 2 and will raise
 > `ValueError` if used in `await_condition:`.

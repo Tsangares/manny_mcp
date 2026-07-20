@@ -539,6 +539,8 @@ def _parse_condition(condition: str) -> tuple:
     - idle - Player not animating/moving
     - dialogue / no_dialogue - a dialogue is open / not open (NARROW, see below)
     - tutorial_progress:>=N / <=N / <N / >N / N - Tutorial Island varbit-281 gate
+    - varp:<id>:>=N / <=N / <N / >N / N - VarPlayer <id> value comparison (task #26)
+    - varbit:<id>:>=N / <=N / <N / >N / N - Varbit <id> value comparison (task #26)
     """
     if ":" not in condition:
         if condition == "idle":
@@ -598,6 +600,32 @@ def _parse_condition(condition: str) -> tuple:
             return ("tutorial_progress", int(value[1:]), ">")
         else:
             return ("tutorial_progress", int(value), "==")
+    elif cond_type in ("varp", "varbit"):
+        # QUEST (task #26): generic gate on an allowlisted VarPlayer/Varbit,
+        # exported by the plugin as state["vars"]["varps"/"varbits"][str(id)].
+        # value == "<id>:<op>N"; split off the id, reuse the inventory_count/
+        # tutorial_progress operator parse for the "<op>N" tail. Namespaces are
+        # kept disjoint (varp vs varbit) because the export keeps them disjoint
+        # -- see StateExporter.VARP_ALLOWLIST / VARBIT_ALLOWLIST in manny_src.
+        id_str, comp = value.split(":", 1)
+        var_id = int(id_str)
+        if comp.startswith("<="):
+            op, n = "<=", int(comp[2:])
+        elif comp.startswith(">="):
+            op, n = ">=", int(comp[2:])
+        elif comp.startswith("<"):
+            op, n = "<", int(comp[1:])
+        elif comp.startswith(">"):
+            op, n = ">", int(comp[1:])
+        elif comp.startswith("=="):
+            # Explicit '==' prefix (the spec's own worked example is
+            # varbit:3550:==1) -- inventory_count/tutorial_progress only
+            # support the BARE-N-means-equals form, but the varp/varbit doc
+            # examples use an explicit '==', so accept both spellings here.
+            op, n = "==", int(comp[2:])
+        else:
+            op, n = "==", int(comp)
+        return (cond_type, (var_id, n), op)
     else:
         raise ValueError(f"Unknown condition type: {cond_type}")
 
@@ -689,6 +717,31 @@ def _check_condition(state: dict, condition: tuple) -> bool:
         else:
             return progress == value
 
+    elif cond_type in ("varp", "varbit"):
+        # QUEST (task #26): read the plugin's generic var export, TOP-LEVEL
+        # `vars` object {"varps": {"<id>": int}, "varbits": {"<id>": int}}.
+        # Old-jar-safe / unknown-id-safe mirroring tutorial_progress: an absent
+        # `vars` section (old jar), absent sub-section, or an id not present in
+        # the export (not allowlisted, or genuinely unknown) is UNKNOWN -> not
+        # satisfied, NEVER raise. This is what keeps a quest gate on an
+        # un-allowlisted id a silent no-op instead of a crash.
+        var_id, n = value
+        section = "varps" if cond_type == "varp" else "varbits"
+        vars_map = (state.get("vars") or {}).get(section) or {}
+        raw = vars_map.get(str(var_id))  # keys are string ids (Gson-verbatim)
+        if raw is None:
+            return False
+        if operator == "<=":
+            return raw <= n
+        elif operator == ">=":
+            return raw >= n
+        elif operator == "<":
+            return raw < n
+        elif operator == ">":
+            return raw > n
+        else:
+            return raw == n
+
     return False
 
 
@@ -703,6 +756,9 @@ Supported conditions:
 - inventory_count:<=N or >=N or <N or >N - Slot count comparison
 - location:X,Y - Player within 3 tiles of coordinates
 - idle - Player not moving
+- tutorial_progress:>=N / <=N / <N / >N / N - Tutorial Island varbit-281 gate
+- varp:<id>:>=N / <=N / <N / >N / N - VarPlayer <id> value comparison
+- varbit:<id>:>=N / <=N / <N / >N / N - Varbit <id> value comparison
 
 Examples: 'plane:2', 'has_item:Pot of flour', 'no_item:Grain', 'inventory_count:<=5'""",
     "inputSchema": {

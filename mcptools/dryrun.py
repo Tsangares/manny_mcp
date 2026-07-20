@@ -166,7 +166,8 @@ class StateModel:
     """
 
     def __init__(self, location=(3222, 3218, 0), inventory=None, skills=None,
-                 dialogue_open=False, is_moving=False, tutorial_progress=None):
+                 dialogue_open=False, is_moving=False, tutorial_progress=None,
+                 varps=None, varbits=None):
         self.x, self.y, self.plane = location
         # inventory: list of {"name": str, "qty": int}
         self.items = [dict(i) for i in (inventory or [])]
@@ -183,6 +184,13 @@ class StateModel:
         # progress: null when logged out -- so a tutorial_progress: await against
         # this fixture evaluates unknown (never satisfied) unless a test sets it.
         self.tutorial_progress = tutorial_progress
+        # QUEST (task #26): generic var export, keyed by str(id) mirroring the
+        # plugin's Gson-verbatim shape (state["vars"]["varps"/"varbits"]).
+        # Empty dict, not None, so a varp:/varbit: await against an unset id
+        # evaluates unknown (not satisfied) -- same "absent -> unknown" honesty
+        # as tutorial_progress being None.
+        self.varps = dict(varps) if varps else {}
+        self.varbits = dict(varbits) if varbits else {}
 
     def add_item(self, name, qty=1, stackable=False):
         if stackable:
@@ -223,6 +231,9 @@ class StateModel:
             "dialogue": {"open": self.dialogue_open},
             # TUTORIAL: top-level section mirroring the plugin's export shape.
             "tutorial": {"progress": self.tutorial_progress},
+            # QUEST (task #26): top-level section mirroring the plugin's
+            # StateExporter.buildVarState() export shape.
+            "vars": {"varps": self.varps, "varbits": self.varbits},
         }
 
 
@@ -464,6 +475,19 @@ class DryRunInterpreter:
                 m.tutorial_progress = max(0, value - 1)
             else:  # ">=", "<=", "=="
                 m.tutorial_progress = value
+        elif ctype in ("varp", "varbit"):
+            # QUEST (task #26): varp/varbit values are game-truth (server-driven
+            # quest/counter state) that no simulated command sets -- same
+            # rationale as the tutorial_progress arming assumption above.
+            # Optimistically arm the modeled var to satisfy the declared gate.
+            var_id, n = value
+            section = m.varps if ctype == "varp" else m.varbits
+            if op == ">":
+                section[str(var_id)] = n + 1
+            elif op == "<":
+                section[str(var_id)] = max(0, n - 1)
+            else:  # ">=", "<=", "=="
+                section[str(var_id)] = n
         else:
             return False
         return True
