@@ -24,6 +24,18 @@
 # FIXED on jar 2fcb602 (defects log line 327-329) -- INTERACT_OBJECT is used
 # directly below instead of the driver's hover-sweep workaround.
 #
+# DEFECT (attempt #9, run 20260720T030434Z, malikreyes): step 18's
+# CLICK_WIDGET 20447241 (dagger selection) failed 5x/32s right after step 17's
+# anvil interact "succeeded" with zero settle gap. Receipts-checked against
+# attempt #6 (judeaislam, run 20260720T004946Z), which smithed the dagger on
+# this SAME widget_id on byte-identical code (git log --follow: steps 17/18
+# untouched since 3b59347) -- per-run nondeterminism on unchanged code is a
+# TIMING RACE signature, not a stale id (a stale id fails every account, not
+# intermittently). FIX: step 17 gained delay_after_ms:1000 + on_failure
+# retry:2 (house pattern, 09_banking.yaml step 6 / commit 736c5a8). Step 18's
+# widget_id/mechanism is UNCHANGED (the evidence does not support replacing
+# it). No speculative post-smith progress gate was added -- see step 18 notes.
+#
 # AUTHORING RULE (Track E phase-1b, live 2026-07-18): interact-by-name
 # (INTERACT_OBJECT / INTERACT_NPC / USE_ITEM_ON_OBJECT) resolves to the NEAREST
 # match, so it MUST be position-pinned with a preceding GOTO (+ location await)
@@ -232,6 +244,8 @@ steps:
     action: USE_ITEM_ON_OBJECT
     args: "Bronze bar Anvil"
     delay_before_ms: 1000
+    delay_after_ms: 1000
+    on_failure: "retry:2"
     notes: |
       ITEM NAME MUST BE THE FULL 'Bronze bar' -- NOT the partial 'bronze'.
       Same substring-collision class as step 11: 'bronze' .contains()-matches
@@ -239,6 +253,18 @@ steps:
       BEFORE 'Bronze bar', so the partial would use the AXE on the anvil and
       open no interface. Full 'Bronze bar' resolves uniquely. Opens the
       smithing item-selection interface.
+
+      SETTLE DELAY (fix for DEFECT run 20260720T030434Z, malikreyes/attempt #9):
+      delay_after_ms 1000 + on_failure retry:2 added, house pattern per
+      09_banking.yaml step 6 / commit 736c5a8 (same class: an interface/mesbox
+      opened by an interact needs a beat to settle before the NEXT step reaches
+      into it). Attempt #9 fired step 18's CLICK_WIDGET in the SAME SECOND as
+      this step's "Successfully used" log line (zero gap) and the widget lookup
+      failed 15x (5 outer x 3 engine-internal WidgetClickHelper attempts) over
+      32s -- consistent with the smithing interface not yet being attached to
+      the widget tree when the first lookups ran, not with a wrong id (see step
+      18 notes for the full receipts comparison against attempt #6's PASS on
+      byte-identical code).
 
   - id: 18
     description: "Smith the bronze dagger (real widget-ID click, NOT CLICK_AT)"
@@ -251,6 +277,47 @@ steps:
     notes: |
       MUST click by widget_id (Mode 3 -> plain 'CLICK_WIDGET 20447241', no action).
       LIVE-PROVEN both accounts + blast 2026-07-19: this smiths the dagger.
+
+      DEFECT run 20260720T030434Z (malikreyes/attempt #9, journals/2026-07-20_
+      tutorial_attempt9_malikreyes_llama.md): this same CLICK_WIDGET 20447241
+      failed 5x over 32s ("Widget 20447241 not found or hidden after 3 attempts"
+      -- WidgetClickHelper's own 3-attempt/500ms internal retry, x5 outer
+      repeat_until retries) right after USE_ITEM_ON_OBJECT Bronze bar Anvil
+      "succeeded" with zero settle gap (both log lines landed in the same
+      second). The repeat_until has_item cap exhausted honestly; strict_steps
+      failed the section; chain stopped at varp 340 -- no false pass.
+
+      RECEIPTS-RULE CHECK (contradiction resolved): attempt #6 (judeaislam,
+      journals/2026-07-20_tutorial_attempt6_judeaislam_llama.md) SMITHED THE
+      DAGGER on this exact step -- SAME widget_id 20447241, same file bytes
+      (git log --follow confirms zero commits touched steps 17/18 between
+      3b59347, the id's introduction on 2026-07-19, and attempt #9's run on
+      2026-07-20; the intervening commits b9a754d/732efd7/070d159 only touched
+      GOTO exact-mode flags and config.strict_steps). Two accounts/sessions
+      (the original blast-run discovery + judeaislam/#6) proved this id BEFORE
+      attempt #9, and it failed on a THIRD account (malikreyes/#9) with no code
+      change in between -- that per-run (not per-id) nondeterminism is the
+      signature of a TIMING RACE (interface not yet attached to the widget tree
+      when the click landed), not a stale/wrong id. A stale id would fail
+      consistently for every account once it drifted, not intermittently on
+      byte-identical code. VERDICT: timing race. Fix applied at step 17
+      (delay_after_ms settle + on_failure retry, see its notes) rather than
+      changing the click mechanism here.
+
+      NO SPECULATIVE POST-SMITH PROGRESS GATE ADDED: checked 00_master.yaml's
+      own wiki-sourced varp-281 ladder (in 08_combat.yaml's header and
+      00_master.yaml's progress_gate comments) for a documented "dagger
+      smithed" value to WAIT on here. The only two documented boundaries this
+      section touches are 250 (climb down ladder, prior section) and 370
+      ("combat section starts" = this section's own exit gate) -- and 370 is
+      explicitly annotated elsewhere as "370 talk to Vannaka (Combat
+      Instructor) -> 390", i.e. the FIRST action of the NEXT section
+      (08_combat.yaml step 2), not an action inside this one. Attempt #9's own
+      receipt shows varp only at 340 after mining+smelting, before the failed
+      click -- no journal or wiki source in-tree gives a distinct varp value
+      for "dagger smithed" specifically. Per the no-speculation rule, step 18
+      keeps repeat_until has_item:"Bronze dagger" as its SOLE honest gate; no
+      WAIT tutorial_progress step was added after it.
 
       DO NOT use text:/action: here. handle_click_widget with text="Dagger" or
       action="Smith" finds the cell but its SCAN bounds are INTERFACE-RELATIVE
