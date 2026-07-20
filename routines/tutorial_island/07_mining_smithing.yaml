@@ -24,17 +24,47 @@
 # FIXED on jar 2fcb602 (defects log line 327-329) -- INTERACT_OBJECT is used
 # directly below instead of the driver's hover-sweep workaround.
 #
-# DEFECT (attempt #9, run 20260720T030434Z, malikreyes): step 18's
-# CLICK_WIDGET 20447241 (dagger selection) failed 5x/32s right after step 17's
-# anvil interact "succeeded" with zero settle gap. Receipts-checked against
-# attempt #6 (judeaislam, run 20260720T004946Z), which smithed the dagger on
-# this SAME widget_id on byte-identical code (git log --follow: steps 17/18
-# untouched since 3b59347) -- per-run nondeterminism on unchanged code is a
-# TIMING RACE signature, not a stale id (a stale id fails every account, not
-# intermittently). FIX: step 17 gained delay_after_ms:1000 + on_failure
-# retry:2 (house pattern, 09_banking.yaml step 6 / commit 736c5a8). Step 18's
-# widget_id/mechanism is UNCHANGED (the evidence does not support replacing
-# it). No speculative post-smith progress gate was added -- see step 18 notes.
+# DEFECT (attempt #9 run 20260720T030434Z + attempt #10 run 20260720T033045Z,
+# malikreyes): step 18's CLICK_WIDGET 20447241 (dagger) failed 5x right after
+# step 17's anvil USE_ITEM_ON_OBJECT "succeeded". The attempt-#9 diagnosis
+# (settle-race; fix 215f400 added delay_after_ms:1000 + retry:2 on the anvil
+# step) is FALSIFIED by attempt #10: with 215f400 DEPLOYED the SAME failure
+# recurred in ~3 min, and the receipt (journals/images/2026-07-20_malikreyes_
+# attempt10_s07_smithing_fail.png) shows the smithing interface NOT open, an
+# undismissed "Nothing interesting happens" mesbox on screen, and the tutorial
+# hint "Click the anvil to begin smithing". A widget absent 31s after a
+# "successful" interact was never a settle race.
+#
+# TRUE ROOT CAUSE (receipts): an undismissed modal MESSAGEBOX/OBJECTBOX blocks
+# the anvil interaction. USE_ITEM_ON_OBJECT logs "Successfully used" (the click
+# dispatched) while the game answers "Nothing interesting happens" and opens no
+# interface -- the #1 defect class (command success != objective progress). The
+# modal survives because DEFECT-31 (manny ad86afa) is COMMITTED BUT UNDEPLOYED
+# (rides window #4); on the live jar d0668f58 these modals render
+# dialogue.open:false (attempt #10's state JSON showed exactly this while the
+# mesbox was on screen), so every check-first `repeat_until:no_dialogue` drain
+# in this section no-ops ZERO presses against them and leaves the modal up.
+# Attempt #6 PASSED on byte-identical YAML only because its fresh straight-
+# through timing happened to clear the trailing modal; #9/#10 did not (and #10's
+# resume at varp 340 re-ran the mine/smelt/talk steps at a stage where those
+# objectives are already done, seeding extra "Nothing interesting happens"
+# modals). Pass/fail was a timing lottery, not a stale id.
+#
+# FIX (this pass): (a) the pre-anvil dialogue drains (steps 15, 19) are now
+# BLIND fixed-count Space (DEFECT-31 house pattern, cf. 08_combat step 3 /
+# 09_banking step 7 / 10_prayer_magic), not check-first no_dialogue; (b) a
+# dedicated blind Space drain (step 16b) clears any modal IMMEDIATELY before the
+# anvil; (c) the loop SCOPE is fixed -- the anvil-open and dagger-click were
+# separate steps so the dagger-click's repeat_until retried the widget click
+# ALONE against a never-opened interface; steps 16b/17/18 are now wrapped in an
+# inner loop (start 16b, end 18, exit has_item:"Bronze dagger") so each retry
+# re-drains the modal AND re-uses the bar on the anvil AND re-clicks -- the FULL
+# sequence. has_item:"Bronze dagger" stays the SOLE honest terminal gate; no
+# speculative varp gate. The anvil verb stays USE_ITEM_ON_OBJECT (attempt #6
+# receipt proves it opens the interface when not modal-blocked -- switching to
+# INTERACT_OBJECT would be speculative). 215f400's settle delay_after_ms:1000 is
+# kept on the anvil step; its now-redundant on_failure:retry:2 is dropped (the
+# inner loop owns re-attempts).
 #
 # AUTHORING RULE (Track E phase-1b, live 2026-07-18): interact-by-name
 # (INTERACT_OBJECT / INTERACT_NPC / USE_ITEM_ON_OBJECT) resolves to the NEAREST
@@ -224,13 +254,24 @@ steps:
     delay_before_ms: 1000
 
   - id: 15
-    description: "Advance smithing-intro dialogue"
+    description: "Advance smithing-intro dialogue -- blind Space drain (DEFECT-31)"
     action: KEY_PRESS
     args: "Space"
-    repeat_until: "no_dialogue"
+    repeat: 6
     delay_before_ms: 1000
+    notes: |
+      Was `repeat_until: no_dialogue`. DEFECT-31 (manny ad86afa, committed but
+      UNDEPLOYED; live jar d0668f58 is blind to modal mesboxes): the instructor's
+      smithing-intro can trail a MESSAGEBOX/OBJECTBOX that renders
+      dialogue.open:false, so a check-first no_dialogue drain no-ops zero presses
+      and leaves the modal UP -- and an undismissed modal then blocks the anvil
+      ("Nothing interesting happens", attempt #10 screenshot). Blind fixed-count
+      Space instead (house pattern: 08_combat step 3 / 09_banking step 7). Extra
+      presses after the dialogue closes are inert on Tutorial Island.
 
-  # POSITION-PIN before smithing: USE_ITEM_ON_OBJECT is range-based.
+  # POSITION-PIN before smithing: USE_ITEM_ON_OBJECT is range-based. Step 16
+  # walks to the anvil ONCE (outside the inner loop); the widget-id click path
+  # never moves the player, so re-attempts re-use this seating.
   - id: 16
     description: "Walk to the Anvil"
     action: GOTO
@@ -239,32 +280,52 @@ steps:
     await_condition: "location:3083,9499"
     timeout_ms: 60000
 
+  # --- ANVIL SEQUENCE: inner-loop re-attempted as ONE unit (see `loop:` at EOF).
+  # Steps 16b/17/18 are the inner range; on failure the whole [drain -> anvil ->
+  # click] re-runs, exit only on has_item:"Bronze dagger". THIS is the loop-scope
+  # fix: the dagger-click used to retry ALONE against an interface that never
+  # opened because a modal blocked the anvil.
+  - id: 16b
+    description: "Clear any modal mesbox before the anvil (blind Space drain)"
+    action: KEY_PRESS
+    args: "Space"
+    repeat: 4
+    delay_before_ms: 500
+    notes: |
+      DEFECT-31 pre-anvil drain -- THE core fix. At the "Click the anvil to begin
+      smithing" stage a MESSAGEBOX/OBJECTBOX modal ("Nothing interesting happens"
+      or a smithing-intro trailer) can be up; on the live (DEFECT-31-undeployed)
+      jar d0668f58 it renders dialogue.open:false so no upstream no_dialogue drain
+      cleared it, and a live modal BLOCKS the anvil interaction -> the USE_ITEM
+      below logs "Successfully used" while the game opens no interface (attempt
+      #10 screenshot receipt). This drain runs INSIDE the inner loop, so it
+      re-clears a modal on EVERY re-attempt. Blind fixed-count (not check-first)
+      precisely because DEFECT-31 makes the modal invisible to a no_dialogue gate.
+      Extra presses after the modal closes are inert on Tutorial Island.
+
   - id: 17
-    description: "Open smithing interface at anvil"
+    description: "Open smithing interface at anvil (bar-on-anvil)"
     action: USE_ITEM_ON_OBJECT
     args: "Bronze bar Anvil"
     delay_before_ms: 1000
     delay_after_ms: 1000
-    on_failure: "retry:2"
     notes: |
       ITEM NAME MUST BE THE FULL 'Bronze bar' -- NOT the partial 'bronze'.
       Same substring-collision class as step 11: 'bronze' .contains()-matches
       'Bronze axe' (slot 2, from woodcutting) and 'Bronze pickaxe' (slot 7)
       BEFORE 'Bronze bar', so the partial would use the AXE on the anvil and
-      open no interface. Full 'Bronze bar' resolves uniquely. Opens the
-      smithing item-selection interface.
+      open no interface. Full 'Bronze bar' resolves uniquely.
 
-      SETTLE DELAY (fix for DEFECT run 20260720T030434Z, malikreyes/attempt #9):
-      delay_after_ms 1000 + on_failure retry:2 added, house pattern per
-      09_banking.yaml step 6 / commit 736c5a8 (same class: an interface/mesbox
-      opened by an interact needs a beat to settle before the NEXT step reaches
-      into it). Attempt #9 fired step 18's CLICK_WIDGET in the SAME SECOND as
-      this step's "Successfully used" log line (zero gap) and the widget lookup
-      failed 15x (5 outer x 3 engine-internal WidgetClickHelper attempts) over
-      32s -- consistent with the smithing interface not yet being attached to
-      the widget tree when the first lookups ran, not with a wrong id (see step
-      18 notes for the full receipts comparison against attempt #6's PASS on
-      byte-identical code).
+      VERB IS EVIDENCE-BACKED: attempt #6 (judeaislam) smithed the dagger with
+      exactly this USE_ITEM_ON_OBJECT Bronze bar Anvil -- proof the verb opens
+      the smithing interface WHEN NOT modal-blocked. So the "Nothing interesting
+      happens" failure in #9/#10 is the modal blocker (cleared by step 16b), NOT
+      a wrong verb; switching to INTERACT_OBJECT Anvil would be speculative.
+
+      SETTLE DELAY: delay_after_ms 1000 kept from 215f400 (a beat before the
+      widget lookup). on_failure:retry:2 was DROPPED -- the inner loop (EOF) now
+      owns re-attempts of this whole sequence, and 215f400's settle-race theory
+      it was added for is falsified (attempt #10, see header).
 
   - id: 18
     description: "Smith the bronze dagger (real widget-ID click, NOT CLICK_AT)"
@@ -278,31 +339,19 @@ steps:
       MUST click by widget_id (Mode 3 -> plain 'CLICK_WIDGET 20447241', no action).
       LIVE-PROVEN both accounts + blast 2026-07-19: this smiths the dagger.
 
-      DEFECT run 20260720T030434Z (malikreyes/attempt #9, journals/2026-07-20_
-      tutorial_attempt9_malikreyes_llama.md): this same CLICK_WIDGET 20447241
-      failed 5x over 32s ("Widget 20447241 not found or hidden after 3 attempts"
-      -- WidgetClickHelper's own 3-attempt/500ms internal retry, x5 outer
-      repeat_until retries) right after USE_ITEM_ON_OBJECT Bronze bar Anvil
-      "succeeded" with zero settle gap (both log lines landed in the same
-      second). The repeat_until has_item cap exhausted honestly; strict_steps
-      failed the section; chain stopped at varp 340 -- no false pass.
-
-      RECEIPTS-RULE CHECK (contradiction resolved): attempt #6 (judeaislam,
-      journals/2026-07-20_tutorial_attempt6_judeaislam_llama.md) SMITHED THE
-      DAGGER on this exact step -- SAME widget_id 20447241, same file bytes
-      (git log --follow confirms zero commits touched steps 17/18 between
-      3b59347, the id's introduction on 2026-07-19, and attempt #9's run on
-      2026-07-20; the intervening commits b9a754d/732efd7/070d159 only touched
-      GOTO exact-mode flags and config.strict_steps). Two accounts/sessions
-      (the original blast-run discovery + judeaislam/#6) proved this id BEFORE
-      attempt #9, and it failed on a THIRD account (malikreyes/#9) with no code
-      change in between -- that per-run (not per-id) nondeterminism is the
-      signature of a TIMING RACE (interface not yet attached to the widget tree
-      when the click landed), not a stale/wrong id. A stale id would fail
-      consistently for every account once it drifted, not intermittently on
-      byte-identical code. VERDICT: timing race. Fix applied at step 17
-      (delay_after_ms settle + on_failure retry, see its notes) rather than
-      changing the click mechanism here.
+      THE ID IS NOT THE DEFECT (id 20447241 confirmed good on 3+ sessions:
+      blast-run discovery, judeaislam/#6, and the widget-tree group is static --
+      see below). Attempt #9/#10's "Widget 20447241 not found or hidden" is the
+      DOWNSTREAM symptom of a modal-blocked anvil: USE_ITEM_ON_OBJECT logged
+      "Successfully used" but opened NO interface (attempt #10 screenshot), so
+      there was no dagger cell for this click to find. The prior "timing race"
+      verdict (fix 215f400: settle delay + retry on the anvil step) was FALSIFIED
+      by attempt #10 -- the failure recurred in ~3 min WITH 215f400 deployed, and
+      the interface was demonstrably never open. Root cause is the undismissed
+      modal (DEFECT-31, header); the cure is step 16b's pre-anvil blind drain +
+      the inner loop re-attempting the whole [drain -> anvil -> click] sequence,
+      so this click now only ever fires against an interface that was actually
+      opened on the same inner pass. This step's widget_id/mechanism is UNCHANGED.
 
       NO SPECULATIVE POST-SMITH PROGRESS GATE ADDED: checked 00_master.yaml's
       own wiki-sourced varp-281 ladder (in 08_combat.yaml's header and
@@ -337,11 +386,18 @@ steps:
       which is what triggered the CLICK_AT-walk-north failure described above.
 
   - id: 19
-    description: "Advance dialogue after smithing"
+    description: "Advance dialogue after smithing -- blind Space drain (DEFECT-31)"
     action: KEY_PRESS
     args: "Space"
-    repeat_until: "no_dialogue"
+    repeat: 6
     delay_before_ms: 1000
+    notes: |
+      Was `repeat_until: no_dialogue`. Same DEFECT-31 class as step 15: the
+      post-smith completion message can be a modal invisible to a check-first
+      no_dialogue drain, and a lingering modal here would block the gate 'Open'
+      (step 21) that advances varp to 370 (section exit). Blind fixed-count Space;
+      extra presses are inert on Tutorial Island. Reached only AFTER the inner
+      loop exits with the dagger (on_exit: goto_step:19).
 
   # POSITION-PIN before the gate: INTERACT_OBJECT is range-based and step 16-18
   # left us at the anvil (~3083,9499), ~12 tiles from the gate. Without this
@@ -366,6 +422,29 @@ steps:
       Gate at (3094,9502/9503) leads east to combat. 08_combat.yaml step 1 adds
       a defensive GOTO to the combat instructor (3104,9509) as the safety net if
       this open doesn't fully seat the transition.
+
+# ANVIL RE-ATTEMPT LOOP (the loop-scope fix, attempt #10 falsification of 215f400):
+# steps 16b -> 18 ([blind modal drain] -> [use bar on anvil] -> [click dagger])
+# are re-attempted AS ONE UNIT until the dagger is in inventory. Previously only
+# the dagger-click (step 18) had a repeat_until, so it retried the widget click
+# ALONE against an interface a modal had prevented from opening. Now a failed pass
+# jumps back to step 16b and re-drains the modal + re-uses the bar + re-clicks.
+# exit_conditions has_item:"Bronze dagger" is the SOLE honest terminal gate (no
+# speculative varp gate). If 3 consecutive inner passes fail (the engine's
+# max_inner_consecutive_failures), the loop exits via on_exit and strict_steps
+# fails the section honestly -- no false pass, chain stops (as attempts #9/#10
+# already did, but now only after re-attempting the FULL sequence, not the click).
+# GOTO to the anvil (step 16) is OUTSIDE this range: the widget-id click never
+# moves the player, so one seating suffices. on_exit lands on step 19 (post-smith
+# drain), the first step after the anvil sequence.
+loop:
+  inner:
+    enabled: true
+    start_step: 16b
+    end_step: 18
+    exit_conditions:
+      - "has_item:Bronze dagger"
+    on_exit: "goto_step:19"
 
 # PITFALLS DISCOVERED (carried over + Driver #2 2026-07-17):
 # 1. Multiple rock types - identify tin (bluish) vs copper (brown/orange) by appearance
