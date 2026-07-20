@@ -1,26 +1,36 @@
 # Tutorial Island - Part 5: Cooking Exit to Quest Guide
-# STATUS: REPAIRED 2026-07-19 (LANE-2 revert of the exact-mode regression on the
-#         cooking-exit leg; ladder pins kept exact — see below)
+# STATUS: REPAIRED 2026-07-19 (attempt #5 diagnosis — cooking-exit bridge GOTOs
+#         restored to `exact`, reproducing the attempt-#1 passing config 402950b)
 #
 # This routine handles the navigation from the Cooking section to Quest Guide building.
 # CRITICAL: The path from cooking exit requires going WEST (onto the door tile) first,
 # then NORTH along the western edge in short hops. Direct north paths are blocked by
 # invisible fences and NAV-DIRECT cannot dogleg west-through-door-then-north.
 #
-# EXACT-MODE REVERT (2026-07-19, attempt #3 live diagnosis): the cooking-exit leg
-# GOTOs (steps 1,3,4,5,6,7,8) are PLAIN mode again — the ` exact` suffix that was
-# added in commit 363d1c4 (and the header premise that plain's 3-tile slop caused
-# the stall) was REGRESSED and is now reverted. Live evidence: `exact` mode HARD-FAILS
-# on partial arrival (GotoCommand short-circuits plain mode to SUCCESS within 3 tiles;
-# exact's stepOntoExactTile bails when >5 tiles out and does NOT self-correct forward).
-# On attempt #3, `GOTO 3073 3090 0 exact` undershot to (3076,3088), hard-failed instead
-# of crawling forward, the exit door re-closed, and the player was sealed into a walled
-# pocket at (3078,3097). Attempt #1 passed this exact leg on PLAIN GOTOs: plain's 3-tile
-# slop + next-hop minimap nudges are a forgiving, self-correcting crawl, and the
-# `location:X,Y` awaits (3-tile Chebyshev tolerance, see ROUTINE_SCHEMA.md (c)) match
-# plain's slop exactly. This reproduces the attempt-#1 baseline for this leg.
-# The ladder-pin legs (12d/12e, tile 3088,3120) STAY `exact` — those are the one
-# live-earned defect where a precise seat is required (range-based Climb-down).
+# EXACT-MODE RESTORE (2026-07-19, attempt #5 diagnosis): the cooking-exit leg GOTOs
+# (steps 1,3,4,5,6,7,8) carry the ` exact` suffix AGAIN. History, corrected:
+#   * Attempt #1 (punitpun) PASSED this leg first-contact — and it ran commit 402950b,
+#     which had these GOTOs in `exact` mode (NOT plain; the earlier header claim that
+#     attempt #1 used plain GOTOs was wrong — verified against the git blame/run time).
+#   * The blast lane-2 regression run and attempt #5 (karldakilla) BOTH wedged on PLAIN
+#     mode: `GOTO 3072 3090 0` (plain) left the player at (3074,3091), 2 tiles EAST of
+#     the x=3072 corridor, and every northward hop then failed
+#     "[NAV-LOOKAHEAD] Player didn't move ... path blocked by wall/obstacle". Root cause
+#     is the DEFECT-7 short-circuit (GotoCommand.java:152): plain GOTO reports SUCCESS
+#     without moving whenever it is already within 3 tiles, so `GOTO 3072 3090` never
+#     steps the player the 2 tiles WEST onto the corridor; the follower then A*-hugs the
+#     wall from the wrong (east) side and stalls, repeatedly re-detecting the (now open)
+#     door WallObject at (3072,3090) as the blocker.
+#   * The attempt-#3 walled-pocket that motivated the plain REVERT (070d159) was NOT
+#     caused by exact mode — it was the progress-gate skip (05_cooking gate 120, which
+#     section 04 already reached at 130) that ran 05b with the player OUTSIDE the kitchen
+#     at a wrong start tile. That gate bug was fixed AFTER the revert (commit 31504fb,
+#     gate 120->170). With the player correctly INSIDE (attempt #5 cooked in, door opened
+#     16:53), exact-arrival seats x=3072 in ≤8 short hops within its 5-tile refine range
+#     (NavigationHelpers.stepOntoExactTile) — exactly how attempt #1 crossed cleanly.
+# The `location:X,Y` awaits (3-tile Chebyshev tolerance, ROUTINE_SCHEMA.md (c)) stay as
+# secondary confirms; exact GOTO now guarantees the literal tile before they check.
+# The ladder-pin legs (12d/12e, tile 3088,3120) are also `exact` (range-gated Climb-down).
 #
 # Previous section: 04_woodcutting_firemaking.yaml (ends with baking bread)
 # Next section: 06_quest_guide.yaml (now merged into this file)
@@ -61,9 +71,9 @@ config:
 steps:
   # CRITICAL: settle IN FRONT of door before trying to open it
   - id: 1
-    description: "Walk to cooking exit door and settle"
+    description: "Walk to cooking exit door and settle (exact-arrival)"
     action: GOTO
-    args: "3073 3090 0"
+    args: "3073 3090 0 exact"
     await_condition: "location:3073,3090"
     timeout_ms: 60000
     delay_after_ms: 1500
@@ -81,56 +91,60 @@ steps:
     delay_after_ms: 1000
 
   - id: 3
-    description: "Step ONTO the door tile (west corridor) once it is open"
+    description: "Step ONTO the door tile (west corridor) once it is open (exact-arrival)"
     action: GOTO
-    args: "3072 3090 0"
+    args: "3072 3090 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3090"
     timeout_ms: 60000
     notes: |
       Head WEST onto the door tile before any north hop; NAV-DIRECT cannot dogleg
-      through the door. PLAIN mode (reverted from `exact` on 2026-07-19): plain's
-      3-tile short-circuit + minimap nudges self-correct the crawl west onto x=3072;
-      the `location:3072,3090` await (3-tile Chebyshev tolerance) confirms arrival.
-      Attempt #1 cleared this leg on plain GOTOs; `exact` here hard-failed on partial
-      arrival and sealed the player into a walled pocket (attempt #3).
+      through the door. THIS IS THE WEDGE-FIX HOP. In PLAIN mode the DEFECT-7 short-
+      circuit (GotoCommand.java:152: distance <= 3 => SUCCESS without moving) leaves the
+      player at (3074,3091), 2 tiles EAST of x=3072, and every north hop then wall-stalls
+      (attempt #5 / blast lane-2). `exact` skips that short-circuit and refines the 2
+      tiles west ONTO x=3072 (stepOntoExactTile, ≤8 hops within a 5-tile range) — the
+      same seat that let attempt #1 (commit 402950b, exact) cross this leg cleanly.
 
   - id: 4
-    description: "North hop 1 along west edge (stays on x=3072)"
+    description: "North hop 1 along west edge (exact-arrival, stays on x=3072)"
     action: GOTO
-    args: "3072 3096 0"
+    args: "3072 3096 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3096"
     timeout_ms: 60000
+    notes: |
+      Exact so the hop lands ON x=3072 and stays in the corridor; a plain hop can
+      short-circuit ~3 tiles out and drift back east off the wall line.
 
   - id: 5
-    description: "North hop 2 along west edge"
+    description: "North hop 2 along west edge (exact-arrival)"
     action: GOTO
-    args: "3072 3106 0"
+    args: "3072 3106 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3106"
     timeout_ms: 60000
 
   - id: 6
-    description: "North hop 3 along west edge"
+    description: "North hop 3 along west edge (exact-arrival)"
     action: GOTO
-    args: "3072 3112 0"
+    args: "3072 3112 0 exact"
     delay_before_ms: 500
     await_condition: "location:3072,3112"
     timeout_ms: 60000
 
   - id: 7
-    description: "Walk toward Quest Guide building"
+    description: "Walk toward Quest Guide building (exact-arrival)"
     action: GOTO
-    args: "3080 3120 0"
+    args: "3080 3120 0 exact"
     delay_before_ms: 500
     await_condition: "location:3080,3120"
     timeout_ms: 60000
 
   - id: 8
-    description: "Walk to Quest Guide door"
+    description: "Walk to Quest Guide door (exact-arrival for the door interact)"
     action: GOTO
-    args: "3086 3125 0"
+    args: "3086 3125 0 exact"
     delay_before_ms: 500
     await_condition: "location:3086,3125"
     timeout_ms: 60000
@@ -281,14 +295,18 @@ steps:
 #    (arrival must settle -- add delay_after_ms; an un-settled arrival misses the Open click)
 # 2. After opening the door, step ONTO the door tile (3072, 3090) BEFORE heading north.
 #    NAV-DIRECT cannot dogleg west-through-door-then-north; use explicit waypoints.
-#    USE PLAIN MODE (NOT `exact`) on this seat + every north hop. This leg was
-#    reverted from `exact` on 2026-07-19: `exact` HARD-FAILS on partial arrival and
-#    does not self-correct forward -- on attempt #3 `GOTO 3073 3090 exact` undershot
-#    to (3076,3088), hard-failed, the door re-closed, and the player was sealed into
-#    a walled pocket at (3078,3097). Plain mode's 3-tile short-circuit + minimap
-#    next-hop nudges are a forgiving self-correcting crawl; attempt #1 cleared this
-#    entire leg on plain GOTOs. The `location:X,Y` awaits are 3-tile Chebyshev
-#    tolerant (ROUTINE_SCHEMA.md (c)), so they match plain's slop and confirm arrival.
+#    USE `exact` MODE on this seat + every north hop (steps 1,3,4,5,6,7,8). PLAIN mode
+#    is the wedge: the DEFECT-7 short-circuit (GotoCommand.java:152: distance <= 3 =>
+#    SUCCESS without moving) leaves the player at (3074,3091), 2 tiles EAST of x=3072,
+#    and every north hop then stalls "[NAV-LOOKAHEAD] Player didn't move ... path blocked
+#    by wall/obstacle", re-detecting the open door WallObject at (3072,3090) as the
+#    blocker (attempt #5 karldakilla; blast lane-2). `exact` skips the short-circuit and
+#    refines onto x=3072 (≤8 hops within a 5-tile range) — the config attempt #1 passed on
+#    (commit 402950b). The attempt-#3 walled-pocket that once justified reverting to plain
+#    was the progress-gate skip (05_cooking gate 120 vs 04 reaching 130) running 05b with
+#    the player OUTSIDE at a wrong start tile — fixed separately in 31504fb (gate ->170),
+#    not an exact-mode fault. The `location:X,Y` awaits (3-tile Chebyshev, ROUTINE_SCHEMA.md
+#    (c)) stay as secondary confirms after exact guarantees the literal tile.
 # 3. Direct north paths from cooking are blocked by invisible fences -- hug the west edge (x=3072)
 # 4. Navigate north in short (<=10-tile) hops, each with a plain GOTO + location await
 # 5. Quest Guide dialogue has multiple "Click here to continue" screens. EXHAUST them
