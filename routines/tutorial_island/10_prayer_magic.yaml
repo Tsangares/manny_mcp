@@ -177,12 +177,20 @@ steps:
   - id: 2
     description: "Open door to Account Guide room (defensive -- door may have auto-closed)"
     action: INTERACT_OBJECT
-    args: "Door Open"
+    args: "Door Open 3125 3124"
     delay_before_ms: 1000
     notes: |
       Door at (3125, 3124) -- CONFIRMED, Driver #4. DOOR-CROSSING v2: no
       delay_after padding -- minimize the gap before the through-walk (next
       step) so the crossing lands during the still-open window.
+      COORDINATE-QUALIFIED (attempt #12 fix, 2026-07-20, jar >= 421c03e9,
+      manny 7f42b54, COMMAND_REFERENCE.md "Optional coordinate qualifier"):
+      `3125 3124` is this file's own `account_guide_door` location (declared
+      above, same door 09_banking_to_account_guide.yaml step 2 opens) --
+      added as belt-and-suspenders on top of the step-1 exact seat after
+      09_banking.yaml's sibling entry door was found to resolve to the wrong
+      "Door" among 5 in range (journals/2026-07-20_tutorial_attempt12_
+      malikreyes_llama.md).
 
   - id: 3
     description: "Through-walk PAST the threshold to the Account Guide's tile (plain GOTO, not onto the door tile)"
@@ -316,12 +324,18 @@ steps:
   - id: 13
     description: "Open east door to outside"
     action: INTERACT_OBJECT
-    args: "Door Open"
+    args: "Door Open 3130 3124"
     delay_before_ms: 1000
     notes: |
       DOOR-CROSSING v2: no delay_after padding -- minimize the gap before
       the through-walk (next step) so the crossing lands during the
       still-open window.
+      COORDINATE-QUALIFIED (attempt #12 fix, 2026-07-20, jar >= 421c03e9,
+      manny 7f42b54, COMMAND_REFERENCE.md "Optional coordinate qualifier"):
+      `3130 3124` is this file's own documented `east_door` location above
+      -- added as belt-and-suspenders on top of the step-12 exact seat, same
+      identical-objects doctrine that fixed 09_banking.yaml's entry door
+      (journals/2026-07-20_tutorial_attempt12_malikreyes_llama.md).
 
   - id: 14
     description: "Through-walk PAST the threshold to outside (plain GOTO, not onto the door tile)"
@@ -458,8 +472,19 @@ steps:
   - id: 24
     description: "Exit chapel through door"
     action: INTERACT_OBJECT
-    args: "Door Open"
+    args: "Door Open 3122 3102"
     delay_before_ms: 1000
+    notes: |
+      Door at this file's own documented `chapel_exit_door` location
+      (3122,3102, declared above -- also step 23's own GOTO target).
+      COORDINATE-QUALIFIED (attempt #12 fix, 2026-07-20, jar >= 421c03e9,
+      manny 7f42b54, COMMAND_REFERENCE.md "Optional coordinate qualifier"):
+      added as belt-and-suspenders, same identical-objects doctrine that
+      fixed 09_banking.yaml's entry door (journals/2026-07-20_tutorial_
+      attempt12_malikreyes_llama.md); no live receipt yet documents a decoy
+      "Door" near the chapel exit specifically, but the class-wide sweep
+      applies the qualifier to every un-qualified Door/Ladder/Gate interact
+      in these three files regardless.
 
   - id: "24b"
     description: "VERIFY the chapel-exit door crossing credited -- varp advanced to 620"
@@ -780,6 +805,12 @@ steps:
 # 1. Door navigation: exact seat on the threshold (location-await confirmed),
 #    then INTERACT_OBJECT Door Open, then a PLAIN through-walk PAST the
 #    threshold -- never exact onto the door tile itself (DOOR-CROSSING v2).
+#    Every Door interact in this file is also coordinate-qualified (attempt
+#    #12 fix, 2026-07-20, jar >= 421c03e9: `Door Open <x> <y>` targets the
+#    object nearest that point) as belt-and-suspenders on top of the seat --
+#    09_banking.yaml's sibling entry door resolved to the wrong "Door" among
+#    5 in range when un-qualified (journals/2026-07-20_tutorial_attempt12_
+#    malikreyes_llama.md).
 # 2. Account Management tab: widget 35913777 is STALE on the current jar
 #    (attempt #8 incident) -- use `mcp_tool: click_widget` with
 #    `args: {action: "Account Management"}` instead of any hardcoded id.

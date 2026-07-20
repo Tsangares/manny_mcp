@@ -118,57 +118,88 @@ config:
   strict_steps: true
 
 steps:
-  # Phase 1: Navigate to banking area
+  # Phase 1: Navigate to banking area (DOOR-CROSSING v2 + coordinate-qualified
+  # INTERACT_OBJECT -- see ENTRY-DOOR PIN FIX header note, attempt #12)
   - id: 1
-    description: "Open door to ladder area"
+    description: "Seat adjacent to the entry door (exact-mode seat)"
+    action: GOTO
+    args: "3123 3125 0 exact"
+    await_condition: "location:3123,3125"
+    timeout_ms: 60000
+    delay_before_ms: 500
+    on_failure: "retry:2"
+    notes: |
+      ENTRY-DOOR PIN FIX (attempt #12, run 20260720T043800Z): (3123,3125) is
+      not invented -- it is the tile the failed run's own NAV-EXACT reached
+      and stood on (confirmed walkable) one hop short of the real door,
+      diagonally adjacent to the documented entry door (3124,3126) below.
+      Multiple "Door" objects are in range (5 found live) -- this seat gets
+      the player close before the coordinate-qualified Open (next step) does
+      the actual disambiguation.
+
+  - id: "1a"
+    description: "Open entry door (coordinate-qualified -- targets the object nearest (3124,3126), not name-only nearest-player)"
     action: INTERACT_OBJECT
-    args: "Door Open"
+    args: "Door Open 3124 3126"
     delay_before_ms: 1000
-    delay_after_ms: 1500
-    notes: "Door at (3124, 3126) blocks access to ladder"
+    notes: |
+      Door at (3124, 3126) blocks access to ladder. FIX (attempt #12, run
+      20260720T043800Z): the un-qualified 2-arg form resolved name-only
+      nearest-match to the WRONG door at (3118,3124) -- 5 "Door" TileObjects
+      were within 15 tiles (journals/2026-07-20_tutorial_attempt12_
+      malikreyes_llama.md, Verdict 3). The `[x y]` qualifier (jar >=
+      421c03e9, manny 7f42b54, COMMAND_REFERENCE.md "Optional coordinate
+      qualifier") targets the object NEAREST THAT POINT instead, pinning
+      this interact to the documented (3124,3126) door regardless of decoys.
+      DOOR-CROSSING v2: no delay_after padding -- minimize the gap before the
+      through-walk (next step) so the crossing lands during the still-open
+      window.
 
   - id: "1b"
-    description: "Seat adjacent to the documented ladder (3123,3128), exact-mode, so nearest-match can't resolve to a decoy Ladder"
+    description: "Through-walk PAST the threshold to the bank floor / ladder seat (plain GOTO, not onto the door tile itself)"
     action: GOTO
-    args: "3123 3127 0 exact"
+    args: "3123 3127 0"
     await_condition: "location:3123,3127"
     timeout_ms: 60000
     delay_before_ms: 500
     on_failure: "retry:2"
     notes: |
-      LADDER SEAT FIX (attempt #8, run 20260720T020701Z, 2026-07-20): three
-      "Ladder" objects were in range of the old un-seated step 2, and
-      INTERACT_OBJECT's name-only nearest-match resolved to the decoy at
-      (3116,3126) instead of the documented ladder at (3123,3128) -- the
-      click succeeded (a ladder was climbed) but plane never flipped to 1,
-      so the honest await/abort caught it before marching on desynced.
-      (3123,3127) is not an invented coordinate -- it is this file's own
-      `bank_roof`/`bank_floor` location (one tile due north of the ladder
-      tile 3123,3128, walkable on both planes since it's the landing tile
-      for both Climb-up and Climb-down below), used here as the pre-climb
-      approach seat so the exact-mode arrival pins the character directly
-      next to THIS ladder before the interact fires. Exact mode is earned
-      here by the live defect above (MANNY_OVERSEER.md #2: strictness
-      requires a motivating live defect, not prophylactic hardening).
+      DOOR-CROSSING v2 (attempt #12 rework; mirrors 09_banking_to_
+      account_guide.yaml / 10_prayer_magic.yaml): a PLAIN GOTO (not exact)
+      straight to (3123,3127) -- this file's own `bank_roof`/`bank_floor`
+      location, one tile due north of the ladder tile (3123,3128), walkable
+      on both planes -- crosses the door with one through-click during the
+      still-open window. Was exact-mode in the attempt #8 LADDER SEAT FIX
+      (see header) to pin ladder identity via seat precision; that duty now
+      belongs to the ladder's OWN coordinate qualifier (steps 2/3 below), so
+      exact mode (whose per-hop refiner BLOCKS once a door re-closes,
+      ~5-7s after Open) is no longer needed or safe here.
 
   - id: 2
     description: "Climb ladder up to roof (abort -- don't march to descent having never left plane 0)"
     action: INTERACT_OBJECT
-    args: "Ladder Climb-up"
+    args: "Ladder Climb-up 3123 3128"
     await_condition: "plane:1"
     on_failure: abort
     timeout_ms: 15000
     delay_before_ms: 1000
-    notes: "Ladder at (3123, 3128). Seated at (3123,3127) in step 1b (exact) immediately before this interact -- see LADDER SEAT FIX above."
+    notes: |
+      Ladder at (3123, 3128). Coordinate-qualified (attempt #12 fix,
+      COMMAND_REFERENCE.md "Optional coordinate qualifier") on top of the
+      step-1b seat -- belt-and-suspenders against the three "Ladder" objects
+      documented in range (LADDER SEAT FIX above, attempt #8).
 
   - id: 3
     description: "Climb ladder down to bank floor"
     action: INTERACT_OBJECT
-    args: "Ladder Climb-down"
+    args: "Ladder Climb-down 3123 3128"
     await_condition: "plane:0"
     timeout_ms: 15000
     delay_before_ms: 1000
-    notes: "Climb down immediately after climbing up -- bank booth is on plane 0"
+    notes: |
+      Climb down immediately after climbing up -- bank booth is on plane 0.
+      Coordinate-qualified (attempt #12 fix) to the same documented ladder
+      tile (3123,3128) as step 2 -- same object, same pin.
 
   # Phase 2: Use bank
   - id: 4
@@ -262,22 +293,82 @@ steps:
 # 5. AMBIGUOUS-NAME LADDER TRAP (attempt #8, run 20260720T020701Z, 2026-07-20):
 #    the ladder INTERACT resolves name-only nearest-match against THREE "Ladder"
 #    objects in range; an un-seated click can silently climb the wrong one (a
-#    real ladder, honest plane:1 await/abort caught the desync). FIX: step 1b
-#    seats exact-mode at (3123,3127) -- adjacent to the documented ladder
-#    (3123,3128) -- immediately before the interact. Same doctrine as door
-#    pinning (9ade455): location is identity for identical objects.
+#    real ladder, honest plane:1 await/abort caught the desync). FIX (attempt #8):
+#    step 1b seated exact-mode at (3123,3127) -- adjacent to the documented
+#    ladder (3123,3128) -- immediately before the interact. SUPERSEDED (attempt
+#    #12): step 1b is now a plain through-walk (door-crossing v2) and steps 2/3
+#    instead carry their own `3123 3128` coordinate qualifier -- same doctrine
+#    (location is identity for identical objects, 9ade455), applied via the
+#    qualifier instead of seat precision.
 # 6. The exit door (now 09_banking_to_account_guide.yaml) honestly blocks until
 #    varp 525 ("You need to visit the poll booth before you can proceed through
 #    this door"). Step 9's WAIT gate catches a failed poll-booth use at the real
 #    fault instead of the door.
+# 7. ENTRY-DOOR AMBIGUITY (attempt #12, run 20260720T043800Z, 2026-07-20): the
+#    entry door (step 1a, this file's Phase 1) had the SAME identical-objects
+#    trap as the ladder -- 5 "Door" objects in range, name-only nearest-match
+#    picked the wrong one at first contact. FIX: exact seat (step 1) +
+#    coordinate-qualified `INTERACT_OBJECT Door Open 3124 3126` (step 1a). See
+#    ENTRY-DOOR PIN FIX note below for the full receipt.
 
+# ENTRY-DOOR PIN FIX (attempt #12, run 20260720T043800Z, 2026-07-20): s09a's
+# FIRST EVER live contact found step 1's un-seated `INTERACT_OBJECT Door Open`
+# resolved name-only nearest-match to the WRONG door -- log: "Found 5
+# TileObjects matching 'Door' within 15 tiles", resolved to (3118,3124)
+# instead of this file's own documented entry door (3124,3126) (see step 1's
+# original notes / this header's Phase-1 comment history). The walk failed,
+# the (then-exact) ladder seat GOTO was unreachable through the still-closed
+# real door (player stuck at (3123,3125) after 16 exhausted hops), and the
+# ladder Climb-up queued into the new jar's [MODAL-BLOCK] "I can't reach
+# that!" diagnostic -- honest abort at the real fault (journals/2026-07-20_
+# tutorial_attempt12_malikreyes_llama.md, Verdict 3; screenshot journals/
+# images/2026-07-20_malikreyes_s09a_wrong_door_modal.png).
+#
+# FIX: door-crossing v2 (see 09_banking_to_account_guide.yaml header) PLUS
+# the new coordinate-qualified INTERACT_OBJECT (jar >= 421c03e9, manny commit
+# 7f42b54, COMMAND_REFERENCE.md "Optional coordinate qualifier": `args: "<name>
+# <action> [x y]"` targets the object NEAREST THAT POINT instead of
+# nearest-to-player). Step 1 now seats exact-mode at (3123,3125) -- not
+# invented: the tile the failed run's own NAV-EXACT reached and confirmed
+# walkable one hop short of the door (attempt #12 receipt above), diagonally
+# adjacent to the documented door (3124,3126) -- before a coordinate-qualified
+# `INTERACT_OBJECT Door Open 3124 3126` (step 1a) pins the correct door
+# regardless of how many decoys are in range. The former ladder-seat step
+# (old 1b, exact mode) is now a PLAIN through-walk to the same (3123,3127)
+# bank_floor/bank_roof tile (door-crossing v2: never exact onto/through a
+# door that may auto-close mid-path) -- disambiguation duty for the ladder
+# itself moves to its own coordinate qualifier (steps 2/3 below) rather than
+# resting on seat precision.
+#
+# LADDER QUALIFIER (attempt #12 fix, same run): steps 2/3's `Ladder
+# Climb-up`/`Climb-down` now also carry the `3123 3128` coordinate qualifier
+# -- the same documented ladder tile the attempt #8 exact-seat fix (LADDER
+# SEAT FIX above) was already built around, cited there as "the documented
+# ladder (3123,3128)". Belt-and-suspenders: the qualifier alone would resolve
+# nearest-match correctly among the three "Ladder" objects in range even
+# without the seat, per the same doctrine that fixed the entry door above.
+#
+# PYTHON-SIDE CHECK (attempt #12 fix): `args` for INTERACT_OBJECT (and every
+# other action) is a free-form string concatenated onto the command name and
+# sent through unmodified (mcptools/tools/routine.py `_execute_step_once`:
+# `command = f"{action} {args}".strip()`) -- no Python-side parsing/schema
+# restricts its shape. `validate_routine_deep` (manny_tools.py
+# `validate_routine_deep`) only special-cases GOTO's arg count; INTERACT_OBJECT
+# args are unchecked. `dryrun.py`'s effect table matches on substrings
+# ("Climb-up" in args, "Climb" in args) and never asserts arg count either.
+# The trailing `[x y]` qualifier therefore requires ZERO Python-side changes --
+# confirmed by reading, not assumed.
+#
 # WORKING PATTERNS:
 # - Bank booth: INTERACT_OBJECT Bank_booth Use
 # - Poll booth: INTERACT_OBJECT Poll_booth Use  (verb live-validated 2026-07-20)
 # - Clear the poll message box: KEY_PRESS space (blind repeat), NOT CLICK_CONTINUE
 # - Verify a tutorial stage: WAIT + await_condition tutorial_progress:>=N
-# - Ambiguous-named objects (ladders, doors): exact-mode seat adjacent to the
-#   SPECIFIC object, location-await confirmed, before the interact.
+# - Ambiguous-named objects (ladders, doors): coordinate-qualified
+#   `INTERACT_OBJECT <name> <action> <x> <y>` (attempt #12 fix, jar >=
+#   421c03e9) targets the object nearest that point regardless of decoys;
+#   pair with an exact-mode seat adjacent to the SPECIFIC object,
+#   location-await confirmed, as belt-and-suspenders before the interact.
 
 # After this routine:
 # Player at the bank floor (3123,3127), poll booth visited (varp 281 >= 525).

@@ -78,7 +78,7 @@ steps:
   - id: 2
     description: "Open door to Account Guide room"
     action: INTERACT_OBJECT
-    args: "Door Open"
+    args: "Door Open 3125 3124"
     delay_before_ms: 1000
     notes: |
       Door at (3125, 3124) leads to Account Guide -- CONFIRMED, Driver #4
@@ -86,6 +86,13 @@ steps:
       visited, verified by 09_banking.yaml step 9). DOOR-CROSSING v2: no
       delay_after padding here -- minimize the gap before the through-walk
       (step 3) so the crossing lands during the still-open window.
+      COORDINATE-QUALIFIED (attempt #12 fix, 2026-07-20, jar >= 421c03e9,
+      manny 7f42b54, COMMAND_REFERENCE.md "Optional coordinate qualifier"):
+      `3125 3124` is this file's own documented `exit_door` location above
+      (Driver #4-confirmed) -- added as belt-and-suspenders on top of the
+      step-1 exact seat after 09_banking.yaml's un-qualified entry-door
+      INTERACT_OBJECT resolved to the wrong "Door" among 5 in range
+      (journals/2026-07-20_tutorial_attempt12_malikreyes_llama.md).
 
   - id: 3
     description: "Through-walk PAST the threshold to the Account Guide's tile (plain GOTO, not onto the door tile)"
