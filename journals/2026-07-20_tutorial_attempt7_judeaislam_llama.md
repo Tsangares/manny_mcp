@@ -185,3 +185,40 @@ Appended two rows to `journals/metrics_first_contact.csv`:
    (`--dry-run` + `validate_routine_deep`) — chain gates will skip straight
    back to Section 9 at progress 520/gate ~500-510, so the cost of a retry is
    cheap.
+
+## ADDENDUM 2026-07-20 — poll-booth probe + fix (pre-attempt-#8)
+
+**Live probe (judeaislam/llama, client-only start, ~5 live min, clean park).**
+Diagnosed the "Poll_booth Use → 'Use' not found" defect. Receipts:
+
+- `SCAN_TILEOBJECTS Poll_booth 15` → object 26815 "Poll booth" @(3119,3121,0),
+  `actions: ["Use"]`. So the composition DOES carry "Use".
+- `INTERACT_OBJECT Poll_booth Use` → **success** ("Use Poll booth"), opened the
+  mesbox "Poll booths are found in towns across the world...". varp stayed 520.
+- `CLICK_CONTINUE` did **not** advance the mesbox; `KEY_PRESS space` ×3 closed it
+  and advanced **varp 520 → 525**. Dialogue then `open:false`.
+- Stopped, verified zero java/python for the account. No ban signals.
+
+**Conclusion — the verb was never the bug.** "Use" is correct (a Jan-2026 desk
+guess that happened to be right; the earlier "LIVE-VALIDATED 2026-07-19" note only
+ever validated the object NAME, never clicked the verb — receipts-rule violation
+in the record, now corrected in the YAML). Attempt #7's 3/3 "Use not found" was
+environmental — most likely a bank/tutorial modal still closing into step 6, or a
+bad-angle occlusion from the distance-3 spot the bank left the player at (tonight
+the same command worked once the player stood south-adjacent at (3120,3121)).
+
+**Fix applied to `09_banking.yaml` (verb unchanged):**
+- step 5 (bank close): `delay_after_ms: 800` settle so no modal lingers into step 6.
+- step 6 (poll `Use`): `on_failure: retry:2`; corrected provenance comment.
+- step 7 (mesbox drain): `repeat_until: no_dialogue` → blind `repeat: 5` SPACE drain
+  (DEFECT-31 check-first false-close class, per 08_combat step 3).
+- **NEW step 9: `WAIT tutorial_progress:>=525` (`on_failure: abort`)** — the honest
+  gate attempt #7 lacked; converts the false-march-into-door into an honest abort
+  at the real fault. Wiki varp ladder: 520 = close bank/open poll booth, 525 =
+  walk into Account Guide door.
+- Renumbered door steps to 10/11; refreshed pitfalls/patterns notes.
+
+Validated offline: `09_banking.yaml --dry-run` PASS, `00_master.yaml --dry-run`
+PASS, `validate_routine_deep` valid=True/0 errors. Note: the probe advanced the
+account to **varp 525** (poll booth already used), so attempt #8 re-runs section 9
+idempotently from past the failure point.

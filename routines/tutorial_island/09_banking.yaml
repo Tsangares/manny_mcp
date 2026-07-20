@@ -18,11 +18,17 @@
 # name/action only); the pre-existing coordinates below are unchanged and not
 # contradicted by anything in the journal.
 #
-# ENGINE-LEVEL FIX: the old step 7 used `repeat_until: "poll_interface_open"`,
-# which is NOT a supported predicate (_parse_condition in monitoring.py only
-# knows plane/has_item/no_item/inventory_count/location/idle/dialogue/
-# no_dialogue -- see mcptools/tools/monitoring.py:521-573). Replaced with the
-# supported `no_dialogue` predicate below (see step 6 note for the caveat).
+# POLL-BOOTH FIX (attempt #8, 2026-07-20): the poll-booth message box is now
+# cleared with a blind fixed-count SPACE drain (step 7) and the stage is proven
+# by a WAIT tutorial_progress:>=525 gate (step 9) -- NOT by the interact's own
+# success flag. Attempt #7 (run 20260720T014033Z) had no such gate: when the
+# poll-booth interact failed it marched straight into the exit door's honest
+# block. History of the drain: an even older step used the unsupported predicate
+# `repeat_until: "poll_interface_open"`; a later edit switched it to
+# `repeat_until: no_dialogue`, which can check-first false-close on a modal
+# mesbox page (DEFECT-31, same class 08_combat.yaml fixed tonight). The blind
+# drain + varp gate is the honest replacement. The engine DOES now implement a
+# `tutorial_progress:>=N` await (mcptools/tools/monitoring.py _parse_condition).
 #
 # RISKS NOTED BUT NOT FIXABLE IN YAML (Java-side, deployment-frozen):
 # - DEFECT-7: GOTO tolerance no-ops at distance <=3 tiles ("worse than
@@ -58,7 +64,18 @@ objects:
     name: "Bank booth"
     action: "Use"
   poll_booth:
-    name: "Poll_booth"  # LIVE-VALIDATED 2026-07-19: correct object name is "Poll_booth" (Use). Earlier "poll" transcription was wrong.
+    # VERB LIVE-VALIDATED 2026-07-20 (judeaislam/llama probe, run after attempt #7
+    # 20260720T014033Z first ever reached this stage): SCAN_TILEOBJECTS on object
+    # 26815 "Poll booth" @(3119,3121,0) returns actions=["Use"], and a live
+    # INTERACT_OBJECT Poll_booth Use succeeded, opening the poll info mesbox and
+    # (after the mesbox was cleared) advancing varp-281 520 -> 525.
+    # HISTORY / receipts-rule correction: "Use" was a Jan-2026 DESK GUESS (1de0d2b,
+    # then a TODO); the earlier "LIVE-VALIDATED 2026-07-19" note (be85665) only ever
+    # validated the object NAME via a scan and NEVER clicked the verb -- the verb was
+    # untested live until tonight. It happened to be correct. Name match is
+    # substring so "Poll_booth" -> "Poll booth" is fine; verb match is exact
+    # (case-insensitive); the id below is decorative (engine matches by name).
+    name: "Poll_booth"
     id: 26815
     action: "Use"
 
@@ -112,37 +129,61 @@ steps:
     action: KEY_PRESS
     args: "Escape"
     delay_before_ms: 500
+    delay_after_ms: 800
+    notes: "delay_after settle so the bank window (and any bank tutorial mesbox) is fully closed before the poll-booth right-click menu is built -- a lingering modal is the most likely cause of attempt #7's 'Use not found'."
 
-  # Phase 3: Use poll booth
+  # Phase 3: Use poll booth (varp 520 -> 525)
   - id: 6
-    description: "Use poll booth"
+    description: "Use poll booth (opens the poll info message box; credits the poll)"
     action: INTERACT_OBJECT
     args: "Poll_booth Use"
-    delay_before_ms: 1000
-    notes: "Object name is 'Poll_booth' (Use) -- LIVE-VALIDATED 2026-07-19. The earlier 'poll' transcription was wrong. Poll credit is auto-applied."
-
-  - id: 7
-    description: "Advance any poll-booth message dialogue"
-    action: KEY_PRESS
-    args: "space"
-    repeat_until: "no_dialogue"
+    on_failure: "retry:2"
     delay_before_ms: 1000
     notes: |
-      ENGINE FIX: replaces the old (unsupported) `repeat_until: "poll_interface_open"`
-      predicate -- the engine only implements no_dialogue/dialogue/plane/has_item/
-      no_item/inventory_count/location/idle (mcptools/tools/monitoring.py:521-573).
-      There is no "widget interface open" predicate, so this is the closest
-      supported substitute. Check-first semantics make this a safe no-op if the
-      poll booth opens its interface directly with no intermediate message pane.
+      Verb "Use" LIVE-VALIDATED 2026-07-20 (judeaislam/llama probe): actions=["Use"]
+      on object 26815 and INTERACT_OBJECT Poll_booth Use succeeded, opening the
+      "Poll booths are found in towns across the world..." mesbox. on_failure retry:2
+      (plus the engine's own 3x menu retries) covers a transient bad-angle/closing-
+      modal miss; step 9's WAIT gate is the honest backstop if it truly fails.
+
+  - id: 7
+    description: "Clear the poll-booth message box (blind space drain)"
+    action: KEY_PRESS
+    args: "space"
+    repeat: 5
+    delay_before_ms: 1000
+    notes: |
+      DEFECT-31/DEFECT-24 pattern (cf. 08_combat.yaml step 3): a check-first
+      `repeat_until: no_dialogue` can false-close on a modal mesbox page and stop
+      early, so this is a blind fixed-count drain instead. Live probe: the mesbox
+      took ~3 space presses to close and credit the poll (CLICK_CONTINUE did NOT
+      advance it -- SPACE did); varp then read 525 with the dialogue closed. Extra
+      presses after close are inert on Tutorial Island.
 
   - id: 8
-    description: "Close poll interface"
+    description: "Close any residual interface (belt-and-suspenders no-op)"
     action: KEY_PRESS
     args: "Escape"
     delay_before_ms: 500
+    notes: "The tutorial poll booth opens only an info mesbox (voting needs a higher level than the isle allows), so the space drain already closes everything; this Escape is a proven-benign safety close."
 
-  # Phase 4: Exit to Account Guide room
+  # Phase 4: Verify the poll booth registered, then exit to the Account Guide room
   - id: 9
+    description: "VERIFY the poll booth was visited -- varp advanced to 525"
+    action: WAIT
+    await_condition: "tutorial_progress:>=525"
+    timeout_ms: 15000
+    on_failure: "abort"
+    notes: |
+      Wiki varp-281 ladder: 520 = "Close Bank and open Poll Booth", 525 =
+      "WalkIntoDoorAccountGuide". Reaching 525 proves the poll booth was actually
+      used -- the exit door (step 11) honestly blocks ("You need to visit the poll
+      booth before you can proceed through this door") until varp hits 525, which is
+      exactly where attempt #7 got stuck after a false-march. If the poll-booth use
+      failed, varp stays 520, this WAITs to timeout, and the section aborts honestly
+      (strict_steps) at the REAL fault instead of the downstream door.
+
+  - id: 10
     description: "Walk to door in front of Account Guide room"
     action: GOTO
     args: "3124 3124 0"
@@ -151,30 +192,40 @@ steps:
     delay_before_ms: 500
     notes: "Must walk to door position before clicking - multiple doors nearby! Short GOTO -- DEFECT-7 tolerance no-op risk, verified via location await rather than the GOTO command's own success flag."
 
-  - id: 10
+  - id: 11
     description: "Open door to Account Guide room"
     action: INTERACT_OBJECT
     args: "Door Open"
     delay_before_ms: 1000
     delay_after_ms: 1500
-    notes: "Door at (3125, 3124) leads to Account Guide -- CONFIRMED, Driver #4 (defects log:216-218)"
+    notes: "Door at (3125, 3124) leads to Account Guide -- CONFIRMED, Driver #4 (defects log:216-218). Passable only once varp >= 525 (poll booth visited), verified by step 9."
 
 # PITFALLS DISCOVERED:
 # 1. Bank booth is on plane 0, but you arrive on plane 1 after climbing up
 #    FIX: Must climb down ladder immediately after climbing up
-# 2. Poll booth object name is "Poll_booth" (Use) -- LIVE-VALIDATED 2026-07-19.
-#    An earlier transcription used "poll" (lowercase); that was wrong.
-# 3. Dialogue appears but has no "Click here to continue" button on some panes
-#    -- these are informational panels, just interact with the objects
-# 4. "poll_interface_open" is NOT a real engine predicate -- replaced with no_dialogue (step 7)
-# 5. DEFECT-7 (GOTO short-move no-op): step 9's GOTO is <=3 tiles; verified via
+# 2. Poll booth VERB is "Use" -- LIVE-VALIDATED 2026-07-20 (judeaislam/llama probe:
+#    scan actions=["Use"]; live INTERACT advanced varp 520->525). It was a Jan-2026
+#    desk guess; the earlier "LIVE-VALIDATED 2026-07-19" note only ever validated
+#    the object NAME, never the verb. Object name "Poll_booth" (substring match);
+#    the earlier lowercase "poll" transcription was wrong.
+# 3. The tutorial poll booth opens ONLY an info message box (voting needs a higher
+#    level than the isle allows). Clear it with SPACE, not CLICK_CONTINUE
+#    (CLICK_CONTINUE did NOT advance it in the live probe). No votable interface
+#    opens, so no Escape is strictly needed afterward.
+# 4. Progress does NOT advance on the INTERACT alone -- it advances to 525 only
+#    after the message box is cleared. Gate on tutorial_progress:>=525 (step 9),
+#    not on the interact's own success flag (attempt #7's false-march lesson).
+# 5. The exit door (step 11) honestly blocks until varp 525 ("You need to visit
+#    the poll booth before you can proceed through this door"). Step 9's WAIT gate
+#    catches a failed poll-booth use at the real fault instead of the door.
+# 6. DEFECT-7 (GOTO short-move no-op): step 10's GOTO is <=3 tiles; verified via
 #    location await rather than trusting GOTO's own reported success
 
 # WORKING PATTERNS:
 # - Bank booth: INTERACT_OBJECT Bank_booth Use
-# - Poll booth: INTERACT_OBJECT Poll_booth Use
-# - Close interfaces: KEY_PRESS Escape
-# - Advance dialogue: KEY_PRESS space + repeat_until: no_dialogue
+# - Poll booth: INTERACT_OBJECT Poll_booth Use  (verb live-validated 2026-07-20)
+# - Clear the poll message box: KEY_PRESS space (blind repeat), NOT CLICK_CONTINUE
+# - Verify a tutorial stage: WAIT + await_condition tutorial_progress:>=N
 
 # After this routine:
 # Player at Account Guide room door (3125, 3124), ready for 10_prayer_magic.yaml
