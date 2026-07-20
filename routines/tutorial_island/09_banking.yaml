@@ -254,6 +254,73 @@ steps:
       live-validated in the corpus yet, and a desk-guessed id would be an
       unverifiable variant against the "canonical path, never variants" rule --
       BANK_CLOSE is the canonical honest bank close.
+      MOVEMENT-CLOSE BACKSTOP (attempts #13/#14): this step is currently a
+      harmless no-op ("already closed" false-pass, DEFECT-33 oracle) and only
+      becomes the honest close once DEFECT-33's jar ships. The ACTUAL bank close
+      on the current jar (421c03e9) is delivered by the movement in the new step
+      5a below -- keep this BANK_CLOSE in place regardless (belt-and-suspenders,
+      honest once the oracle is fixed).
+
+  # Phase 2b: Close the bank by MOVEMENT (honest, oracle-independent) --
+  # the movement-close fix for the attempt-#13/#14 defect chain (see step 5a).
+  - id: "5a"
+    description: "Close the bank by MOVEMENT -- exact-mode walk to a seat south-adjacent to the poll booth (walking closes the bank as a game-engine side-effect, independent of the lying isBankOpen() oracle)"
+    action: GOTO
+    args: "3120 3121 0 exact"
+    await_condition: "location:3120,3121"
+    timeout_ms: 30000
+    delay_before_ms: 500
+    on_failure: "retry:2"
+    notes: |
+      MOVEMENT-CLOSE FIX (attempt #13/#14 receipt chain, malikreyes/llama).
+      s09a step 5->6 lost two consecutive live windows to the SAME defect: the
+      bank interface stayed OPEN across the poll-booth interact, and the bank
+      modal swallowed every WORLD right-click (poll-booth menu built Cancel-only,
+      failed 9/9 both runs). Attempt #13 (182d3d1): a blind `KEY_PRESS Escape`
+      (old step 5) false-passed -- bank never closed. Attempt #14 (91499ee): the
+      replacement `BANK_CLOSE` logged "Bank is already closed" and passed
+      instantly because its oracle `isBankOpen()` returned a FALSE NEGATIVE while
+      "The Bank of Gielinor (25)" was visibly open (screenshot journals/images/
+      2026-07-20_malikreyes_attempt14_pollbooth_fail.png). That oracle bug is
+      DEFECT-33, owned by a separate agent, and will NOT be deployed before the
+      next live run -- so this YAML fix must work on the CURRENT jar (421c03e9)
+      with a lying isBankOpen().
+
+      FIX CONCEPT -- close the bank by MOVEMENT, not by interface manipulation.
+      In OSRS, walking closes the bank interface, and minimap clicks are NOT
+      swallowed by the bank modal (both receipts confirm ONLY world right-clicks
+      were blocked). GOTO navigation is minimap-driven, so this GOTO closes the
+      bank as a game-engine SIDE EFFECT -- honest ground truth (position change),
+      no ESC, no oracle involved. Step 5's BANK_CLOSE is left in place as a
+      harmless no-op that becomes the honest close once DEFECT-33 ships; THIS
+      movement step is the current guarantee.
+
+      EXACT MODE IS EARNED HERE. Doctrine: exact is for POSITIONING steps and
+      must be paid for by a live defect -- a no-move short-circuit that defeats
+      the step's entire purpose (bank stays open, fix silently does nothing) is
+      exactly such a defect, twice-proven above. Plain GOTO short-circuits at
+      distance <=3 with NO click issued (GotoCommand.java:152:
+      `distance == 0 || (!exact && distance <= 3)`); the player stands on the
+      bank_booth tile (3120,3123) when this runs, only 2 tiles from this seat,
+      so a PLAIN GOTO would declare SUCCESS without moving and the bank would
+      stay open. Exact mode no-ops ONLY at distance 0 (DEFECT-23, same file:148),
+      so at distance 2 it issues per-tile refinement -> real movement -> bank
+      closes. EDGE CASE handled: the seat (3120,3121) DIFFERS from the post-bank
+      player tile (3120,3123), so exact cannot degenerate to a distance-0 no-op
+      here -- the bank-booth interaction (step 4) always leaves the player 2
+      tiles NORTH of this seat, never on it; no second sacrificial move needed.
+
+      SEAT (3120,3121,0) -- NOT invented: live-confirmed walkable and
+      south-adjacent to the poll booth (3119,3121,0), the exact tile from which
+      `INTERACT_OBJECT Poll_booth Use` was proven to succeed (journals/
+      2026-07-20_tutorial_attempt7_judeaislam_llama.md ADDENDUM: "the same
+      command worked once the player stood south-adjacent at (3120,3121)"). So
+      this movement BOTH closes the bank AND lands the player at ideal
+      poll-booth interact range for step 6. await_condition is the 3-tile-
+      tolerant location check (this file's DEFECT-7 pattern -- verify arrival,
+      not the GOTO's own success flag); exact mode guarantees the movement, and
+      step 9's WAIT tutorial_progress:>=525 remains the honest backstop for the
+      whole ladder+bank+poll-booth leg.
 
   # Phase 3: Use poll booth (varp 520 -> 525)
   - id: 6
@@ -268,6 +335,11 @@ steps:
       "Poll booths are found in towns across the world..." mesbox. on_failure retry:2
       (plus the engine's own 3x menu retries) covers a transient bad-angle/closing-
       modal miss; step 9's WAIT gate is the honest backstop if it truly fails.
+      PRECONDITION: the bank interface is closed by the MOVEMENT in step 5a (not
+      by step 5's oracle-dependent BANK_CLOSE) -- attempts #13/#14 failed HERE
+      (Cancel-only menu 9/9) precisely because the bank modal was still open and
+      swallowing this world right-click; step 5a's walk removes that modal, and
+      lands the player south-adjacent at (3120,3121) at ideal interact range.
 
   - id: 7
     description: "Clear the poll-booth message box (blind space drain)"
