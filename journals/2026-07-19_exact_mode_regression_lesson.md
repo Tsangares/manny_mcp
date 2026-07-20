@@ -91,6 +91,31 @@ doctrine working as designed.
 - `ifixifixit` parked wall-trapped but **not** desynced; resume (attempt #3b) escapes via the
   mapped NE gate route and re-tests 5b on the reverted routines.
 
+## CORRECTION (same day, post-attempt-#5) — the diagnosis above was half right
+
+Attempt #5 (gates fixed, player correctly inside the kitchen) wedged on the same corridor in
+**plain** mode, and the follow-up archaeology proved by commit timestamps that **attempt #1 had
+passed this bridge in EXACT mode** (`402950b`), not plain. The narrative above conflated two bugs:
+
+- The TRUE root cause of attempts #3/#4 was the **progress-gate skip** (fixed in `31504fb`):
+  cooking never ran, the player started 05b *outside* the building, >5 tiles from the door seat —
+  a position from which exact mode legitimately cannot refine and *no* mode can succeed. Exact's
+  hard-fail was the messenger, not the disease.
+- Plain mode has its own dishonesty on **positioning** steps: within 3 tiles it short-circuits to
+  SUCCESS **without issuing any movement** (`GotoCommand.java:152`), and the 3-tile-tolerant
+  `location:` await confirms it — a double false-pass. At (3074,3091) the player "passed"
+  `GOTO 3072 3090` while never stepping onto the corridor tile, then wedged behind the wall while
+  the follower obsessively re-opened an already-open door (`NavigationHelpers.java:2365` stuck-
+  handler chasing the doorway WallObject red herring).
+
+The refined doctrine, replacing "prefer plain": **match the mode to the step's intent.**
+*Traversal* steps (get near X, the next hop self-corrects) want plain's tolerance. *Positioning*
+steps (stand ON this tile so the next action works — door seats, ladder seats, threshold
+crossings) need exact — their whole purpose defeats a 3-tile shortcut. And both of today's wrong
+turns trace to one meta-error: **diagnosing a nav symptom while a state bug (the gate skip)
+corrupted the experiment's premise.** Fix committed: `b5f5e61` restores exact on 05b's bridge
+steps 1,3-8 (the proven `402950b` sequence), keeps tolerant awaits as confirms, keeps ladder pins.
+
 ## Checklist additions for future fix windows
 
 1. Before hardening a primitive corpus-wide, name the **live defect** that motivates each site.
