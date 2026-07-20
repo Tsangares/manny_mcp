@@ -31,6 +31,18 @@ notice, while nobody is watching, the three ways a long grind dies:
      login-index flips (a world-hop proxy). Recorded as status=login_ban_stall with a
      login_stall event (dwell seconds + hop count), then SIGTERMs the run like a
      suspected_ban. Same do-NOT-relaunch/world-hop guidance applies.
+  6. ZERO-PROGRESS STALL — distinct from FREEZE (#5 above is about the state file going
+     stale; this is about it staying FRESH while nothing happens). Every existing signal
+     (state updating, client alive, run process alive) looks "busy", but the nav follower
+     is wedged — e.g. clicking an already-open door for 16 minutes, position oscillating
+     within a couple tiles while tutorial.progress (varbit 281) never advances. When
+     tutorial.progress is unchanged AND position stays within a --stall-radius-tiles
+     (default 3) chebyshev radius of the stall window's start, for more than
+     --stall-seconds (default 150) while the run process is alive, the watchdog emits
+     stall_detected, sets status=needs_attention, and (unlike freeze) does NOT kill
+     anything — it re-emits stall_continuing every ~120s while the wedge persists, for a
+     supervisor to poll for early intervention, and emits stall_cleared once progress
+     resumes or the player moves beyond the radius.
 
 It maintains one JSON run-record per run at /tmp/manny_runs/<run_id>.json, written
 atomically (tmp + os.replace) every interval so a reader never sees a torn file.
@@ -42,6 +54,7 @@ to a vendored copy of the same signatures, so it never hard-depends on the repo.
 Usage:
   watchdog.py --run-id <id> --account <acct> --routine <path> --run-pid <pid>
               [--client-pid <pid>] [--interval 60] [--temp-refuse 88]
+              [--freeze-stale 90] [--stall-seconds 150]
               [--state-file PATH] [--log-file PATH] [--dry-run]
 
 Timestamps are ISO-8601 UTC. Self-terminates when the run PID is gone.
@@ -87,6 +100,21 @@ FREEZE_MAX_RESTARTS = 2      # cap reap-then-spawn attempts before handing off t
 LOGIN_FORM_INDICES = frozenset({2, 4})   # documented username/password + authenticator forms
 LOGIN_ERROR_MAX_SECONDS = 90.0           # continuous non-form login-error dwell => terminal
 LOGIN_ERROR_MAX_HOPS = 6                 # login-index flips within one error epoch => terminal
+
+# ---- ZERO-PROGRESS STALL: nav follower wedged, state file still fresh ------------
+# Freeze (3d below) is state-file-stops-updating; STALL is the opposite failure mode —
+# the state file keeps ticking and every other signal looks healthy, but the run is
+# making zero progress. Live evidence: the nav follower wedged 16 minutes clicking an
+# open door, position oscillating within a couple tiles while tutorial.progress (varbit
+# 281) never advanced. If, for more than STALL_SECONDS, tutorial.progress is unchanged
+# AND position stays within STALL_RADIUS_TILES (chebyshev) of where the stall window
+# started — while the run process is still alive — that is definitive on Tutorial
+# Island. Non-terminal: unlike freeze/thermal we never kill anything here, only flag
+# needs_attention and keep nudging the ledger (stall_continuing) every STALL_REMIND_S
+# while it persists, for a supervisor to poll for early intervention.
+STALL_SECONDS = 150.0        # default; --stall-seconds 0 disables STALL evaluation
+STALL_RADIUS_TILES = 3       # chebyshev radius position must stay within to count as pinned
+STALL_REMIND_S = 120.0       # re-emit stall_continuing this often while the wedge persists
 
 # ---- crash signatures: prefer the repo's canonical list, fall back to vendored --
 # This file lives at <repo>/scripts/remote/watchdog.py, so running it as a script
@@ -252,6 +280,94 @@ def login_error_screen(login):
     return idx >= 0 and idx not in LOGIN_FORM_INDICES
 
 
+def read_stall_signals(state_file):
+    """Return (loc, progress) for ZERO-PROGRESS STALL evaluation. Never raises.
+
+    ``loc`` is the raw ``player.location`` (x, y, plane) tuple, read the same way the
+    routine runner does it (mcptools/tools/routine.py:_player_xy). ``progress`` is
+    ``tutorial.progress`` (varbit 281), read the same way monitoring.py's
+    ``tutorial_progress`` await-condition does. Either half missing/garbage -> None for
+    that half (a login/loading screen has no location yet; an old jar predating the
+    export has no tutorial section) — callers treat any None as "skip evaluation this
+    poll", never as "stalled"."""
+    try:
+        with open(state_file, "r", errors="replace") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None, None
+    if not isinstance(data, dict):
+        return None, None
+
+    loc = None
+    raw_loc = (data.get("player") or {}).get("location")
+    if isinstance(raw_loc, dict):
+        x, y, plane = raw_loc.get("x"), raw_loc.get("y"), raw_loc.get("plane")
+        if isinstance(x, (int, float)) and isinstance(y, (int, float)):
+            loc = (x, y, plane if isinstance(plane, (int, float)) else 0)
+
+    progress = None
+    raw_progress = (data.get("tutorial") or {}).get("progress")
+    if isinstance(raw_progress, (int, float)):
+        progress = raw_progress
+
+    return loc, progress
+
+
+def stall_step(prev, loc, progress, now, driver_alive,
+               stall_seconds, radius_tiles=STALL_RADIUS_TILES, remind_s=STALL_REMIND_S):
+    """Pure ZERO-PROGRESS STALL decision — no I/O, no side effects. Extracted so the
+    window/clear/remind state machine can be unit-tested by feeding synthetic
+    (loc, progress) polls directly, rather than only through the live poll loop.
+
+    ``prev`` is the previous stall-tracking dict, or None to start fresh:
+        {"since": float, "anchor": (x, y, plane), "anchor_progress": num,
+         "active": bool, "last_remind": float or None}
+    ``loc``/``progress`` come from read_stall_signals(); None means "skip this poll"
+    (login/loading screen or a jar predating the tutorial export) — the accumulating
+    window, if any, is neither advanced nor reset. ``driver_alive`` is the run_pid
+    liveness check; the live poll loop only reaches STALL evaluation once run_up is
+    already True (section 1 returns early otherwise), but the parameter is kept
+    explicit here so the "driver still running" AND-condition is testable in isolation.
+
+    Returns (new_state, action) where action is one of:
+        None          nothing to report this poll
+        "detected"    stall window just crossed stall_seconds (first report)
+        "continuing"  stall persists and remind_s has elapsed since the last report
+        "cleared"     progress advanced or position moved beyond radius_tiles
+
+    stall_seconds <= 0 disables STALL entirely: always returns (None, None)."""
+    if stall_seconds <= 0:
+        return None, None
+    if loc is None or progress is None or not driver_alive:
+        return prev, None  # skip evaluation; preserve any window already accumulating
+
+    if prev is None or prev.get("since") is None:
+        return {"since": now, "anchor": loc, "anchor_progress": progress,
+                "active": False, "last_remind": None}, None
+
+    progress_advanced = progress != prev["anchor_progress"]
+    moved_beyond = (loc[2] != prev["anchor"][2] or
+                    max(abs(loc[0] - prev["anchor"][0]), abs(loc[1] - prev["anchor"][1]))
+                    > radius_tiles)
+
+    if progress_advanced or moved_beyond:
+        action = "cleared" if prev["active"] else None
+        return {"since": now, "anchor": loc, "anchor_progress": progress,
+                "active": False, "last_remind": None}, action
+
+    elapsed = now - prev["since"]
+    if elapsed < stall_seconds:
+        return prev, None  # still accumulating, not yet stalled
+
+    if not prev["active"]:
+        return dict(prev, active=True, last_remind=now), "detected"
+
+    if prev["last_remind"] is None or (now - prev["last_remind"]) >= remind_s:
+        return dict(prev, last_remind=now), "continuing"
+
+    return prev, None
+
+
 def pid_alive(pid):
     if not pid:
         return False
@@ -353,6 +469,12 @@ def parse_args(argv):
     p.add_argument("--freeze-stale", type=float, default=FREEZE_STALE_S,
                    help="client alive + state file older than this (s) => frozen; "
                         "reap-then-spawn restart (default: %(default)s)")
+    p.add_argument("--stall-seconds", type=float, default=STALL_SECONDS,
+                   help="zero tutorial.progress + position pinned within a "
+                        "%d-tile radius for longer than this (s) => stall; "
+                        "needs_attention + stall_continuing every ~%ds, never killed "
+                        "(0 disables; default: %%(default)s)"
+                        % (STALL_RADIUS_TILES, STALL_REMIND_S))
     p.add_argument("--state-file", default=None)
     p.add_argument("--log-file", default=None)
     p.add_argument("--dry-run", action="store_true",
@@ -419,6 +541,8 @@ def main(argv):
     login_err_since = None
     login_err_prev_idx = None
     login_err_hops = 0
+    # ZERO-PROGRESS STALL tracking (see stall_step docstring for the state shape).
+    stall_state = None
 
     while True:
         temp = pkg_temp_c()
@@ -629,6 +753,37 @@ def main(argv):
             unhealthy = True
         elif age is not None and age <= args.freeze_stale:
             freeze_armed = True  # fresh/recovered state -> re-arm for the next freeze onset
+
+        # ---- 3e. ZERO-PROGRESS STALL: nav follower wedged, state file still fresh -
+        # Opposite failure mode from 3d: the state file is updating fine and the client
+        # is alive, but the run isn't going anywhere (e.g. clicking an already-open door
+        # in a loop). Non-terminal by design — never SIGTERMs; events only, so --dry-run
+        # makes no difference here. Emits at most one report per STALL_REMIND_S while the
+        # wedge persists so a supervisor can poll the ledger for early intervention.
+        player_loc, tutorial_progress = read_stall_signals(state_file)
+        stall_state, stall_action = stall_step(
+            stall_state, player_loc, tutorial_progress, time.time(), run_up,
+            args.stall_seconds)
+        if stall_action == "detected":
+            rec.event("stall_detected",
+                      "zero progress for %.0fs (>= %.0fs threshold): position pinned "
+                      "near %s (radius<=%d tiles), tutorial.progress stuck at %s"
+                      % (time.time() - stall_state["since"], args.stall_seconds,
+                         stall_state["anchor"], STALL_RADIUS_TILES,
+                         stall_state["anchor_progress"]))
+            rec.update(status="needs_attention")
+            unhealthy = True
+        elif stall_action == "continuing":
+            rec.event("stall_continuing",
+                      "still stalled %.0fs near %s, tutorial.progress stuck at %s"
+                      % (time.time() - stall_state["since"], stall_state["anchor"],
+                         stall_state["anchor_progress"]))
+            rec.update(status="needs_attention")
+            unhealthy = True
+        elif stall_action == "cleared":
+            rec.event("stall_cleared",
+                      "progress resumed: position now %s, tutorial.progress now %s"
+                      % (stall_state["anchor"], stall_state["anchor_progress"]))
 
         # needs_attention is advisory: record it, let the LLM driver decide.
         if unhealthy:
