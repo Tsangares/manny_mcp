@@ -210,12 +210,50 @@ steps:
     notes: "Opens bank interface, tutorial dialogue appears. Driver #4 confirmed: bank opens with 25gp."
 
   - id: 5
-    description: "Close bank interface"
-    action: KEY_PRESS
-    args: "Escape"
-    delay_before_ms: 500
-    delay_after_ms: 800
-    notes: "delay_after settle so the bank window (and any bank tutorial mesbox) is fully closed before the poll-booth right-click menu is built -- a lingering modal is the most likely cause of attempt #7's 'Use not found'."
+    description: "Close bank interface (ground-truth honest -- BANK_CLOSE verifies isBankOpen, not a blind keypress)"
+    action: BANK_CLOSE
+    delay_before_ms: 600
+    delay_after_ms: 600
+    timeout_ms: 8000
+    on_failure: "retry:3"
+    notes: |
+      ATTEMPT #13 RECEIPT (malikreyes/llama, run 20260720T045320Z, commit
+      182d3d1, journals/2026-07-20_tutorial_attempt13_malikreyes_llama.md):
+      the old `KEY_PRESS Escape` here reported SUCCESS but the bank stayed
+      open -- across all 3 poll-booth (step 6) executions (~20s) the screenshot
+      showed "The Bank of Gielinor (25)" still open with the game's own hint
+      "To continue, close the bank and click on the indicated poll booth".
+      Every poll-booth right-click then built a Cancel-only menu (the bank
+      modal consuming world right-clicks) and failed 9/9. Root cause: KEY_PRESS's
+      own return was trusted blindly -- the exact false-pass class (an interface
+      "closing" != the objective done) this project's doctrine warns about. The
+      old note here calling the Escape "proven" was WRONG: attempt #8
+      (judeaislam) HAND-BRIDGED banking, so no autonomous run had ever closed
+      the bank at this step -- it was UNVALIDATED, not regressed.
+
+      FIX: BANK_CLOSE gates on INTERFACE GROUND TRUTH instead of a keypress
+      return. handleBankClose -> BankingSupport.closeBank() (PlayerHelpers.java
+      2619 / BankingSupport.java 672) dispatches ESC to the canvas AND THEN
+      re-reads gameHelpers.isBankOpen(); it returns success ONLY if the bank is
+      actually closed, else writeFailure "Could not close bank". The runner
+      reads that real status (execute_simple_command: success == response.status
+      == "success", routine.py:81), so this step now passes ONLY when the bank
+      is genuinely closed. on_failure retry:3 re-runs the close (re-verifying
+      isBankOpen each time) to absorb a slow/lost first ESC; if the bank truly
+      cannot be closed (e.g. the "Esc closes interface" client setting is off on
+      a fresh account) the step aborts HONESTLY at the real fault (the close),
+      with an abort_reason naming BANK_CLOSE -- instead of the old false-march
+      that wasted 9 clicks on the downstream poll booth and hid the cause.
+      Step 9's WAIT tutorial_progress:>=525 stays the honest backstop for the
+      whole ladder+bank+poll-booth leg.
+      RESIDUAL: BANK_CLOSE closes via ESC (same canvas key path as the old
+      KEY_PRESS); if a live window proves ESC itself never closes the tutorial
+      bank, the durable fix is a widget click on the bank Close button
+      (CLICK_CHILD_WIDGET, honest on jar >=421c03e9 -- fails loudly, no blind
+      rectangle fallback). Deferred here because NO bank-close widget id is
+      live-validated in the corpus yet, and a desk-guessed id would be an
+      unverifiable variant against the "canonical path, never variants" rule --
+      BANK_CLOSE is the canonical honest bank close.
 
   # Phase 3: Use poll booth (varp 520 -> 525)
   - id: 6
